@@ -1,12 +1,12 @@
 import twilio from 'twilio';
 
-const sid = process.env.TWILIO_ACCOUNT_SID!;
-const token = process.env.TWILIO_AUTH_TOKEN!;
-const messagingServiceSid = process.env.MESSAGING_SERVICE_SID!;
-
-export const twilioClient = twilio(sid, token);
+export const twilioClient = twilio(
+  process.env.TWILIO_ACCOUNT_SID!,
+  process.env.TWILIO_AUTH_TOKEN!
+);
 
 export function getMessagingServiceSid() {
-  if (!messagingServiceSid) throw new Error('MESSAGING_SERVICE_SID is missing');
-  return messagingServiceSid;
+  const sid = process.env.TWILIO_MESSAGING_SERVICE_SID || process.env.MESSAGING_SERVICE_SID;
+  if (!sid) throw new Error('TWILIO_MESSAGING_SERVICE_SID missing');
+  return sid;
 }

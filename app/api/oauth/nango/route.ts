@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
     },
     body: JSON.stringify({
       connection_id: clientId,
-      provider_config_key: 'hubspot',
+      provider_config_key: 'hubspot',s
       return_url: `${PUBLIC_BASE_URL}/api/oauth/nango/callback?client_id=${clientId}`,
     }),
   });

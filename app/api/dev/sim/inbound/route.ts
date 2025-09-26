@@ -2,26 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
 
+// Simulates an inbound SMS by POSTing form-encoded data to your real inbound webhook.
 export async function GET(req: NextRequest) {
-  const base = process.env.PUBLIC_BASE_URL || 'http://localhost:3001';
   const url = new URL(req.url);
+  const from = url.searchParams.get('from') || '+15551234567';
+  const body = url.searchParams.get('body') || 'YES';
 
-  // Handle '+' turning into space in querystrings.
-  let from = (url.searchParams.get('from') || '').trim();
-  // If it came in as plain digits or space+digits, make it E.164.
-  const digits = from.replace(/\D/g, '');
-  if (!from.startsWith('+') && /^\d{10,15}$/.test(digits)) {
-    from = '+' + digits;
-  }
+  const form = new URLSearchParams();
+  form.set('From', from);
+  form.set('Body', body);
+  form.set('MessageSid', 'SM_SIM_' + Math.random().toString(36).slice(2).toUpperCase());
 
-  const body = (url.searchParams.get('body') || '').trim();
-
-  if (!from || !body) {
-    return NextResponse.json({ error: 'Provide ?from=+1555…&body=YES|STOP' }, { status: 400 });
-  }
-
-  const form = new URLSearchParams({ From: from, Body: body });
-  const r = await fetch(`${base}/api/webhooks/twilio/inbound`, {
+  const r = await fetch(`${process.env.PUBLIC_BASE_URL}/api/webhooks/twilio/inbound`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: form.toString(),
@@ -30,6 +22,6 @@ export async function GET(req: NextRequest) {
   const text = await r.text();
   return new NextResponse(text, {
     status: r.status,
-    headers: { 'Content-Type': r.headers.get('Content-Type') || 'text/plain' }
+    headers: { 'Content-Type': r.headers.get('Content-Type') || 'text/plain' },
   });
 }

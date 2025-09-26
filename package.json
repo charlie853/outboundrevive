@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
+    "cheerio": "^1.1.2",
     "libphonenumber-js": "^1.12.18",
     "next": "15.5.3",
     "papaparse": "^5.5.3",
