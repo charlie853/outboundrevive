@@ -17,4 +17,11 @@ coverage/
 .env.test.local
 
 # editors
-.vscode/
+.vscode/node_modules/
+.next/
+out/
+.env*
+!.env.example
+.vercel/
+supabase/.temp
+.DS_Store

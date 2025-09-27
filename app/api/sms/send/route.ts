@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+
+const DEFAULT_ACCOUNT_ID = '11111111-1111-1111-1111-111111111111';
+
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -68,11 +71,13 @@ export async function POST(req: NextRequest) {
   if (!want || got !== want) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
-    const { leadIds, message, brand, aiMeta, replyMode } = await req.json() as {
+    const { leadIds, message, brand, aiMeta, replyMode, operator_id, sentBy } = await req.json() as {
       leadIds: string[];
       message: string;
       brand?: string;
       replyMode?: boolean | string;
+      operator_id?: string | null;
+      sentBy?: 'operator' | 'ai' | 'system';
       aiMeta?: {
         intent?: string;
         source?: 'template' | 'llm' | 'fallback';
@@ -82,6 +87,12 @@ export async function POST(req: NextRequest) {
       };
     };
     const isReply = replyMode === true || String(replyMode).toLowerCase() === 'true';
+
+    // decide provenance for this send
+    // decide provenance for this send (match DB constraint: only 'ai' | 'operator')
+const baseSentBy: 'operator' | 'ai' =
+  operator_id ? 'operator' : (sentBy === 'operator' ? 'operator' : 'ai');
+
     console.log('[sms/send] replyMode=', replyMode, '→ isReply=', isReply);
     if (!Array.isArray(leadIds) || leadIds.length === 0) return NextResponse.json({ error: 'No leads selected' }, { status: 400 });
     if (!message || !message.trim()) return NextResponse.json({ error: 'Missing message' }, { status: 400 });
@@ -129,7 +140,7 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
     // fetch leads
     const { data: leads, error } = await supabase
       .from('leads')
-      .select('id,name,phone,opted_out,last_sent_at,last_footer_at')
+      .select('id,name,phone,opted_out,last_sent_at,last_footer_at,account_id')
       .in('id', leadIds);
 
     if (error) {
@@ -163,6 +174,42 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
           if (c >= 3) { results.push({ id: l.id, phone: l.phone, error: 'state_24h_cap' }); continue; }
         }
 
+        // compute gate info for logging
+        const quietOk = isReply || withinWindow(nowMinLocal, startMin, endMin);
+        const hoursSinceLast = hoursSince(l.last_sent_at);
+        const cap24hOk = isReply || hoursSinceLast >= 24;
+
+        // state cap info
+        const npa2 = npaFromE164(l.phone);
+        let sentCount24h: number | null = null;
+        let stateCapOk = true;
+        if (!isReply && npa2 && (FL.has(npa2) || OK.has(npa2))) {
+          sentCount24h = await countsInLast24h(l.id);
+          stateCapOk = sentCount24h < 3;
+        }
+
+        const gateLog = {
+          is_reply: isReply,
+          tz,
+          quiet_window: { start: cfg?.quiet_start || '08:00', end: cfg?.quiet_end || '21:00', now_min_local: nowMinLocal, passed: quietOk },
+          caps: {
+            last_sent_at: l.last_sent_at || null,
+            hours_since_last: isFinite(hoursSinceLast) ? +hoursSinceLast.toFixed(2) : null,
+            cap24h_passed: cap24hOk,
+            state: npa2 ? (FL.has(npa2) ? 'FL' : OK.has(npa2) ? 'OK' : 'other') : null,
+            sent_count_24h: sentCount24h,
+            state_cap_passed: stateCapOk
+          },
+          footer: {
+            last_footer_at: l.last_footer_at || null,
+            needed: daysSince(l.last_footer_at) > 30
+          },
+          channel_status: chanStatus,
+          blueprint_version_id: (aiMeta?.blueprint_version_id ?? activeBlueprintVersionId) ?? null,
+          sent_by: baseSentBy,
+          operator_id: operator_id ?? null
+        };
+
         // render + footer gating (once/30d)
         const needsFooter = daysSince(l.last_footer_at) > 30;
         const base = renderTemplate(message, {
@@ -182,8 +229,13 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
         const sid = 'SIM' + Math.random().toString(36).slice(2, 14).toUpperCase();
         const status = dryRun ? 'sent' : 'queued';
 
-        // persist lead + messages_out (tag blueprint_version_id)
+        // provider_status and timestamps for deliverability tracking
+        const provider_status = status; // mirror initial status
+        const timeStamps: any = {};
         const nowIso = new Date().toISOString();
+        if (provider_status === 'queued') timeStamps.queued_at = nowIso;
+        if (provider_status === 'sent')   timeStamps.sent_at   = nowIso;
+
         const leadUpdate: any = {
           status: 'sent',
           sent_at: nowIso,
@@ -196,21 +248,42 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
         await supabase.from('leads').update(leadUpdate).eq('id', l.id);
 
         // Persist with AI context (intent/source/template) and blueprint_version_id (prefers aiMeta override, falls back to activeBlueprintVersionId)
-        const { error: logErr } = await supabase.from('messages_out').insert({
-          lead_id: l.id,
-          sid,
-          body,
-          status,
-          error_code: null,
-          // AI metadata (optional; persisted when provided)
-          intent: aiMeta?.intent ?? null,
-          ai_source: aiMeta?.source ?? null,
-          prompt_template_id: aiMeta?.template_id ?? null,
-          blueprint_version_id: aiMeta?.blueprint_version_id ?? activeBlueprintVersionId,
-          used_snippets: aiMeta?.used_snippets ?? null
-        });
-        if (logErr) console.error('messages_out insert error', l.id, logErr);
-
+        const { data: inserted, error: logErr } = await supabase
+          .from('messages_out')
+          .insert({
+            lead_id: l.id,
+            sid,
+            body,
+            status,
+            error_code: null,
+            // deliverability scaffold
+            provider_status,
+            queued_at: timeStamps.queued_at ?? null,
+            sent_at: timeStamps.sent_at ?? null,
+            delivered_at: null,
+            failed_at: null,
+            gate_log: gateLog,
+            account_id: l.account_id || DEFAULT_ACCOUNT_ID,
+            // provenance
+            sent_by: baseSentBy,
+            operator_id: operator_id ?? null,
+            // AI metadata (optional; persisted when provided)
+            intent:   aiMeta?.intent ?? null,
+            ai_source: aiMeta?.source ?? null,
+            prompt_template_id: aiMeta?.template_id ?? null,
+            blueprint_version_id: (aiMeta?.blueprint_version_id ?? activeBlueprintVersionId) ?? null,
+            used_snippets: aiMeta?.used_snippets ?? null
+          })
+          .select('sid')
+          .maybeSingle();
+        if (logErr) {
+          console.error('messages_out insert error', l.id, logErr);
+          return NextResponse.json({ error: 'insert_failed', details: logErr.message }, { status: 500 });
+        }
+        if (!inserted) {
+          console.error('messages_out insert returned no row for lead', l.id, 'sid', sid);
+          return NextResponse.json({ error: 'insert_failed_no_row' }, { status: 500 });
+        }
         results.push({ id: l.id, phone: l.phone, sid });
       } catch (e:any) {
         console.error('Send error for', l?.phone, e?.message || e);

@@ -60,6 +60,20 @@ export async function POST(req: NextRequest) {
     const sid  = String(form.get('MessageSid') ?? '');
     if (!from) return new NextResponse(null, { status: 200 });
 
+    // Capture `To` and any media for richer analytics
+    const to = String(form.get('To') ?? '');
+    const numMedia = Number(form.get('NumMedia') ?? '0') || 0;
+    const media: Array<{ url: string; contentType: string }> = [];
+    for (let i = 0; i < numMedia; i++) {
+      const url = String(form.get(`MediaUrl${i}`) ?? '');
+      const contentType = String(form.get(`MediaContentType${i}`) ?? '');
+      if (url) media.push({ url, contentType });
+    }
+    const meta = {
+      raw: Object.fromEntries(Array.from(form.entries()).map(([k, v]) => [k, String(v)])),
+      media,
+    };
+
     const { data: leads, error: selErr } = await supabaseAdmin
       .from('leads')
       .select('id,phone,opted_out,replied,intent')
@@ -73,6 +87,32 @@ export async function POST(req: NextRequest) {
     const lead = leads?.[0] || null;
 
     const intent = detectIntent(body);
+
+    // --- NEW: Always log inbound into messages_in (idempotent on provider_sid) ---
+    await supabaseAdmin
+      .from('messages_in')
+      .upsert(
+        {
+          lead_id: lead?.id ?? null,
+          body,
+          provider_sid: sid || null,
+          provider_from: from || null,
+          provider_to: to || null,
+          meta
+        },
+        { onConflict: 'provider_sid' }
+      )
+      .then(({ error }) => {
+        if (error) console.error('[INBOUND] messages_in upsert error:', error);
+      });
+
+    // Best-effort: mark last inbound on the lead (if we have one)
+    if (lead?.id) {
+      await supabaseAdmin
+        .from('leads')
+        .update({ last_inbound_at: new Date().toISOString() })
+        .eq('id', lead.id);
+    }
 
     // Idempotency by MessageSid
     if (sid) {
