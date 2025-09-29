@@ -1,10 +1,13 @@
 'use client';
 
-import CRMIntegrations from "../components/CRMIntegrations";
+import dynamic from 'next/dynamic';
+const CRMIntegrations = dynamic(() => import("../components/CRMIntegrations"), { ssr: false });
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from "@/lib/auth-context";
 import ProtectedRoute from "../components/ProtectedRoute";
 import { authenticatedFetch } from "@/lib/api-client";
+
+
 
 type Lead = {
   id: string;
@@ -125,11 +128,10 @@ function LeadsPageContent() {
     if (!canSend) return;
     setSending(true); setFeedback(null);
     try {
-      const r = await fetch('/api/sms/send', {
+      const r = await authenticatedFetch('/api/sms/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ leadIds: selectedIds, message: msg, brand }),
-        credentials: 'same-origin'
       });
       const json = await r.json();
       if (!r.ok) throw new Error(json?.error || 'Failed to send');
@@ -151,10 +153,7 @@ function LeadsPageContent() {
     setThreadError(null);
     setThreadLoading(true);
     try {
-      const r = await fetch(`/api/ui/leads/${leadId}/thread`, {
-        cache: 'no-store',
-        credentials: 'same-origin'
-      });
+      const r = await authenticatedFetch(`/api/ui/leads/${leadId}/thread`, { cache: 'no-store' });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error || `Failed to load thread (${r.status})`);
       setThread((j.items as ThreadItem[]) || []);
@@ -175,10 +174,7 @@ function LeadsPageContent() {
     setThreadLoading(true);
     setThreadError(null);
     try {
-      const r = await fetch(`/api/ui/leads/${openLeadId}/thread`, {
-        cache: 'no-store',
-        credentials: 'same-origin'
-      });
+      const r = await authenticatedFetch(`/api/ui/leads/${openLeadId}/thread`, { cache: 'no-store' });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error || `Failed to load thread (${r.status})`);
       setThread((j.items as ThreadItem[]) || []);
@@ -200,11 +196,10 @@ function LeadsPageContent() {
         const inbound = [...thread].reverse().find((m) => m.dir === 'in');
         lastInbound = inbound?.body;
       }
-      const r = await fetch('/api/ai/draft', {
+      const r = await authenticatedFetch('/api/ai/draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ leadId: openLeadId, lastInboundOverride: lastInbound }),
-        credentials: 'same-origin'
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error || 'Failed to get AI draft');
@@ -222,11 +217,10 @@ function LeadsPageContent() {
     setSendingReply(true);
     setThreadError(null);
     try {
-      const r = await fetch(`/api/ui/leads/${openLeadId}/send`, {
+      const r = await authenticatedFetch(`/api/ui/leads/${openLeadId}/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: composer }),
-        credentials: 'same-origin'
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.error || 'Failed to send');
@@ -276,8 +270,8 @@ function LeadsPageContent() {
       </div>
 
       <CRMIntegrations
-        userId="demo-user"
-        userEmail="user@example.com"
+        userId={user?.id || "unknown-user"}
+        userEmail={user?.email || "unknown@example.com"}
         organizationId="demo-org"
         onConnect={(connectionId, provider) => {
           setFeedback(`Connected to ${provider} (ID: ${connectionId})`);
@@ -346,7 +340,9 @@ function LeadsPageContent() {
                 </td>
                 <td style={td}>{new Date(l.created_at).toLocaleString()}</td>
                 <td style={td}>
-                  <button style={btn} onClick={() => openThread(l.id)}>Thread</button>
+                  <button style={btn} onClick={() => openThread(l.id)} disabled={threadLoading}>
+                    {threadLoading && openLeadId === l.id ? 'Loading…' : 'Thread'}
+                  </button>
                 </td>
               </tr>
             );
@@ -464,5 +460,9 @@ function LeadsPageContent() {
 }
 
 export default function LeadsPage() {
-  return <LeadsPageContent />;
+  return (
+    <ProtectedRoute>
+      <LeadsPageContent />
+    </ProtectedRoute>
+  );
 }
