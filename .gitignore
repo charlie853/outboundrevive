@@ -25,3 +25,6 @@ out/
 .vercel/
 supabase/.temp
 .DS_Store
+
+# Local env (do not commit)
+.env*
