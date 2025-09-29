@@ -13,6 +13,7 @@
     "cheerio": "^1.1.2",
     "libphonenumber-js": "^1.12.18",
     "next": "15.5.3",
+    "openai": "^5.23.1",
     "papaparse": "^5.5.3",
     "react": "19.1.0",
     "react-dom": "19.1.0",
