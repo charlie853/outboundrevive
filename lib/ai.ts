@@ -30,6 +30,8 @@ export async function draftSmsReply({
     `Managed mode: ${managedMode ? 'enabled' : 'disabled'} (assume managed).`,
   ].join('\n');
 
+  // !!! - Need to pass the entire message history into the 
+  // model, not just last inbound
   const user = [
     `Lead name: ${lead.name || 'there'} (${lead.phone})`,
     `Last inbound message: "${lastInbound}"`,

@@ -1,14 +1,9 @@
 // app/api/settings/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabaseServer';
+import { requireAccountAccess } from '@/lib/account';
 
 export const runtime = 'nodejs';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
 
 function isHHMM(v: string) {
   return /^\d{2}:\d{2}$/.test(v) &&
@@ -16,17 +11,18 @@ function isHHMM(v: string) {
     Number(v.slice(3, 5)) <= 59;
 }
 
-function requireAdmin(req: NextRequest) {
-  const token = req.headers.get('x-admin-token') || '';
-  return !!token && token === (process.env.ADMIN_TOKEN || '');
-}
-
 // GET returns current settings or sensible defaults
 export async function GET() {
-  const { data, error } = await supabase
+  // Check authentication and get account ID
+  const accountId = await requireAccountAccess();
+  if (!accountId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const { data, error } = await supabaseAdmin
     .from('app_settings')
     .select('*')
-    .eq('id', 'default')
+    .eq('account_id', accountId)
     .maybeSingle();
 
   if (error) {
@@ -36,7 +32,7 @@ export async function GET() {
   // If no row yet, return defaults (not an error)
   return NextResponse.json(
     data || {
-      id: 'default',
+      account_id: accountId,
       timezone: 'America/New_York',
       quiet_start: '09:00',
       quiet_end: '19:00',
@@ -58,9 +54,11 @@ export async function GET() {
   );
 }
 
-// Single PATCH handler (admin-protected)
+// Single PATCH handler
 export async function PATCH(req: NextRequest) {
-  if (!requireAdmin(req)) {
+  // Check authentication and get account ID
+  const accountId = await requireAccountAccess();
+  if (!accountId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -68,7 +66,7 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json();
 
     // Build partial update
-    const update: any = { id: 'default', updated_at: new Date().toISOString() };
+    const update: any = { account_id: accountId, updated_at: new Date().toISOString() };
 
     if (body.timezone != null) update.timezone = String(body.timezone).trim();
 
@@ -97,10 +95,10 @@ export async function PATCH(req: NextRequest) {
 
     // Optional templates object (merge with current)
     if (body.templates && typeof body.templates === 'object') {
-      const { data: cur } = await supabase
+      const { data: cur } = await supabaseAdmin
         .from('app_settings')
         .select('templates')
-        .eq('id', 'default')
+        .eq('account_id', accountId)
         .maybeSingle();
 
       const merged = { ...(cur?.templates || {}), ...body.templates };
@@ -111,7 +109,7 @@ export async function PATCH(req: NextRequest) {
       if (merged.reslot) update.template_reslot = String(merged.reslot);
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('app_settings')
       .upsert(update)
       .select()

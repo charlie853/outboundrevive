@@ -1,15 +1,9 @@
 // app/api/export/leads/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { requireAdmin } from '@/lib/admin';
+import { supabaseAdmin } from '@/lib/supabaseServer';
+import { requireAccountAccess } from '@/lib/account';
 
 export const runtime = 'nodejs';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
 
 function toCsv(rows: any[]) {
   if (!rows.length) return 'id,name,phone,status,replied,intent,created_at\n';
@@ -27,12 +21,16 @@ function toCsv(rows: any[]) {
 }
 
 export async function GET(req: NextRequest) {
-  const unauth = requireAdmin(req);
-  if (unauth) return unauth;
+  // Check authentication and get account ID
+  const accountId = await requireAccountAccess();
+  if (!accountId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('leads')
     .select('id,name,phone,status,replied,intent,created_at,sent_at,delivery_status,last_reply_at,opted_out,email,booked,kept')
+    .eq('account_id', accountId)
     .order('created_at', { ascending: false });
 
   if (error) {

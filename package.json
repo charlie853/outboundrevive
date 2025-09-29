@@ -9,6 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@nangohq/frontend": "^0.68.1",
+    "@nangohq/node": "^0.68.1",
+    "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.57.4",
     "cheerio": "^1.1.2",
     "libphonenumber-js": "^1.12.18",

@@ -1,26 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabaseServer';
+import { requireAccountAccess } from '@/lib/account';
 
 export const runtime = 'nodejs';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
-
 export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
-  // admin guard
-  const want = (process.env.ADMIN_TOKEN || '').trim();
-  const got  = (req.headers.get('x-admin-token') || '').trim();
-  if (!want || got !== want) {
+  // Check authentication and get account ID
+  const accountId = await requireAccountAccess();
+  if (!accountId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const id = ctx.params.id;
 
+  // First verify the lead belongs to this account
+  const { data: lead, error: leadError } = await supabaseAdmin
+    .from('leads')
+    .select('id')
+    .eq('id', id)
+    .eq('account_id', accountId)
+    .maybeSingle();
+
+  if (leadError || !lead) {
+    return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
+  }
+
   // outbounds
-  const { data: outs, error: e1 } = await supabase
+  const { data: outs, error: e1 } = await supabaseAdmin
     .from('outbound_messages')
     .select('sid,body,status,created_at')
     .eq('lead_id', id);
@@ -28,7 +34,7 @@ export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
   if (e1) return NextResponse.json({ error: e1.message }, { status: 500 });
 
   // inbound replies
-  const { data: ins, error: e2 } = await supabase
+  const { data: ins, error: e2 } = await supabaseAdmin
     .from('replies')
     .select('message_sid,body,intent,created_at')
     .eq('lead_id', id);

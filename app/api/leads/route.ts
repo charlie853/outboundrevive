@@ -1,14 +1,9 @@
 // app/api/leads/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabaseServer';
+import { requireAccountAccess } from '@/lib/account';
 
 export const runtime = 'nodejs';
-
-const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
 
 // ---- helpers -------------------------------------------------
 function toE164Loose(raw?: string | null) {
@@ -27,6 +22,12 @@ type IncomingLead = { name?: string; phone?: string; email?: string };
 // ---- POST /api/leads  (bulk JSON upsert) ---------------------
 export async function POST(req: NextRequest) {
   try {
+    // Check authentication and get account ID
+    const accountId = await requireAccountAccess();
+    if (!accountId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const rows = (await req.json()) as IncomingLead[];
     if (!Array.isArray(rows) || rows.length === 0) {
       return NextResponse.json({ error: 'No rows provided' }, { status: 400 });
@@ -41,9 +42,10 @@ export async function POST(req: NextRequest) {
           phone,
           email: r.email ? String(r.email).trim() : null,
           status: 'pending' as const,
+          account_id: accountId, // Add account_id to each lead
         };
       })
-      .filter(Boolean) as Array<{ name: string | null; phone: string; email: string | null; status: 'pending' }>;
+      .filter(Boolean) as Array<{ name: string | null; phone: string; email: string | null; status: 'pending'; account_id: string }>;
 
     if (cleaned.length === 0) {
       return NextResponse.json({ error: 'No valid phone numbers after normalization' }, { status: 400 });
@@ -69,6 +71,14 @@ export async function POST(req: NextRequest) {
 // ---- GET /api/leads  (list) ---------------------------------
 export async function GET(_req: NextRequest) {
   try {
+    console.log('=== API /leads GET ===');
+    // Check authentication and get account ID
+    const accountId = await requireAccountAccess();
+    console.log('Account ID result:', accountId);
+    if (!accountId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { data, error } = await supabaseAdmin
       .from('leads')
       .select(`
@@ -77,6 +87,7 @@ export async function GET(_req: NextRequest) {
         opted_out,step,last_step_at,last_reply_at,last_reply_body,
         appointment_set_at
       `)
+      .eq('account_id', accountId) // Filter by account
       .order('created_at', { ascending: false })
       .limit(200);
 
@@ -100,6 +111,12 @@ export async function PATCH(req: NextRequest) {
   }
 
   try {
+    // Also check account access for admin operations
+    const accountId = await requireAccountAccess();
+    if (!accountId) {
+      return NextResponse.json({ error: 'Unauthorized - no account access' }, { status: 401 });
+    }
+
     const body = await req.json();
     const id = String(body.id || '').trim();
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
@@ -117,10 +134,12 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'no valid fields to update' }, { status: 400 });
     }
 
+    // Update only leads that belong to the user's account
     const { data, error } = await supabaseAdmin
       .from('leads')
       .update(update)
       .eq('id', id)
+      .eq('account_id', accountId) // Ensure lead belongs to user's account
       .select()
       .maybeSingle();
 

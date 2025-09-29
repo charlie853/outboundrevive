@@ -1,6 +1,10 @@
 'use client';
 
+import CRMIntegrations from "../components/CRMIntegrations";
 import { useEffect, useMemo, useState } from 'react';
+import { useAuth } from "@/lib/auth-context";
+import ProtectedRoute from "../components/ProtectedRoute";
+import { authenticatedFetch } from "@/lib/api-client";
 
 type Lead = {
   id: string;
@@ -43,7 +47,8 @@ const badgeBooked: React.CSSProperties = {
   fontWeight: 600,
 };
 
-export default function LeadsPage() {
+function LeadsPageContent() {
+  const { user, loading: authLoading } = useAuth();
   const [data, setData] = useState<Lead[]>([]);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [sending, setSending] = useState(false);
@@ -68,7 +73,9 @@ export default function LeadsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/leads?limit=200', { cache: 'no-store' });
+      const res = await authenticatedFetch('/api/leads?limit=200', {
+        cache: 'no-store'
+      });
       if (!res.ok) throw new Error(`Failed to load leads: ${res.status}`);
       const json = await res.json();
       setData(json.data || []);
@@ -122,6 +129,7 @@ export default function LeadsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ leadIds: selectedIds, message: msg, brand }),
+        credentials: 'same-origin'
       });
       const json = await r.json();
       if (!r.ok) throw new Error(json?.error || 'Failed to send');
@@ -143,7 +151,10 @@ export default function LeadsPage() {
     setThreadError(null);
     setThreadLoading(true);
     try {
-      const r = await fetch(`/api/ui/leads/${leadId}/thread`, { cache: 'no-store' });
+      const r = await fetch(`/api/ui/leads/${leadId}/thread`, {
+        cache: 'no-store',
+        credentials: 'same-origin'
+      });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error || `Failed to load thread (${r.status})`);
       setThread((j.items as ThreadItem[]) || []);
@@ -164,7 +175,10 @@ export default function LeadsPage() {
     setThreadLoading(true);
     setThreadError(null);
     try {
-      const r = await fetch(`/api/ui/leads/${openLeadId}/thread`, { cache: 'no-store' });
+      const r = await fetch(`/api/ui/leads/${openLeadId}/thread`, {
+        cache: 'no-store',
+        credentials: 'same-origin'
+      });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error || `Failed to load thread (${r.status})`);
       setThread((j.items as ThreadItem[]) || []);
@@ -189,7 +203,8 @@ export default function LeadsPage() {
       const r = await fetch('/api/ai/draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ leadId: openLeadId, lastInboundOverride: lastInbound })
+        body: JSON.stringify({ leadId: openLeadId, lastInboundOverride: lastInbound }),
+        credentials: 'same-origin'
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error || 'Failed to get AI draft');
@@ -210,7 +225,8 @@ export default function LeadsPage() {
       const r = await fetch(`/api/ui/leads/${openLeadId}/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: composer })
+        body: JSON.stringify({ message: composer }),
+        credentials: 'same-origin'
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.error || 'Failed to send');
@@ -244,6 +260,11 @@ export default function LeadsPage() {
 
   return (
     <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}>
+      {/* Debug info */}
+      <div style={{ marginBottom: 16, padding: 8, background: '#f0f0f0', fontSize: 12, borderRadius: 4 }}>
+        Auth Status: {authLoading ? 'Loading...' : user ? `Authenticated as ${user.email}` : 'Not authenticated'}
+      </div>
+
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Leads</h1>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -253,6 +274,25 @@ export default function LeadsPage() {
           <a href="/settings" style={{ ...btn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Settings</a>
         </div>
       </div>
+
+      <CRMIntegrations
+        userId="demo-user"
+        userEmail="user@example.com"
+        organizationId="demo-org"
+        onConnect={(connectionId, provider) => {
+          setFeedback(`Connected to ${provider} (ID: ${connectionId})`);
+          setTimeout(() => setFeedback(null), 3000);
+        }}
+        onSync={(results) => {
+          setFeedback(`Synced ${results.results.processed} contacts: ${results.results.created} new, ${results.results.updated} updated`);
+          setTimeout(() => setFeedback(null), 5000);
+          load(); // Refresh the leads table
+        }}
+        onError={(error) => {
+          setFeedback(`CRM error: ${error}`);
+          setTimeout(() => setFeedback(null), 5000);
+        }}
+      />
 
       <div style={{ display: 'flex', gap: 8, margin: '16px 0' }}>
         <input style={{ width: 240, padding: 8 }} value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Brand" />
@@ -290,7 +330,7 @@ export default function LeadsPage() {
           {loading ? (
             <tr><td colSpan={9} style={{ ...td, textAlign: 'center' }}>Loading…</td></tr>
           ) : data.length === 0 ? (
-            <tr><td colSpan={9} style={{ ...td, textAlign: 'center' }}>No leads yet. <a href="/upload">Upload CSV</a></td></tr>
+            <tr><td colSpan={9} style={{ ...td, textAlign: 'center' }}>No leads yet. <a href="/upload">Upload CSV</a> or Connect CRM.</td></tr>
           ) : data.map((l) => {
             const isBooked = !!l.appointment_set_at;
             return (
@@ -421,4 +461,8 @@ export default function LeadsPage() {
       )}
     </div>
   );
+}
+
+export default function LeadsPage() {
+  return <LeadsPageContent />;
 }

@@ -1,6 +1,7 @@
 // File: app/api/oauth/nango/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
+import { Nango } from '@nangohq/node';
 
 const NANGO_SECRET_KEY = process.env.NANGO_SECRET_KEY!;
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'http://localhost:3000';
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest) {
     },
     body: JSON.stringify({
       connection_id: clientId,
-      provider_config_key: 'hubspot',s
+      provider_config_key: 'hubspot',
       return_url: `${PUBLIC_BASE_URL}/api/oauth/nango/callback?client_id=${clientId}`,
     }),
   });

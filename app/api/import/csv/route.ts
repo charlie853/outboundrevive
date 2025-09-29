@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabaseServer';
+import { requireAccountAccess } from '@/lib/account';
 
 export const runtime = 'nodejs';
-
-const db = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
 
 // simple US-centric normalizer (same as you used before)
 function toE164Loose(raw?: string | null) {
@@ -36,9 +31,9 @@ function parseCsv(text: string) {
 }
 
 export async function POST(req: NextRequest) {
-  // Admin-only (middleware also enforces x-admin-token)
-  const token = req.headers.get('x-admin-token') || '';
-  if (!token || token !== (process.env.ADMIN_TOKEN || '')) {
+  // Check authentication and get account ID
+  const accountId = await requireAccountAccess();
+  if (!accountId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -71,14 +66,14 @@ export async function POST(req: NextRequest) {
       const name = (r.name || `${r.first_name || ''} ${r.last_name || ''}`).trim();
       const phone = toE164Loose(r.phone);
       const email = (r.email || '').toString().trim() || null;
-      return phone ? { name: name || null, phone, email, status: 'pending' as const } : null;
-    }).filter(Boolean) as Array<{ name: string | null; phone: string; email: string | null; status: 'pending' }>;
+      return phone ? { name: name || null, phone, email, status: 'pending' as const, account_id: accountId } : null;
+    }).filter(Boolean) as Array<{ name: string | null; phone: string; email: string | null; status: 'pending'; account_id: string }>;
 
     if (cleaned.length === 0) {
       return NextResponse.json({ error: 'no valid phone numbers after parsing' }, { status: 400 });
     }
 
-    const { data, error } = await db
+    const { data, error } = await supabaseAdmin
       .from('leads')
       .upsert(cleaned, { onConflict: 'phone' })
       .select();

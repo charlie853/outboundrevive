@@ -18,7 +18,9 @@ export async function GET(req: NextRequest) {
     .order('last_activity_at', { ascending: false })
     .range(offset, offset + limit - 1);
 
-  // simple search by name/phone
+  // !!! - Search will be unreliable if over 500 threads
+  // This should do 1- Grab all threads where ilike for name matches, and then 2- grab all threads where ilike phone number matches. 
+  // Potential phone numbers should also be processed somehow to make it match the phone schema that would appear in the database
   if (q) {
     // Supabase can't OR across text fields in a view via ilike easily; fetch + filter here for now
     const { data, error } = await supabaseAdmin

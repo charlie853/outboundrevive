@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabaseServer';
+import { requireAccountAccess } from '@/lib/account';
 
 export const runtime = 'nodejs';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
 
 function validTemplate(t: string) {
   const body = (t || '').trim();
@@ -19,10 +14,16 @@ function validTemplate(t: string) {
 }
 
 export async function GET() {
-  const { data, error } = await supabase
+  // Check authentication and get account ID
+  const accountId = await requireAccountAccess();
+  if (!accountId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const { data, error } = await supabaseAdmin
     .from('app_settings')
     .select('brand, template_opener, template_nudge, template_reslot')
-    .eq('id','default')
+    .eq('account_id', accountId)
     .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -36,6 +37,12 @@ export async function GET() {
 
 export async function PATCH(req: NextRequest) {
   try {
+    // Check authentication and get account ID
+    const accountId = await requireAccountAccess();
+    if (!accountId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await req.json();
     const opener = String(body.opener ?? '');
     const nudge  = String(body.nudge  ?? '');
@@ -46,10 +53,10 @@ export async function PATCH(req: NextRequest) {
       if (err) return NextResponse.json({ error: `${name}: ${err}` }, { status: 400 });
     }
 
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from('app_settings')
       .upsert({
-        id: 'default',
+        account_id: accountId,
         template_opener: opener,
         template_nudge: nudge,
         template_reslot: reslot,

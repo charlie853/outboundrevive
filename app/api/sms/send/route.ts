@@ -1,13 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const DEFAULT_ACCOUNT_ID = '11111111-1111-1111-1111-111111111111';
-
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
+import { supabaseAdmin } from '@/lib/supabaseServer';
+import { requireAccountAccess } from '@/lib/account';
 
 export const runtime = 'nodejs';
 
@@ -42,7 +35,7 @@ function renderTemplate(t: string, vars: Record<string,string>) {
   return out;
 }
 async function isSuppressed(phone: string) {
-  const { data } = await supabase.from('global_suppressions').select('phone').eq('phone', phone).maybeSingle();
+  const { data } = await supabaseAdmin.from('global_suppressions').select('phone').eq('phone', phone).maybeSingle();
   return !!data;
 }
 // FL/OK area codes (conservative list)
@@ -54,7 +47,7 @@ function npaFromE164(phone: string) {
 }
 async function countsInLast24h(lead_id: string) {
   const since = new Date(Date.now() - 24*3600*1000).toISOString();
-  const { count, error } = await supabase
+  const { count, error } = await supabaseAdmin
     .from('messages_out')
     .select('id', { count: 'exact', head: true })
     .eq('lead_id', lead_id)
@@ -65,10 +58,11 @@ async function countsInLast24h(lead_id: string) {
 
 // ----- route -----
 export async function POST(req: NextRequest) {
-  // admin guard
-  const want = (process.env.ADMIN_TOKEN || '').trim();
-  const got  = (req.headers.get('x-admin-token') || '').trim();
-  if (!want || got !== want) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // Check authentication and get account ID
+  const accountId = await requireAccountAccess();
+  if (!accountId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
   try {
     const { leadIds, message, brand, aiMeta, replyMode, operator_id, sentBy } = await req.json() as {
@@ -98,20 +92,19 @@ const baseSentBy: 'operator' | 'ai' =
     if (!message || !message.trim()) return NextResponse.json({ error: 'Missing message' }, { status: 400 });
 
     // settings & active blueprint
-    const { data: cfg } = await supabase
+    const { data: cfg } = await supabaseAdmin
       .from('app_settings')
       .select('timezone,quiet_start,quiet_end,brand,booking_link,paused,blackout_dates,sms_channel_status,active_blueprint_version_id')
-      .eq('id','default').maybeSingle();
+      .eq('account_id', accountId).maybeSingle();
 
       // after loading cfg
-const { data: bpv } = await supabase
+const { data: bpv } = await supabaseAdmin
   .from('blueprint_versions')
   .select(`
     id,
     account_blueprint:account_blueprints!inner(account_id)
   `)
-  // if you store only one account, hardcode; else pass tenant’s account_id
-  .eq('account_blueprints.account_id', '11111111-1111-1111-1111-111111111111')
+  .eq('account_blueprints.account_id', accountId)
   .order('version', { ascending: false })
   .limit(1)
   .maybeSingle();
@@ -136,12 +129,13 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
       return NextResponse.json({ error: 'channel_unverified' }, { status: 409 });
     }
 
-    
-    // fetch leads
-    const { data: leads, error } = await supabase
+
+    // fetch leads (only for current account)
+    const { data: leads, error } = await supabaseAdmin
       .from('leads')
       .select('id,name,phone,opted_out,last_sent_at,last_footer_at,account_id')
-      .in('id', leadIds);
+      .in('id', leadIds)
+      .eq('account_id', accountId);
 
     if (error) {
       console.error('DB fetch error:', error);
@@ -245,10 +239,10 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
         };
         if (needsFooter) leadUpdate.last_footer_at = nowIso;
 
-        await supabase.from('leads').update(leadUpdate).eq('id', l.id);
+        await supabaseAdmin.from('leads').update(leadUpdate).eq('id', l.id).eq('account_id', accountId);
 
         // Persist with AI context (intent/source/template) and blueprint_version_id (prefers aiMeta override, falls back to activeBlueprintVersionId)
-        const { data: inserted, error: logErr } = await supabase
+        const { data: inserted, error: logErr } = await supabaseAdmin
           .from('messages_out')
           .insert({
             lead_id: l.id,
@@ -263,7 +257,7 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
             delivered_at: null,
             failed_at: null,
             gate_log: gateLog,
-            account_id: l.account_id || DEFAULT_ACCOUNT_ID,
+            account_id: accountId,
             // provenance
             sent_by: baseSentBy,
             operator_id: operator_id ?? null,
