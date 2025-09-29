@@ -125,17 +125,20 @@ export async function POST(req: NextRequest) {
     const newChunks = allChunks.filter(c => !existingSet.has(c.checksum));
 
     // 4) Insert new kb_chunks (dedup with unique(account_id, checksum))
-    const { data: insChunks, error: insErr } = await db
-      .from('kb_chunks')
-      .insert(newChunks.map(c => ({
-        account_id,
-        article_id: c.article_id,
-        title: c.title,
-        source_url: c.source_url,
-        content: c.content,
-        checksum: c.checksum
-      })))
-      .select('id,checksum,content');
+   const { data: insChunks, error: insErr } = await db
+  .from('kb_chunks')
+  .upsert(
+    newChunks.map(c => ({
+      account_id,
+      article_id: c.article_id,
+      title: c.title,
+      source_url: c.source_url,
+      content: c.content,
+      checksum: c.checksum,
+    })), 
+    { onConflict: 'account_id,checksum', ignoreDuplicates: true }
+  )
+  .select('id,checksum,content');
 
     if (insErr) return NextResponse.json({ error: 'db_error', detail: insErr.message }, { status: 500 });
 
