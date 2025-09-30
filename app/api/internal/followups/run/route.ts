@@ -178,7 +178,8 @@ export async function POST(req: NextRequest) {
         ok: true,
         ran: false,
         reason: 'outside_quiet_window',
-        window: { tz: prefs.timezone, start: prefs.quiet_start, end: prefs.quiet_end, now_local }
+        window: { tz: prefs.timezone, start: prefs.quiet_start, end: prefs.quiet_end, now_local },
+        caps: { per_day: prefs.freq_max_per_day, per_week: prefs.freq_max_per_week, min_gap_minutes: prefs.min_gap_minutes }
       });
     }
 

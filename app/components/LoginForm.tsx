@@ -12,11 +12,11 @@ export default function LoginForm() {
   const { signIn, user, loading: authLoading } = useAuth();
   const router = useRouter();
 
-  // Redirect to home if user is authenticated
+  // Redirect to dashboard if user is authenticated
   useEffect(() => {
     if (!authLoading && user) {
       setLoading(false);
-      router.push('/');
+      router.push('/dashboard');
     }
   }, [user, authLoading, router]);
 

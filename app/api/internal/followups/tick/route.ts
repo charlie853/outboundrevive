@@ -46,9 +46,20 @@ export async function POST(req: NextRequest) {
     let processed = 0;
     const results: any[] = [];
 
+    // cache pause
+    const pausedCache = new Map<string, boolean>();
     for (const c of due) {
       const lead_id = c.lead_id as string;
       const acct = c.account_id as string;
+
+      if (!pausedCache.has(acct)) {
+        const { data: a } = await db.from('accounts').select('outbound_paused').eq('id', acct).maybeSingle();
+        pausedCache.set(acct, !!a?.outbound_paused);
+      }
+      if (pausedCache.get(acct)) {
+        results.push({ lead_id, skipped: true, reason: 'account_paused' });
+        continue;
+      }
 
       // 2) Build a “q” from the last inbound or fallback
       const [lastIn, lastOut] = await Promise.all([

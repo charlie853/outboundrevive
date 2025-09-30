@@ -33,19 +33,19 @@ type ThreadItem = {
   intent?: string | null;
 };
 
-const th: React.CSSProperties = { textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid #eee', fontWeight: 600, fontSize: 13 };
-const td: React.CSSProperties = { padding: '8px 10px', borderBottom: '1px solid #f3f3f3', fontSize: 13 };
-const btn: React.CSSProperties = { padding: '8px 12px', border: '1px solid #ddd', borderRadius: 6, background: '#fafafa', cursor: 'pointer' };
-const btnPrimary: React.CSSProperties = { ...btn, background: '#111', color: '#fff', borderColor: '#111' };
-const hint: React.CSSProperties = { color: '#666', fontSize: 12 };
+const th: React.CSSProperties = { textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid #1f2430', fontWeight: 600, fontSize: 13, color: '#9aa3b2' };
+const td: React.CSSProperties = { padding: '8px 10px', borderBottom: '1px solid #1f2430', fontSize: 13, color: '#e6e8ee' };
+const btn: React.CSSProperties = { padding: '8px 12px', border: '1px solid #1f2430', borderRadius: 8, background: '#0f1115', color: '#e6e8ee', cursor: 'pointer' };
+const btnPrimary: React.CSSProperties = { ...btn, background: '#4f46e5', color: '#ffffff', borderColor: '#4f46e5' };
+const hint: React.CSSProperties = { color: '#9aa3b2', fontSize: 12 };
 
 const badgeBooked: React.CSSProperties = {
   display: 'inline-block',
   padding: '2px 8px',
   borderRadius: 999,
-  background: '#e7f5ef',
-  border: '1px solid #c6e9d8',
-  color: '#0a7',
+  background: 'rgba(34,197,94,0.15)',
+  border: '1px solid rgba(34,197,94,0.35)',
+  color: '#22c55e',
   fontSize: 11,
   fontWeight: 600,
 };
@@ -62,6 +62,7 @@ function LeadsPageContent() {
   const [brand, setBrand] = useState('OutboundRevive');
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [onboardingStep, setOnboardingStep] = useState<string | null>(null);
 
   // Thread modal state
   const [openLeadId, setOpenLeadId] = useState<string | null>(null);
@@ -91,6 +92,30 @@ function LeadsPageContent() {
   }
 
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await authenticatedFetch('/api/ui/onboarding/state', { cache: 'no-store' });
+        const j = await r.json();
+        if (r.ok && j?.step && j.step !== 'done') setOnboardingStep(j.step);
+      } catch {}
+    })();
+  }, []);
+
+  // Listen for booking success from /book page (cross-tab via localStorage)
+  useEffect(() => {
+    function onStorage(ev: StorageEvent) {
+      if (ev.key !== 'leadBooked' || !ev.newValue) return;
+      try {
+        const { id, at } = JSON.parse(ev.newValue);
+        setData((rows) => rows.map((r) => (r.id === id ? { ...r, appointment_set_at: at } : r)));
+      } catch {}
+      // also refresh quietly after a short delay to confirm
+      setTimeout(() => load(), 800);
+    }
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
   const allSelected = useMemo(
     () => data.length > 0 && data.every((l) => !!selected[l.id]),
@@ -242,7 +267,7 @@ function LeadsPageContent() {
 
   const copyTrackedLink = async () => {
     if (!openLeadId) return;
-    const url = `${window.location.origin}/r/book/${openLeadId}`;
+    const url = `${window.location.origin}/book/${openLeadId}`;
     try {
       await navigator.clipboard.writeText(url);
       setFeedback('Tracked booking link copied');
@@ -258,6 +283,12 @@ function LeadsPageContent() {
       <div style={{ marginBottom: 16, padding: 8, background: '#f0f0f0', fontSize: 12, borderRadius: 4 }}>
         Auth Status: {authLoading ? 'Loading...' : user ? `Authenticated as ${user.email}` : 'Not authenticated'}
       </div>
+
+      {onboardingStep && (
+        <div style={{ marginBottom: 12, padding: 10, border: '1px solid #ffe7c2', background: '#fff8ec', borderRadius: 8 }}>
+          Finish onboarding (step: {onboardingStep}) → <a href="/onboarding">Open wizard</a>
+        </div>
+      )}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Leads</h1>
@@ -376,7 +407,7 @@ function LeadsPageContent() {
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}>
                   <div>
                     <div style={{ fontSize: 13, color: '#333', marginBottom: 4 }}>
-                      Booking link: <code>/r/book/{openLead.id}</code>
+                      Booking link: <code>/book/{openLead.id}</code>
                     </div>
                     <div style={{ fontSize: 12, color: '#666' }}>
                       {openLead.appointment_set_at
@@ -386,7 +417,7 @@ function LeadsPageContent() {
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button style={btn} onClick={copyTrackedLink}>Copy link</button>
-                    <a href={`/r/book/${openLead.id}`} target="_blank" rel="noreferrer" style={{ ...btn, textDecoration: 'none' }}>Open</a>
+                    <a href={`/book/${openLead.id}`} target="_blank" rel="noreferrer" style={{ ...btn, textDecoration: 'none' }}>Open</a>
                   </div>
                 </div>
               </div>
@@ -459,10 +490,14 @@ function LeadsPageContent() {
   );
 }
 
+import AppShell from '@/app/components/AppShell';
+
 export default function LeadsPage() {
   return (
     <ProtectedRoute>
-      <LeadsPageContent />
+      <AppShell>
+        <LeadsPageContent />
+      </AppShell>
     </ProtectedRoute>
   );
 }

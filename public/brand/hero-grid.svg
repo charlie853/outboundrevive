@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600" fill="none">
+  <rect width="1200" height="600" fill="transparent"/>
+  <!-- placeholder grid -->
+  <defs>
+    <pattern id="g" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="1" fill="rgba(0,0,0,0.06)" />
+    </pattern>
+  </defs>
+  <rect width="1200" height="600" fill="url(#g)"/>
+</svg>

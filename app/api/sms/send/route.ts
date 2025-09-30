@@ -58,16 +58,12 @@ async function countsInLast24h(lead_id: string) {
 
 // ----- route -----
 export async function POST(req: NextRequest) {
-  // Check authentication and get account ID
-  const accountId = await requireAccountAccess();
-  if (!accountId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
   try {
-    const { leadIds, message, brand, aiMeta, replyMode, operator_id, sentBy } = await req.json() as {
-      leadIds: string[];
-      message: string;
+    const payload = await req.json().catch(() => ({}));
+    const { leadIds, message, body, brand, aiMeta, replyMode, operator_id, sentBy, account_id, lead_id } = payload as {
+      leadIds?: string[];
+      message?: string;
+      body?: string;
       brand?: string;
       replyMode?: boolean | string;
       operator_id?: string | null;
@@ -79,7 +75,40 @@ export async function POST(req: NextRequest) {
         blueprint_version_id?: string | null;
         used_snippets?: string[] | null;
       };
+      account_id?: string;
+      lead_id?: string;
     };
+    // Normalize payload shapes
+    const normalizedLeadIds: string[] = Array.isArray(leadIds)
+      ? leadIds as string[]
+      : (lead_id ? [String(lead_id)] : []);
+    const normalizedMessage: string = String((message ?? body ?? '')).trim();
+    // Resolve accountId via admin override (x-admin-token) or user bearer
+    let accountId: string | null = null;
+    const adminHeader = (req.headers.get('x-admin-token') || '').trim();
+    const adminWant = (process.env.ADMIN_API_KEY?.trim() || '') || (process.env.ADMIN_TOKEN?.trim() || '');
+    const isAdmin = !!adminHeader && !!adminWant && adminHeader === adminWant;
+    if (isAdmin) {
+      if (account_id) accountId = account_id;
+      else if (lead_id) {
+        const { data: l } = await supabaseAdmin.from('leads').select('account_id').eq('id', lead_id).maybeSingle();
+        accountId = l?.account_id || null;
+      } else if (normalizedLeadIds.length) {
+        const { data: l } = await supabaseAdmin.from('leads').select('account_id').eq('id', normalizedLeadIds[0]).maybeSingle();
+        accountId = l?.account_id || null;
+      }
+    } else {
+      accountId = await requireAccountAccess();
+    }
+    if (!accountId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    // Emergency stop gate
+    const { data: acct } = await supabaseAdmin
+      .from('accounts')
+      .select('outbound_paused')
+      .eq('id', accountId)
+      .maybeSingle();
+    if (acct?.outbound_paused) return NextResponse.json({ error: 'account_paused' }, { status: 423 });
     const isReply = replyMode === true || String(replyMode).toLowerCase() === 'true';
 
     // decide provenance for this send
@@ -88,8 +117,8 @@ const baseSentBy: 'operator' | 'ai' =
   operator_id ? 'operator' : (sentBy === 'operator' ? 'operator' : 'ai');
 
     console.log('[sms/send] replyMode=', replyMode, '→ isReply=', isReply);
-    if (!Array.isArray(leadIds) || leadIds.length === 0) return NextResponse.json({ error: 'No leads selected' }, { status: 400 });
-    if (!message || !message.trim()) return NextResponse.json({ error: 'Missing message' }, { status: 400 });
+    if (!Array.isArray(normalizedLeadIds) || normalizedLeadIds.length === 0) return NextResponse.json({ error: 'No leads selected' }, { status: 400 });
+    if (!normalizedMessage) return NextResponse.json({ error: 'Missing message' }, { status: 400 });
 
     // settings & active blueprint
     const { data: cfg } = await supabaseAdmin
@@ -134,7 +163,7 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
     const { data: leads, error } = await supabaseAdmin
       .from('leads')
       .select('id,name,phone,opted_out,last_sent_at,last_footer_at,account_id')
-      .in('id', leadIds)
+      .in('id', normalizedLeadIds)
       .eq('account_id', accountId);
 
     if (error) {
@@ -206,7 +235,7 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
 
         // render + footer gating (once/30d)
         const needsFooter = daysSince(l.last_footer_at) > 30;
-        const base = renderTemplate(message, {
+        const base = renderTemplate(normalizedMessage, {
           name: l.name || '',
           brand: acctBrand,
           lead_id: l.id,
@@ -221,7 +250,8 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
 
         // send (dry or real)
         const sid = 'SIM' + Math.random().toString(36).slice(2, 14).toUpperCase();
-        const status = dryRun ? 'sent' : 'queued';
+        // Dry-run should pretend to send and enqueue with status 'queued'
+        const status = dryRun ? 'queued' : 'queued';
 
         // provider_status and timestamps for deliverability tracking
         const provider_status = status; // mirror initial status
@@ -268,7 +298,7 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
             blueprint_version_id: (aiMeta?.blueprint_version_id ?? activeBlueprintVersionId) ?? null,
             used_snippets: aiMeta?.used_snippets ?? null
           })
-          .select('sid')
+          .select('id, sid')
           .maybeSingle();
         if (logErr) {
           console.error('messages_out insert error', l.id, logErr);
@@ -278,6 +308,17 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
           console.error('messages_out insert returned no row for lead', l.id, 'sid', sid);
           return NextResponse.json({ error: 'insert_failed_no_row' }, { status: 500 });
         }
+        // Telemetry: minimal deliverability event on initial enqueue
+        if (inserted?.id) {
+          await supabaseAdmin.from('deliverability_events').insert({
+            message_id: inserted.id,
+            lead_id: l.id,
+            type: provider_status,
+            meta_json: { initial: true },
+            account_id: accountId,
+          });
+        }
+
         results.push({ id: l.id, phone: l.phone, sid });
       } catch (e:any) {
         console.error('Send error for', l?.phone, e?.message || e);

@@ -3,6 +3,9 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  /* Modern SaaS background + grid */
+  --bg: #F8FAFC; /* slate-50 */
+  --grid: rgba(15, 23, 42, 0.04); /* slate-900 @ 4% */
 }
 
 @theme inline {
@@ -10,6 +13,47 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Brand (Indigo) */
+  --color-brand-50:  #EEF2FF;
+  --color-brand-100: #E0E7FF;
+  --color-brand-200: #C7D2FE;
+  --color-brand-300: #A5B4FC;
+  --color-brand-400: #818CF8;
+  --color-brand-500: #6366F1;
+  --color-brand-600: #4F46E5;
+  --color-brand-700: #4338CA;
+  --color-brand-800: #3730A3;
+  --color-brand-900: #312E81;
+
+  /* Accent (Cyan) */
+  --color-accent-50:  #ECFEFF;
+  --color-accent-200: #A5F3FC;
+  --color-accent-400: #22D3EE;
+  --color-accent-500: #06B6D4;
+  --color-accent-600: #0891B2;
+
+  /* Neutrals */
+  --color-surface-bg:   #F8FAFC; /* page bg */
+  --color-surface-card: #FFFFFF;
+  --color-surface-line: #E2E8F0;
+  --color-ink-1: #0F172A; /* headings */
+  --color-ink-2: #475569; /* body */
+
+  /* Shadows */
+  --shadow-card: 0 1px 1px rgba(0,0,0,0.02), 0 8px 24px rgba(0,0,0,0.05);
+  --shadow-soft: 0 8px 30px rgba(2, 6, 23, 0.06);
+
+  /* Backgrounds */
+  --background-grid: radial-gradient(rgba(0,0,0,0.04) 1px, transparent 1px);
+
+  /* Radius */
+  --radius-pill: 9999px;
+
+  /* Status */
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
+  --color-danger:  #EF4444;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -20,7 +64,43 @@
 }
 
 body {
-  background: var(--background);
+  /* Soft radial wash + neutral bg */
+  background: radial-gradient(1200px 600px at 50% -10%, #EEF2FF 0%, transparent 60%), var(--bg);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Subtle grid overlay utility */
+.bg-grid { position: relative; }
+.bg-grid::before {
+  content: '';
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(var(--grid) 1px, transparent 1px) 0 0/24px 24px,
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0/24px 24px;
+  -webkit-mask-image: radial-gradient(ellipse at center, black 60%, transparent 100%);
+  mask-image: radial-gradient(ellipse at center, black 60%, transparent 100%);
+  pointer-events: none;
+}
+
+/* App area: quick table theming for dark surface */
+.app-table table { width: 100%; border-collapse: collapse; }
+.app-table th {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid #1f2430;
+  font-weight: 600;
+  font-size: 12px;
+  color: #9aa3b2;
+  background: #0f1115;
+}
+.app-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #1f2430;
+  font-size: 13px;
+  color: #e6e8ee;
 }

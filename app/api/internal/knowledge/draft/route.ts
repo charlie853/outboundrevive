@@ -377,22 +377,33 @@ export async function POST(req: NextRequest) {
     // If requested, send the drafted SMS now using the internal pipeline
     if (send && lead_id) {
       const base = process.env.PUBLIC_BASE_URL || 'http://localhost:3001';
-      const admin = (process.env.ADMIN_API_KEY || process.env.ADMIN_TOKEN || '').trim();
+      const adminKey = (process.env.ADMIN_API_KEY || '').trim();
+      const fallback = (process.env.ADMIN_TOKEN || '').trim();
+      const adminHeader = adminKey || fallback; // prefer ADMIN_API_KEY per guidance
       try {
+        const draftText: string = responsePayload.draft.text;
         const r = await fetch(`${base}/api/sms/send`, {
           method: 'POST',
           headers: {
-            'content-type': 'application/json',
-            'x-admin-token': admin
+            'x-admin-token': adminHeader,
+            'Content-Type': 'application/json',
           },
+          // Keep our existing /api/sms/send shape (leadIds/message) and also include
+          // account_id/lead_id/body for compatibility with other handlers.
           body: JSON.stringify({
-            leadIds: [lead_id],
-            message: responsePayload.draft.text,
-            replyMode: true,          // keep compliance, footer & trust logic centralized
-            operator_id               // optional, may be null
+            leadIds: [lead_id],          // current pipeline expects this
+            message: draftText,           // current pipeline expects this
+            replyMode: true,              // keep compliance gating centralized
+            operator_id,                  // attribution
+            // Compatibility extras (ignored by current sender but future-proof):
+            account_id,
+            lead_id,
+            body: draftText,
           })
         });
-        responsePayload.sent = await r.json().catch(() => ({}));
+        const sendJson = await r.json().catch(() => ({}));
+        responsePayload.sent = sendJson;
+        responsePayload.send_result = sendJson;
       } catch (e: any) {
         responsePayload.send_error = e?.message || String(e);
       }
