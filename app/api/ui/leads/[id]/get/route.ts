@@ -9,12 +9,12 @@ const db = createClient(
   { auth: { persistSession: false } }
 );
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, { params }: any) {
   try {
     const { data, error } = await db
       .from('leads')
       .select('id, appointment_set_at')
-      .eq('id', params.id)
+      .eq('id', params?.id as string)
       .maybeSingle();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!data) return NextResponse.json({ error: 'not_found' }, { status: 404 });
@@ -23,4 +23,3 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'unexpected', detail: e?.message }, { status: 500 });
   }
 }
-

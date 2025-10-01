@@ -4,12 +4,12 @@ import { createClient } from '@supabase/supabase-js';
 export const runtime = 'nodejs';
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth:{persistSession:false} });
 
-export async function POST(req: NextRequest, { params }: { params: { accountId: string }}) {
+export async function POST(req: NextRequest, { params }: any) {
   const want = (process.env.ADMIN_TOKEN || '').trim();
   const got  = (req.headers.get('x-admin-token') || '').trim();
   if (!want || got !== want) return NextResponse.json({ error:'unauthorized' }, { status:401 });
 
-  const accountId = params.accountId;
+  const accountId = params?.accountId as string;
   const { articles = [], prices = [] } = await req.json();
 
   if (Array.isArray(articles) && articles.length) {

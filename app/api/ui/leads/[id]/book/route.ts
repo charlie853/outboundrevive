@@ -23,9 +23,9 @@ const admin = () =>
     auth: { persistSession: false }
   });
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: any) {
   try {
-    const leadId = params.id;
+    const leadId = params?.id as string;
     if (!leadId) return NextResponse.json({ error: 'Missing leadId' }, { status: 400 });
 
     const { supabase } = supabaseUserClientFromReq(req);

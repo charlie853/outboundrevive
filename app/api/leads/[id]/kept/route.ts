@@ -4,7 +4,7 @@ import { requireAccountAccess } from '@/lib/account';
 
 export const runtime = 'nodejs';
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: any) {
   // Check authentication and get account ID
   const accountId = await requireAccountAccess();
   if (!accountId) {
@@ -12,7 +12,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   try {
-    const leadId = params.id;
+    const leadId = params?.id as string;
     const body = await req.json().catch(() => ({}));
     const kept = typeof body.kept === 'boolean' ? body.kept : true;
 
