@@ -10,14 +10,14 @@ const supabaseAdmin = createClient(
 );
 
 // POST /api/internal/blueprints/:id/publish
-export async function POST(_req: NextRequest, ctx: { params: { id: string } }) {
+export async function POST(_req: NextRequest, { params }: any) {
   const want = (process.env.ADMIN_TOKEN || '').trim();
   const got  = (_req.headers.get('x-admin-token') || '').trim();
   if (!want || got !== want) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const id = ctx.params.id;
+  const id = params?.id as string;
   try {
     // Exists?
     const { data: bp, error: bpErr } = await supabaseAdmin
