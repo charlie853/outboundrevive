@@ -23,13 +23,15 @@ function tokenize(q: string) {
   )).slice(0, 8);
 }
 
+type KbRow = { title: string; body: string; is_active: boolean };
+
 async function fetchKbSnippets(
   dbClient: ReturnType<typeof createClient>,
   accountId: string,
   q: string
-) {
+): Promise<string[]> {
   const tokens = tokenize(q);
-  if (tokens.length === 0) return [];
+  if (tokens.length === 0) return [] as string[];
 
   const { data, error } = await dbClient
     .from('account_kb_articles')
@@ -38,9 +40,11 @@ async function fetchKbSnippets(
     .eq('is_active', true)
     .limit(50);
 
-  if (error || !data) return [];
+  if (error || !data) return [] as string[];
 
-  const scored = data.map(a => {
+  const rows = (data || []) as KbRow[];
+
+  const scored = rows.map((a: KbRow) => {
     const hay = (a.title + ' ' + a.body).toLowerCase();
     const score = tokens.reduce((s, t) => s + (hay.includes(t) ? 1 : 0), 0);
     return { a, score };
@@ -51,7 +55,7 @@ async function fetchKbSnippets(
   .map(x => x.a);
 
   const clamp = (s: string, n = 300) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
-  return scored.map(s => `- ${s.title}: ${clamp(s.body, 400)}`);
+  return scored.map((s: KbRow) => `- ${s.title}: ${clamp(s.body, 400)}`);
 }
 
 // ── misc helpers ──
