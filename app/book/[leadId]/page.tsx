@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 
-export default function BookPage({ params }: { params: { leadId: string } }) {
+export default function BookPage({ params }: any) {
   const [slots, setSlots] = useState<string[]>([]);
   const [picked, setPicked] = useState<string>('');
   const [notes, setNotes] = useState('');
