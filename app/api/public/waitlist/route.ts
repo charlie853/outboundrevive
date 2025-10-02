@@ -15,7 +15,8 @@ export async function POST(req: NextRequest) {
     const em = String(email || '').trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) return NextResponse.json({ error: 'invalid_email' }, { status: 400 });
 
-    const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || req.ip || null;
+    const ipHeader = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '';
+    const ip = ipHeader ? ipHeader.split(',')[0].trim() : null;
     const ua = req.headers.get('user-agent') || null;
 
     const { error } = await supabaseAdmin.from('site_waitlist').insert({
