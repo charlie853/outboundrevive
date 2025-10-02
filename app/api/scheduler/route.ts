@@ -1,15 +1,11 @@
 // app/api/scheduler/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin as supabase } from '@/lib/supabaseServer';
 import { requireAdmin } from '@/lib/admin';
 
 export const runtime = 'nodejs';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
+// use admin client with build-safe env fallbacks
 
 function withinQuietHours(now: Date, tz: string, startHHMM: string, endHHMM: string) {
   // Simplified: assume server time ~ local; you already store HH:MM

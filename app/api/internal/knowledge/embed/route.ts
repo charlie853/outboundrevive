@@ -1,6 +1,6 @@
 // app/api/internal/knowledge/embed/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin as db } from '@/lib/supabaseServer';
 import OpenAI from 'openai';
 import { createHash } from 'crypto';   // <-- use Node crypto explicitly
 
@@ -10,11 +10,6 @@ const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-const db = createClient(
-  process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession:false } }
-);
 
 
 // accept ADMIN_API_KEY or ADMIN_TOKEN

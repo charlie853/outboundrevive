@@ -1,14 +1,10 @@
 // app/api/ai/draft/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin as db } from '@/lib/supabaseServer';
 
 export const runtime = 'nodejs';
 
-const db = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession:false } }
-);
+// using admin client with build-safe env fallbacks
 
 // ── Account fallback (until all leads carry account_id) ──
 const DEFAULT_ACCOUNT_ID = '11111111-1111-1111-1111-111111111111';

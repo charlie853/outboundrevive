@@ -1,14 +1,8 @@
 // app/api/internal/consent/export/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin as db } from '@/lib/supabaseServer';
 
 export const runtime = 'nodejs';
-
-const db = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
 
 const DEFAULT_ACCOUNT_ID = '11111111-1111-1111-1111-111111111111';
 

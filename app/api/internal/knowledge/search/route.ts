@@ -1,15 +1,12 @@
 // app/api/internal/knowledge/search/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin as db } from '@/lib/supabaseServer';
 import OpenAI from 'openai';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const db = createClient(
-  process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession:false } }
-);
+// use admin client with build-safe env fallbacks
 
 // auth (same as elsewhere)
 function isAdmin(req: Request) {

@@ -1,14 +1,9 @@
 // app/api/internal/knowledge/ingest/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin as db } from '@/lib/supabaseServer';
 import * as cheerio from 'cheerio';
 
 export const runtime = 'nodejs';
-
-const db = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession:false } }
-);
 
 export async function POST(req: NextRequest) {
   // Admin auth

@@ -1,14 +1,9 @@
 // app/api/internal/blueprints/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabaseServer';
 import crypto from 'crypto';
 
 export const runtime = 'nodejs';
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
 
 // GET /api/internal/blueprints  -> list latest blueprints (for debugging)
 export async function GET(req: NextRequest) {
