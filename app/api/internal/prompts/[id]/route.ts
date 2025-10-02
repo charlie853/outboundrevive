@@ -10,9 +10,9 @@ function adminGuard(req: NextRequest) {
   return !!want && got === want;
 }
 
-export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, { params }: any) {
   if (!adminGuard(req)) return NextResponse.json({ error:'unauthorized' }, { status:401 });
-  const id = ctx.params.id;
+  const id = params?.id as string;
   const body = await req.json();
   const update: any = {};
   for (const k of ['body','max_len','enabled','intent']) if (k in body) update[k] = body[k];
@@ -31,9 +31,9 @@ export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
   return NextResponse.json({ ok:true, prompt: data });
 }
 
-export async function DELETE(req: NextRequest, ctx: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: any) {
   if (!adminGuard(req)) return NextResponse.json({ error:'unauthorized' }, { status:401 });
-  const id = ctx.params.id;
+  const id = params?.id as string;
   const { error } = await db.from('prompt_templates').delete().eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status:500 });
   return NextResponse.json({ ok:true });
