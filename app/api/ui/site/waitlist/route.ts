@@ -9,7 +9,8 @@ function supabaseUserClientFromReq(req: NextRequest) {
   const anon = process.env.SUPABASE_ANON_KEY!;
   const auth = req.headers.get('authorization') || '';
   const m = auth.match(/^Bearer\s+(.+)$/i);
-  const headers = m ? { Authorization: `Bearer ${m[1]}` } : {} as Record<string,string>;
+  const headers: Record<string, string> = {};
+  if (m && m[1]) headers.Authorization = `Bearer ${m[1]}`;
   return createClient(url, anon, { auth: { persistSession:false, autoRefreshToken:false, detectSessionInUrl:false }, global: { headers } });
 }
 const admin = () => createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession:false } });
@@ -43,4 +44,3 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'unexpected', detail: e?.message }, { status: 500 });
   }
 }
-

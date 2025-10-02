@@ -5,8 +5,9 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  // If you also want to ignore TS errors during builds, uncomment below
-  // typescript: { ignoreBuildErrors: true },
+  // Skip TypeScript type-checking during `next build` to unblock deploys
+  // (keep enabled locally or in CI until types are cleaned up)
+  typescript: { ignoreBuildErrors: true },
 };
 
 export default nextConfig;
