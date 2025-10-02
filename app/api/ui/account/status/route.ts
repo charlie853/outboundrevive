@@ -6,14 +6,14 @@ import { cookies, headers } from 'next/headers';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function supabaseUserClientFromReq() {
-  const c = cookies();
-  const h = headers();
+async function supabaseUserClientFromReq() {
+  const c = await cookies();
+  const h = await headers();
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
-      cookies: { get: (n) => c.get(n)?.value },
+      cookies: { get: (n: string) => c.get(n)?.value },
       global: { headers: { Authorization: h.get('authorization') ?? '' } }
     }
   );
@@ -33,7 +33,7 @@ async function getAccountIdForUser(service: any, userId: string) {
 }
 
 export async function GET() {
-  const supa = supabaseUserClientFromReq();
+  const supa = await supabaseUserClientFromReq();
   const { data: ures } = await supa.auth.getUser();
   if (!ures?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const service = svc();
@@ -49,7 +49,7 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
-  const supa = supabaseUserClientFromReq();
+  const supa = await supabaseUserClientFromReq();
   const { data: ures } = await supa.auth.getUser();
   if (!ures?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const service = svc();
