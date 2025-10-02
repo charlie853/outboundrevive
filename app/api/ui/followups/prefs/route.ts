@@ -11,7 +11,8 @@ function supabaseUserClientFromReq(req: NextRequest) {
   const anon = process.env.SUPABASE_ANON_KEY!; // server copy (not NEXT_PUBLIC)
   const auth = req.headers.get('authorization') || '';
   const m = auth.match(/^Bearer\s+(.+)$/i);
-  const headers = m ? { Authorization: `Bearer ${m[1]}` } : {};
+  const headers: Record<string, string> = {};
+  if (m && m[1]) headers.Authorization = `Bearer ${m[1]}`;
 
   const supabase = createClient(url, anon, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
