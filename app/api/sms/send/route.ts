@@ -259,7 +259,8 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
         const timeStamps: any = {};
         const nowIso = new Date().toISOString();
         if (provider_status === 'queued') timeStamps.queued_at = nowIso;
-        if (provider_status === 'sent')   timeStamps.sent_at   = nowIso;
+        // Cast avoids TS thinking this branch is unreachable when initial status is a literal
+        if ((provider_status as any) === 'sent')   timeStamps.sent_at   = nowIso;
 
         const leadUpdate: any = {
           status: 'sent',
