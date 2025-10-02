@@ -26,7 +26,7 @@ function tokenize(q: string) {
 type KbRow = { title: string; body: string; is_active: boolean };
 
 async function fetchKbSnippets(
-  dbClient: ReturnType<typeof createClient>,
+  dbClient: any,
   accountId: string,
   q: string
 ): Promise<string[]> {
