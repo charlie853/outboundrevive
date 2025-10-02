@@ -9,8 +9,8 @@ const supabase = createClient(
   { auth: { persistSession: false } }
 );
 
-export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
-  const id = ctx.params.id;
+export async function GET(req: NextRequest, { params }: any) {
+  const id = params?.id as string;
   try {
     const now = new Date().toISOString();
 
