@@ -12,9 +12,9 @@ const supabase = createClient(
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: any
 ) {
-  const leadId = params.id;
+  const leadId = params?.id as string;
   if (!leadId) return NextResponse.json({ error: 'missing id' }, { status: 400 });
 
   // Outbound (your sent messages)

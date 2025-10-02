@@ -4,14 +4,14 @@ import { requireAccountAccess } from '@/lib/account';
 
 export const runtime = 'nodejs';
 
-export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: any) {
   // Check authentication and get account ID
   const accountId = await requireAccountAccess();
   if (!accountId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const id = ctx.params.id;
+  const id = params?.id as string;
 
   // First verify the lead belongs to this account
   const { data: lead, error: leadError } = await supabaseAdmin

@@ -14,9 +14,9 @@ type Outbound = { created_at: string; body: string; sid: string | null; status: 
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: any
 ) {
-  const leadId = params.id;
+  const leadId = params?.id as string;
   if (!leadId) return NextResponse.json({ error: 'missing id' }, { status: 400 });
 
   try {
