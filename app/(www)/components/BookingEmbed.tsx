@@ -11,7 +11,8 @@ export default function BookingEmbed({ calLink }: { calLink: string }) {
         <Cal
           calLink={calLink}
           style={{ width: '100%', height: '900px' }}
-          config={{ hideEventTypeDetails: true, theme: 'light' }}
+          // Cal embed expects string-based config values
+          config={{ hideEventTypeDetails: '1', theme: 'light' } as any}
         />
       </div>
     </div>
