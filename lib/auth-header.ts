@@ -1,20 +1,13 @@
 /**
- * Helper to create auth headers for API requests
- * This works around SSR session issues by sending the token directly
+ * Helper to create auth headers for API requests.
+ * On the server (no window), return empty headers to avoid importing the client SDK at build time.
  */
-
-import { supabase } from './supabase';
-
 export async function getAuthHeaders(): Promise<Record<string, string>> {
+  if (typeof window === 'undefined') return {};
+  const { supabase } = await import('./supabase');
   const { data: { session } } = await supabase.auth.getSession();
-
-  if (!session?.access_token) {
-    return {};
-  }
-
-  return {
-    'Authorization': `Bearer ${session.access_token}`,
-  };
+  if (!session?.access_token) return {};
+  return { Authorization: `Bearer ${session.access_token}` };
 }
 
 /**
