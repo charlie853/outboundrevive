@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
           excerpt: makeExcerpt(r.content || '', q),
           source: 'kb_vectors'
         }))
-        .sort((a, b) => b.score - a.score)
+        .sort((a: { score: number }, b: { score: number }) => b.score - a.score)
         .slice(0, k);
 
         if (rows.length > 0) {
@@ -113,7 +113,7 @@ export async function GET(req: NextRequest) {
           source: 'account_kb_articles'
         };
       })
-      .sort((a, b) => b.score - a.score)
+      .sort((a: { score: number }, b: { score: number }) => b.score - a.score)
       .slice(0, k);
 
     return NextResponse.json({ ok: true, account_id, q, k, rows: ranked, used: 'text' });
