@@ -6,18 +6,19 @@ import { createClient } from '@supabase/supabase-js';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function userClient() {
-  const c = cookies(); const h = headers();
+async function userClient() {
+  const c = await cookies();
+  const h = await headers();
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { get: (n) => c.get(n)?.value }, global: { headers: { Authorization: h.get('authorization') ?? '' } } }
+    { cookies: { get: (n: string) => c.get(n)?.value }, global: { headers: { Authorization: h.get('authorization') ?? '' } } }
   );
 }
 function svc() { return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!); }
 
 export async function GET(req: Request) {
   try {
-    const supa = userClient();
+    const supa = await userClient();
     const { data: { user } } = await supa.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
