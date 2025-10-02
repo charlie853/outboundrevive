@@ -250,11 +250,12 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
 
         // send (dry or real)
         const sid = 'SIM' + Math.random().toString(36).slice(2, 14).toUpperCase();
-        // Dry-run should pretend to send and enqueue with status 'queued'
-        const status = dryRun ? 'queued' : 'queued';
+        // Initial provider status; real provider may transition this later
+        type ProviderStatus = 'queued' | 'sent' | 'delivered' | 'failed';
+        const status: ProviderStatus = 'queued';
 
         // provider_status and timestamps for deliverability tracking
-        const provider_status = status; // mirror initial status
+        const provider_status: ProviderStatus = status; // mirror initial status
         const timeStamps: any = {};
         const nowIso = new Date().toISOString();
         if (provider_status === 'queued') timeStamps.queued_at = nowIso;
