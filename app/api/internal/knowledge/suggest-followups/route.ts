@@ -99,7 +99,7 @@ async function getContexts(account_id: string, q: string, k: number) {
   if (rows.length === 0 && q) {
     const tokens = tokenize(q);
     if (tokens.length) {
-      const queries: Promise<any>[] = [];
+      const queries: any[] = [];
       for (const t of tokens) {
         const like = `%${t}%`;
         if (hasKP) {
@@ -109,7 +109,7 @@ async function getContexts(account_id: string, q: string, k: number) {
               .eq('account_id', account_id)
               .eq('status', 'approved')
               .ilike('content', like)
-              .limit(k * 3)
+              .limit(k * 3) as any
           );
         }
         queries.push(
@@ -117,14 +117,14 @@ async function getContexts(account_id: string, q: string, k: number) {
             .select('id,title,body,source_url,is_active')
             .eq('account_id', account_id).eq('is_active', true)
             .ilike('title', like)
-            .limit(k * 3)
+            .limit(k * 3) as any
         );
         queries.push(
           db.from('account_kb_articles')
             .select('id,title,body,source_url,is_active')
             .eq('account_id', account_id).eq('is_active', true)
             .ilike('body', like)
-            .limit(k * 6)
+            .limit(k * 6) as any
         );
       }
       const results = await Promise.all(queries);
