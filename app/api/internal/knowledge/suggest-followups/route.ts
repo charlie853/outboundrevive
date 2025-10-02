@@ -206,7 +206,7 @@ async function callLLM(opts: { provider: Provider; model: string; system: string
 
       const key =
         provider === 'openai' ? process.env.OPENAI_API_KEY :
-        provider === 'openrouter' ? process.envOPENROUTER_API_KEY :
+        provider === 'openrouter' ? process.env.OPENROUTER_API_KEY :
         provider === 'together' ? process.env.TOGETHER_API_KEY :
         process.env.DEEPSEEK_API_KEY!;
 
