@@ -2,18 +2,23 @@
 
 import Cal from '@calcom/embed-react';
 
-export default function BookingEmbed({ calLink }: { calLink: string }) {
+type Props = {
+  calLink: string;
+  height?: number | string;
+  hideDetails?: boolean;
+  layout?: 'month_view' | 'week_view' | string;
+  className?: string;
+};
+
+export default function BookingEmbed({ calLink, height = 1000, hideDetails = true, layout = 'month_view', className }: Props) {
   if (!calLink) return null;
   return (
-    <div className="w-full max-w-4xl mx-auto">
-      <div className="rounded-2xl overflow-hidden shadow-soft ring-1 ring-surface-line/60 bg-white">
-        <Cal
-          calLink={calLink}
-          style={{ width: '100%', height: '900px' }}
-          config={{ hideEventTypeDetails: '1', theme: 'light' } as any}
-        />
-      </div>
+    <div className={className}>
+      <Cal
+        calLink={calLink}
+        style={{ width: '100%', height: typeof height === 'number' ? `${height}px` : height }}
+        config={{ hideEventTypeDetails: hideDetails as any, layout: layout as any, theme: 'light' as any }}
+      />
     </div>
   );
 }
-

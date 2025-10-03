@@ -1,6 +1,6 @@
 "use client";
 import { useEffect } from "react";
-import InlineEmbed from "./InlineEmbed";
+import BookingEmbed from "@/app/components/BookingEmbed";
 
 export default function Client({ calLink }: { calLink: string | null }) {
   useEffect(() => {
@@ -8,17 +8,17 @@ export default function Client({ calLink }: { calLink: string | null }) {
   }, []);
 
   return (
-    <main className="mx-auto max-w-5xl px-4 md:px-6 py-16">
+    <main className="mx-auto max-w-6xl px-4 md:px-6 py-16">
       <header className="mb-8">
         <h1 className="text-4xl font-semibold leading-tight text-ink-1">Pick a time that works for you.</h1>
         <p className="mt-3 text-ink-2">
-          A 15-minute walkthrough of OutboundRevive and whether it fits your workflow.
+          A 30-minute walkthrough of OutboundRevive and whether it fits your workflow.
         </p>
       </header>
 
-      <section aria-label="Schedule a demo" className="rounded-2xl border border-surface-line bg-surface-card p-4 shadow-soft" data-analytics-id="calendar_loaded">
+      <section aria-label="Schedule a demo" className="rounded-2xl border border-surface-line bg-white p-0 overflow-hidden shadow-soft" data-analytics-id="calendar_loaded">
         {calLink ? (
-          <InlineEmbed calLink={calLink} />
+          <BookingEmbed calLink={calLink} height={1000} className="w-full" />
         ) : (
           <div className="text-ink-2 text-sm">
             Set <code>CAL_PUBLIC_URL</code> in your environment to your Cal.com booking link (e.g.,
@@ -26,6 +26,13 @@ export default function Client({ calLink }: { calLink: string | null }) {
           </div>
         )}
       </section>
+
+      {calLink && (
+        <div className="mt-3 text-center text-ink-2 text-sm">
+          If the calendar doesn’t load, open directly:
+          <a className="ml-2 underline" href={`https://cal.com/${calLink}`} target="_blank" rel="noreferrer">cal.com/{calLink}</a>
+        </div>
+      )}
 
       <section className="mt-10 grid gap-6 md:grid-cols-2">
         <div className="rounded-2xl border border-surface-line bg-surface-card p-6 shadow-soft">
