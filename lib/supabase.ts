@@ -1,12 +1,3 @@
-<<<<<<< Updated upstream
-import { createBrowserClient } from '@supabase/ssr';
-
-// Client-side Supabase client
-export const supabase = createBrowserClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-=======
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 // Client-side Supabase client with safe fallbacks in dev so the app doesn't crash
@@ -31,4 +22,3 @@ if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_A
   // eslint-disable-next-line no-console
   console.warn('[supabase] NEXT_PUBLIC_SUPABASE_URL/ANON_KEY not set. Using dev defaults.');
 }
->>>>>>> Stashed changes
