@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 import { requireAccountAccess } from '@/lib/account';
+import { twilioClient, getMessagingServiceSid } from '@/lib/twilio';
 
 export const runtime = 'nodejs';
 
@@ -109,7 +110,7 @@ export async function POST(req: NextRequest) {
       .eq('id', accountId)
       .maybeSingle();
     if (acct?.outbound_paused) return NextResponse.json({ error: 'account_paused' }, { status: 423 });
-    const isReply = replyMode === true || String(replyMode).toLowerCase() === 'true';
+  const isReply = replyMode === true || String(replyMode).toLowerCase() === 'true';
 
     // decide provenance for this send
     // decide provenance for this send (match DB constraint: only 'ai' | 'operator')
@@ -148,6 +149,24 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
     const paused     = !!cfg?.paused;
     const blackout   = Array.isArray(cfg?.blackout_dates) ? cfg!.blackout_dates as string[] : [];
     const chanStatus = (cfg?.sms_channel_status || 'unverified').toLowerCase();
+    const statusCallbackBase = (process.env.PUBLIC_BASE_URL || req.nextUrl.origin).replace(/\/$/, '');
+    // Defaults from env
+    let msgSvcSid: string | null = null;
+    try { msgSvcSid = getMessagingServiceSid(); } catch { msgSvcSid = null; }
+    let fromNumber: string | null = (process.env.TWILIO_FROM_NUMBER || '').trim() || null;
+
+    // Per-account Twilio override (if table exists)
+    try {
+      const { data: twcfg } = await supabaseAdmin
+        .from('account_sms_config')
+        .select('messaging_service_sid, from_number')
+        .eq('account_id', accountId)
+        .maybeSingle();
+      if (twcfg) {
+        if (twcfg.messaging_service_sid) msgSvcSid = String(twcfg.messaging_service_sid);
+        if (twcfg.from_number) fromNumber = String(twcfg.from_number);
+      }
+    } catch {}
 
     // hard account-level gates
     if (paused) return NextResponse.json({ error: 'paused' }, { status: 409 });
@@ -249,24 +268,44 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
         if (body.length > 160) { results.push({ id: l.id, phone: l.phone, error: 'too_long_with_footer' }); continue; }
 
         // send (dry or real)
-        const sid = 'SIM' + Math.random().toString(36).slice(2, 14).toUpperCase();
-        // Initial provider status; real provider may transition this later
         type ProviderStatus = 'queued' | 'sent' | 'delivered' | 'failed';
-        const status: ProviderStatus = 'queued';
-
-        // provider_status and timestamps for deliverability tracking
-        const provider_status: ProviderStatus = status; // mirror initial status
         const timeStamps: any = {};
         const nowIso = new Date().toISOString();
-        if (provider_status === 'queued') timeStamps.queued_at = nowIso;
-        // Cast avoids TS thinking this branch is unreachable when initial status is a literal
-        if ((provider_status as any) === 'sent')   timeStamps.sent_at   = nowIso;
+        let provider_status: ProviderStatus = 'queued';
+        let sid: string = '';
+        if (dryRun) {
+          sid = 'SIM' + Math.random().toString(36).slice(2, 14).toUpperCase();
+          provider_status = 'queued';
+          timeStamps.queued_at = nowIso;
+        } else {
+          try {
+            if (!msgSvcSid && !fromNumber) {
+              throw new Error('twilio_config_missing');
+            }
+            const params: any = {
+              to: l.phone,
+              body,
+              statusCallback: `${statusCallbackBase}/api/webhooks/twilio/status`
+            };
+            if (msgSvcSid) params.messagingServiceSid = msgSvcSid;
+            else params.from = fromNumber;
+            const tw = await twilioClient.messages.create(params);
+            sid = tw.sid;
+            const s = String(tw.status || '').toLowerCase();
+            provider_status = (s === 'sent' || s === 'sending') ? 'sent' : 'queued';
+            if (provider_status === 'queued') timeStamps.queued_at = nowIso;
+            if (provider_status === 'sent') timeStamps.sent_at = nowIso;
+          } catch (err: any) {
+            results.push({ id: l.id, phone: l.phone, error: err?.message || 'twilio_send_failed' });
+            continue;
+          }
+        }
 
         const leadUpdate: any = {
           status: 'sent',
           sent_at: nowIso,
           last_message_sid: sid,
-          delivery_status: status,
+          delivery_status: provider_status,
           last_sent_at: nowIso,
         };
         if (needsFooter) leadUpdate.last_footer_at = nowIso;
@@ -280,7 +319,7 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
             lead_id: l.id,
             sid,
             body,
-            status,
+            status: provider_status,
             error_code: null,
             // deliverability scaffold
             provider_status,

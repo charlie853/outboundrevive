@@ -9,8 +9,6 @@ export default function Nav() {
           OutboundRevive
         </Link>
         <nav className="hidden md:flex items-center gap-6 text-sm text-ink-2">
-          <Link href="/features" className="hover:text-ink-1">Features</Link>
-          <Link href="/pricing" className="hover:text-ink-1">Pricing</Link>
           <Link href="/dashboard" className="hover:text-ink-1">Dashboard</Link>
           <Link href="/contact" className="hover:text-ink-1">Contact</Link>
           <Link href="/book" className="rounded-pill bg-brand-600 text-white px-3 py-1.5 hover:bg-brand-700" aria-label="Get a demo">
