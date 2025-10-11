@@ -25,7 +25,7 @@ function svc() {
 
 async function getAccountIdForUser(service: any, userId: string) {
   const { data } = await service
-    .from('user_accounts')
+    .from('user_data')
     .select('account_id')
     .eq('user_id', userId)
     .maybeSingle();

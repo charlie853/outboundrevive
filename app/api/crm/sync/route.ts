@@ -1,269 +1,140 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAuthenticatedUser } from '@/lib/auth-utils';
 import { supabaseAdmin } from '@/lib/supabaseServer';
-import { requireAccountAccess } from '@/lib/account';
-import { Nango } from '@nangohq/node';
+import { createCRMAdapter } from '@/lib/crm/factory';
+import { CRMProvider, SyncStrategy, CRMContact, SyncResult } from '@/lib/crm/types';
+import { getCurrentUserAccountId } from '@/lib/account';
 
-const nango = new Nango({ secretKey: process.env.NANGO_SECRET_KEY! });
-
-function toE164Loose(raw?: string | null) {
-  if (!raw) return null;
-  const s = String(raw).trim();
-  if (!s) return null;
-  if (/^\+\d{8,15}$/.test(s)) return s;
-  const digits = s.replace(/\D/g, '');
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
-  return null;
-}
-
-function normalizeContactData(contact: any, provider: string) {
-  let name = '';
-  let phone = '';
-  let email = '';
-
-  switch (provider) {
-    case 'hubspot':
-      name = `${contact.properties?.firstname || ''} ${contact.properties?.lastname || ''}`.trim();
-      phone = contact.properties?.phone || '';
-      email = contact.properties?.email || '';
-      break;
-
-    case 'salesforce':
-      name = `${contact.FirstName || ''} ${contact.LastName || ''}`.trim();
-      phone = contact.Phone || contact.MobilePhone || '';
-      email = contact.Email || '';
-      break;
-
-    case 'pipedrive':
-      name = contact.name || '';
-      phone = contact.phone?.[0]?.value || contact.phone || '';
-      email = contact.email?.[0]?.value || contact.email || '';
-      break;
-
-    case 'zoho':
-      name = `${contact.First_Name || ''} ${contact.Last_Name || ''}`.trim();
-      phone = contact.Phone || contact.Mobile || '';
-      email = contact.Email || '';
-      break;
-
-    default:
-      // Generic fallback
-      name = contact.name || `${contact.first_name || ''} ${contact.last_name || ''}`.trim();
-      phone = contact.phone || contact.mobile || '';
-      email = contact.email || '';
-  }
-
-  return {
-    name: name || null,
-    phone: toE164Loose(phone),
-    email: email || null
-  };
-}
-
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    // Check authentication and get account ID
-    const accountId = await requireAccountAccess();
-    if (!accountId) {
+    const user = await getAuthenticatedUser();
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { connectionId, integrationId, mode = 'append' } = await req.json();
+    const { strategy }: { strategy: SyncStrategy } = await request.json();
 
-    if (!connectionId || !integrationId) {
-      return NextResponse.json(
-        { error: 'connectionId and integrationId are required' },
-        { status: 400 }
-      );
+    if (!['append', 'overwrite', 'preview'].includes(strategy)) {
+      return NextResponse.json({ error: 'Invalid strategy' }, { status: 400 });
     }
 
-    console.log(`Starting CRM sync for connection ${connectionId} (${integrationId}) in ${mode} mode, account: ${accountId}`);
+    // Get user's CRM connection
+    const { data: userData, error: userError } = await supabaseAdmin
+      .from('user_data')
+      .select('nango_token, crm')
+      .eq('user_id', user.id)
+      .single();
 
-    // If overwrite mode, delete existing leads for this account only
-    if (mode === 'overwrite') {
-      console.log('Overwrite mode: clearing existing leads for account...');
-      const { error: deleteError } = await supabaseAdmin
-        .from('leads')
-        .delete()
-        .eq('account_id', accountId);
-
-      if (deleteError) {
-        console.error('Error clearing leads:', deleteError);
-        return NextResponse.json(
-          { error: 'Failed to clear existing leads', details: deleteError.message },
-          { status: 500 }
-        );
-      }
-      console.log('Existing leads cleared for account');
+    if (userError || !userData?.nango_token || !userData?.crm) {
+      return NextResponse.json({ error: 'No CRM connection found' }, { status: 400 });
     }
 
-    // Get the correct endpoint for each CRM provider
-    let endpoint = '/contacts';
-    if (integrationId === 'hubspot') {
-      endpoint = '/crm/v3/objects/contacts?properties=phone,email,firstname,lastname';
-    } else if (integrationId === 'salesforce') {
-      endpoint = '/services/data/v58.0/sobjects/Contact';
-    } else if (integrationId === 'pipedrive') {
-      endpoint = '/persons';
-    } else if (integrationId === 'zoho') {
-      endpoint = '/crm/v2/Contacts';
+    const accountId = await getCurrentUserAccountId();
+    if (!accountId) {
+      return NextResponse.json({ error: 'No account found' }, { status: 400 });
     }
 
-    console.log(`Fetching from endpoint: ${endpoint}`);
+    // Create CRM adapter and sync
+    const adapter = createCRMAdapter(userData.crm as CRMProvider);
+    const contacts = await adapter.syncContacts(userData.nango_token, strategy);
 
-    // Fetch contacts from CRM via Nango
-    let contacts;
-    try {
-      contacts = await nango.get({
-        providerConfigKey: integrationId,
-        connectionId: connectionId,
-        endpoint: endpoint,
+    // If preview, return contacts directly
+    if (strategy === 'preview') {
+      return NextResponse.json({
+        success: true,
+        contacts: contacts,
       });
-    } catch (nangoError: any) {
-      console.error('Nango API error:', nangoError);
-      console.error('Error response:', nangoError.response?.data);
-      console.error('Error status:', nangoError.response?.status);
-      
-      if (nangoError.response?.status === 404) {
-        throw new Error(`Endpoint not found: ${endpoint}. This might mean the ${integrationId} integration is not properly configured in Nango or the endpoint path is incorrect.`);
-      }
-      
-      throw new Error(`Failed to fetch contacts from ${integrationId}: ${nangoError.message}`);
     }
 
-    console.log('Nango response status:', contacts.status);
-    console.log('Nango response data keys:', Object.keys(contacts.data || {}));
-    console.log('Nango response data sample:', contacts.data ? JSON.stringify(contacts.data).substring(0, 500) + '...' : 'null');
-
-    // Handle different response structures
-    let contactsArray: any[] = [];
-    if (integrationId === 'hubspot') {
-      // HubSpot API returns data in contacts.data.results
-      contactsArray = contacts.data?.results || contacts.data || [];
-    } else if (integrationId === 'salesforce') {
-      // Salesforce API returns data in contacts.data.records
-      contactsArray = contacts.data?.records || contacts.data || [];
-    } else if (integrationId === 'pipedrive') {
-      // Pipedrive API returns data in contacts.data.data
-      contactsArray = contacts.data?.data || contacts.data || [];
-    } else if (integrationId === 'zoho') {
-      // Zoho API returns data in contacts.data.data
-      contactsArray = contacts.data?.data || contacts.data || [];
-    } else {
-      // Generic handling for other CRMs
-      contactsArray = contacts.data || [];
-    }
-
-    if (!Array.isArray(contactsArray)) {
-      throw new Error(`Invalid response structure from ${integrationId}: expected array, got ${typeof contactsArray}`);
-    }
-
-    console.log(`Fetched ${contactsArray.length} contacts from ${integrationId}`);
-
-    const results = {
-      total: contactsArray.length,
-      processed: 0,
-      created: 0,
-      updated: 0,
-      errors: 0,
-      errorDetails: [] as string[]
-    };
-
-    // Process each contact
-    for (const contact of contactsArray) {
-      try {
-        console.log(`Processing contact ${contact.id}:`, JSON.stringify(contact, null, 2));
-        const normalized = normalizeContactData(contact, integrationId);
-        console.log(`Normalized data:`, normalized);
-        
-        if (!normalized.phone) {
-          results.errors++;
-          results.errorDetails.push(`Contact ${contact.id || 'unknown'}: No valid phone number (raw: ${integrationId === 'hubspot' ? contact.properties?.phone : contact.phone})`);
-          console.log(`Skipping contact ${contact.id}: no valid phone`);
-          continue;
-        }
-
-        // Insert or update lead with account_id
-        console.log(`Inserting lead for contact ${contact.id} with phone ${normalized.phone}`);
-        const { data: leadData, error: leadError } = await supabaseAdmin
-          .from('leads')
-          .upsert({
-            name: normalized.name,
-            phone: normalized.phone,
-            email: normalized.email,
-            status: 'pending',
-            account_id: accountId
-          }, {
-            onConflict: 'phone',
-            ignoreDuplicates: false
-          })
-          .select()
-          .single();
-
-        if (leadError) {
-          results.errors++;
-          results.errorDetails.push(`Lead upsert error: ${leadError.message}`);
-          console.error(`Lead upsert error for contact ${contact.id}:`, leadError);
-          continue;
-        }
-
-        console.log(`Successfully created/updated lead:`, leadData);
-
-        // Insert or update CRM contact mapping with account_id
-        const { error: crmError } = await supabaseAdmin
-          .from('crm_contacts')
-          .upsert({
-            lead_id: leadData.id,
-            nango_connection_id: connectionId,
-            crm_contact_id: contact.id,
-            crm_provider: integrationId,
-            external_data: contact,
-            last_synced_at: new Date().toISOString(),
-            sync_status: 'synced',
-            updated_at: new Date().toISOString(),
-            account_id: accountId
-          }, {
-            onConflict: 'nango_connection_id,crm_contact_id',
-            ignoreDuplicates: false
-          });
-
-        if (crmError) {
-          results.errors++;
-          results.errorDetails.push(`CRM mapping error: ${crmError.message}`);
-          continue;
-        }
-
-        results.processed++;
-        // Determine if this was a create or update based on lead creation time
-        const isNew = new Date(leadData.created_at) > new Date(Date.now() - 5000); // 5 seconds tolerance
-        if (isNew) {
-          results.created++;
-        } else {
-          results.updated++;
-        }
-
-      } catch (contactError: any) {
-        results.errors++;
-        results.errorDetails.push(`Contact processing error: ${contactError.message}`);
-      }
-    }
+    // For actual sync, process contacts into leads
+    const syncResult = await processContactsToLeads(contacts, accountId, strategy);
 
     return NextResponse.json({
       success: true,
-      connectionId,
-      integrationId,
-      results
+      results: syncResult,
     });
-
-  } catch (error: any) {
-    console.error('CRM sync error:', error);
+  } catch (error) {
+    console.error('Error syncing CRM contacts:', error);
     return NextResponse.json(
-      { 
-        success: false,
-        error: 'CRM sync failed',
-        details: error.message 
-      },
+      { error: error instanceof Error ? error.message : 'Sync failed' },
       { status: 500 }
     );
+  }
+}
+
+async function processContactsToLeads(
+  contacts: CRMContact[],
+  accountId: string,
+  strategy: SyncStrategy
+): Promise<SyncResult> {
+  try {
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    // If overwrite, clear existing leads for this account
+    if (strategy === 'overwrite') {
+      await supabaseAdmin
+        .from('leads')
+        .delete()
+        .eq('account_id', accountId);
+    }
+
+    for (const contact of contacts) {
+      // Skip contacts without phone (required field)
+      if (!contact.phone) {
+        skipped++;
+        continue;
+      }
+
+      try {
+        // Check if lead already exists (by phone or email)
+        const { data: existingLead } = await supabaseAdmin
+          .from('leads')
+          .select('id')
+          .eq('account_id', accountId)
+          .or(`phone.eq.${contact.phone}${contact.email ? `,email.eq.${contact.email}` : ''}`)
+          .single();
+
+        const leadData = {
+          name: contact.name,
+          phone: contact.phone,
+          email: contact.email || null,
+          account_id: accountId,
+          status: 'pending',
+          created_at: new Date().toISOString(),
+        };
+
+        if (existingLead) {
+          // Update existing lead
+          await supabaseAdmin
+            .from('leads')
+            .update(leadData)
+            .eq('id', existingLead.id);
+          updated++;
+        } else {
+          // Create new lead
+          await supabaseAdmin
+            .from('leads')
+            .insert(leadData);
+          created++;
+        }
+      } catch (error) {
+        errors.push(`Failed to process ${contact.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        skipped++;
+      }
+    }
+
+    return {
+      total: contacts.length,
+      processed: created + updated,
+      created,
+      updated,
+      skipped,
+      errors,
+    };
+  } catch (error) {
+    throw new Error(`Failed to process contacts: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }

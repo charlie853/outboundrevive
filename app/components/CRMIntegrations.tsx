@@ -1,16 +1,22 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Nango from '@nangohq/frontend';
 import { authenticatedFetch } from '@/lib/api-client';
+import { CRMContact, SyncResult } from '@/lib/crm/types';
 
 interface CRMIntegrationsProps {
   userId: string;
   userEmail?: string;
   organizationId?: string;
   onConnect?: (connectionId: string, providerConfigKey: string) => void;
-  onSync?: (results: any) => void;
+  onSync?: (results: SyncResult) => void;
   onError?: (error: string) => void;
+}
+
+interface CRMStatus {
+  connected: boolean;
+  provider: string | null;
 }
 
 export default function CRMIntegrations({
@@ -23,27 +29,66 @@ export default function CRMIntegrations({
 }: CRMIntegrationsProps) {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [showSyncModal, setShowSyncModal] = useState(false);
-  const [previewData, setPreviewData] = useState<any>(null);
-  const [connectedCRM, setConnectedCRM] = useState<{connectionId: string, provider: string} | null>(null);
+  const [previewData, setPreviewData] = useState<CRMContact[]>([]);
+  const [crmStatus, setCrmStatus] = useState<CRMStatus>({ connected: false, provider: null });
   const [nango] = useState(() => new Nango());
+
+  // Check CRM connection status on mount
+  useEffect(() => {
+    checkCRMStatus();
+  }, []);
+
+  const checkCRMStatus = async () => {
+    try {
+      const response = await authenticatedFetch('/api/crm/status');
+      if (response.ok) {
+        const status = await response.json();
+        setCrmStatus(status);
+      }
+    } catch (error) {
+      console.error('Failed to check CRM status:', error);
+    }
+  };
 
   const handleConnectCRM = async () => {
     try {
       setIsConnecting(true);
 
       const connect = nango.openConnectUI({
-        onEvent: (event) => {
+        themeOverride: "light",
+        onEvent: async (event) => {
           if (event.type === 'close') {
             setIsConnecting(false);
           } else if (event.type === 'connect') {
-            setIsConnecting(false);
-            setConnectedCRM({
-              connectionId: event.payload.connectionId,
-              provider: event.payload.providerConfigKey
-            });
-            onConnect?.(event.payload.connectionId, event.payload.providerConfigKey);
+            try {
+              // Save the connection to database
+              const response = await authenticatedFetch('/api/crm/connect', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  connectionId: event.payload.connectionId,
+                  providerConfigKey: event.payload.providerConfigKey,
+                }),
+              });
+
+              if (!response.ok) {
+                throw new Error('Failed to save CRM connection');
+              }
+
+              // Update CRM status and refresh
+              await checkCRMStatus();
+              onConnect?.(event.payload.connectionId, event.payload.providerConfigKey);
+            } catch (error) {
+              console.error('Error saving CRM connection:', error);
+              onError?.('Connection established but failed to save. Please try again.');
+            } finally {
+              setIsConnecting(false);
+            }
           }
         },
       });
@@ -53,9 +98,6 @@ export default function CRMIntegrations({
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          organizationId, // Optional: only pass organizationId for additional tagging
-        }),
       });
 
       if (!response.ok) {
@@ -74,19 +116,18 @@ export default function CRMIntegrations({
   };
 
   const handlePreviewSync = async () => {
-    if (!connectedCRM) return;
-    
+    if (!crmStatus.connected) return;
+
     try {
       setIsPreviewing(true);
-      
-      const response = await authenticatedFetch('/api/crm/preview', {
+
+      const response = await authenticatedFetch('/api/crm/sync', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          connectionId: connectedCRM.connectionId,
-          integrationId: connectedCRM.provider,
+          strategy: 'preview',
         }),
       });
 
@@ -94,8 +135,8 @@ export default function CRMIntegrations({
         throw new Error('Failed to preview CRM contacts');
       }
 
-      const preview = await response.json();
-      setPreviewData(preview);
+      const result = await response.json();
+      setPreviewData(result.contacts || []);
       setShowSyncModal(true);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to preview CRM contacts';
@@ -106,31 +147,27 @@ export default function CRMIntegrations({
     }
   };
 
-  const handleConfirmSync = async (mode: 'append' | 'overwrite') => {
-    if (!connectedCRM) return;
-    
+  const handleConfirmSync = async (strategy: 'append' | 'overwrite') => {
+    if (!crmStatus.connected) return;
+
     try {
       setIsSyncing(true);
       setShowSyncModal(false);
-      
+
       const response = await authenticatedFetch('/api/crm/sync', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          connectionId: connectedCRM.connectionId,
-          integrationId: connectedCRM.provider,
-          mode,
-        }),
+        body: JSON.stringify({ strategy }),
       });
 
       if (!response.ok) {
         throw new Error('Failed to sync CRM contacts');
       }
 
-      const results = await response.json();
-      onSync?.(results);
+      const result = await response.json();
+      onSync?.(result.results);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to sync CRM contacts';
       onError?.(errorMessage);
@@ -140,19 +177,39 @@ export default function CRMIntegrations({
     }
   };
 
+  const handleDisconnectCRM = async () => {
+    try {
+      setIsDisconnecting(true);
+
+      const response = await authenticatedFetch('/api/crm/disconnect', {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to disconnect CRM');
+      }
+
+      setCrmStatus({ connected: false, provider: null });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to disconnect CRM';
+      onError?.(errorMessage);
+      console.error('CRM disconnect error:', error);
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
+
   return (
-    <div className="p-4">
-      <h2 className="text-xl font-semibold mb-4">CRM Integrations</h2>
-      
-      {!connectedCRM ? (
+    <div className="p-4 text-gray-600">
+      {!crmStatus.connected ? (
         <>
           <button
             onClick={handleConnectCRM}
             disabled={isConnecting}
             className={`
-              px-6 py-2 rounded-lg font-medium transition-colors
-              ${isConnecting 
-                ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+              px-6 py-2 rounded-lg font-medium transition-colors cursor-pointer
+              ${isConnecting
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 : 'bg-blue-600 text-white hover:bg-blue-700'
               }
             `}
@@ -164,13 +221,10 @@ export default function CRMIntegrations({
         <>
           <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
             <p className="text-green-800">
-              ✅ Connected to <strong>{connectedCRM.provider}</strong>
-            </p>
-            <p className="text-sm text-green-600 mt-1">
-              Connection ID: {connectedCRM.connectionId}
+              ✅ Connected to <strong>{crmStatus.provider}</strong>
             </p>
           </div>
-          
+
           <div className="flex gap-3">
             <button
               onClick={handlePreviewSync}
@@ -178,26 +232,31 @@ export default function CRMIntegrations({
               className={`
                 px-6 py-2 rounded-lg font-medium transition-colors
                 ${isPreviewing || isSyncing
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   : 'bg-green-600 text-white hover:bg-green-700'
                 }
               `}
             >
               {isPreviewing ? 'Loading...' : isSyncing ? 'Syncing...' : 'Sync Contacts'}
             </button>
-            
+
             <button
-              onClick={() => setConnectedCRM(null)}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+              onClick={handleDisconnectCRM}
+              disabled={isDisconnecting}
+              className={`px-4 py-2 border border-gray-300 rounded-lg transition-colors ${
+                isDisconnecting
+                  ? 'text-gray-400 cursor-not-allowed'
+                  : 'text-gray-700 hover:bg-gray-50'
+              }`}
             >
-              Disconnect
+              {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
             </button>
           </div>
         </>
       )}
 
       {/* Sync Confirmation Modal */}
-      {showSyncModal && previewData && (
+      {showSyncModal && previewData.length > 0 && (
         <div
           className="fixed inset-0 flex items-center justify-center z-50"
           style={{ backgroundColor: 'rgba(0, 0, 0, 0.3)' }}
@@ -208,16 +267,16 @@ export default function CRMIntegrations({
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-lg font-semibold mb-4">Sync CRM Contacts</h3>
-            
+
             <div className="mb-6">
-              <p className="text-gray-700 mb-2">Found contacts in your {connectedCRM?.provider}:</p>
+              <p className="text-gray-700 mb-2">Found contacts in your {crmStatus.provider}:</p>
               <div className="bg-gray-50 p-3 rounded border">
                 <div className="text-sm">
-                  <p><strong>{previewData.preview.totalContacts}</strong> total contacts</p>
-                  <p><strong>{previewData.preview.validContacts}</strong> with valid phone numbers</p>
-                  {previewData.preview.invalidContacts > 0 && (
+                  <p><strong>{previewData.length}</strong> total contacts</p>
+                  <p><strong>{previewData.filter(c => c.phone).length}</strong> with valid phone numbers</p>
+                  {previewData.filter(c => !c.phone).length > 0 && (
                     <p className="text-amber-600">
-                      <strong>{previewData.preview.invalidContacts}</strong> will be skipped (no valid phone)
+                      <strong>{previewData.filter(c => !c.phone).length}</strong> will be skipped (no phone)
                     </p>
                   )}
                 </div>
@@ -225,7 +284,7 @@ export default function CRMIntegrations({
             </div>
 
             <p className="text-gray-600 mb-4">How would you like to sync these contacts?</p>
-            
+
             <div className="flex flex-col gap-3">
               <button
                 onClick={() => handleConfirmSync('append')}
@@ -234,7 +293,7 @@ export default function CRMIntegrations({
                 Append New Contacts
                 <div className="text-xs text-blue-200">Add new contacts, keep existing ones</div>
               </button>
-              
+
               <button
                 onClick={() => handleConfirmSync('overwrite')}
                 className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
@@ -242,7 +301,7 @@ export default function CRMIntegrations({
                 Overwrite All Contacts
                 <div className="text-xs text-red-200">Replace all existing contacts with CRM data</div>
               </button>
-              
+
               <button
                 onClick={() => setShowSyncModal(false)}
                 className="w-full px-4 py-2 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 transition-colors"

@@ -18,7 +18,7 @@ const admin = () => createClient(process.env.SUPABASE_URL!, process.env.SUPABASE
 async function isSiteAdmin(userId: string) {
   try {
     const db = admin();
-    const { data: ua } = await db.from('user_accounts').select('role').eq('user_id', userId).in('role', ['owner','admin']).maybeSingle();
+    const { data: ua } = await db.from('user_data').select('role').eq('user_id', userId).in('role', ['owner','admin']).maybeSingle();
     if (ua) return true;
   } catch {}
   return false;

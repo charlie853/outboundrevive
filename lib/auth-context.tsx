@@ -27,18 +27,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      (event, session) => {
         setUser(session?.user ?? null);
-
-        // If user just signed in, ensure they have an account set up
-        if (event === 'SIGNED_IN' && session?.user) {
-          try {
-            await fetch('/api/auth/setup', { method: 'POST' });
-          } catch (error) {
-            console.error('Failed to setup user account:', error);
-          }
-        }
-
         setLoading(false);
       }
     );

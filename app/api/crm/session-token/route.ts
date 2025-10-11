@@ -7,8 +7,8 @@ const nango = new Nango({ secretKey: process.env.NANGO_SECRET_KEY! });
 const CRM_INTEGRATIONS = [
   'hubspot',
   'salesforce',
-  'pipedrive',
-  'zoho'
+  // 'pipedrive', - annoying to get token for
+  'zoho-crm'
 ];
 
 export async function POST(req: NextRequest) {
@@ -21,18 +21,14 @@ export async function POST(req: NextRequest) {
 
     const { userId, email, accountId } = userInfo;
 
-    // Optional: allow organizationId from request body for additional tagging
-    const body = await req.json().catch(() => ({}));
-    const organizationId = body.organizationId;
-
-    console.log('Creating Nango session for authenticated user:', { accountId, userId, email, organizationId });
+    console.log('Creating Nango session for authenticated user:', { accountId, userId, email });
 
     const response = await nango.createConnectSession({
       end_user: {
         id: userId,
         email: email || undefined,
         display_name: email || userId,
-        tags: { accountId, ...(organizationId ? { organizationId } : {}) }
+        tags: { accountId }
       },
       allowed_integrations: CRM_INTEGRATIONS,
     });
@@ -41,9 +37,7 @@ export async function POST(req: NextRequest) {
       sessionToken: response.data.token
     });
   } catch (error: any) {
-    console.error('Error creating Nango session token:', error);
-    console.error('Error response:', error.response?.data);
-    console.error('Error status:', error.response?.status);
+    console.error('Error creating Nango session token:', JSON.stringify(error));
     
     return NextResponse.json(
       { 

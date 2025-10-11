@@ -3,7 +3,8 @@
 import { supabase } from './supabase';
 
 /**
- * Enhanced fetch that includes auth headers and credentials
+ * Simple authenticated fetch for client-side API calls
+ * Uses Supabase's built-in session management
  */
 export async function authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
   // Get current session
@@ -16,10 +17,8 @@ export async function authenticatedFetch(url: string, options: RequestInit = {})
     headers.set('Authorization', `Bearer ${session.access_token}`);
   }
 
-  // Always include credentials for cookies as fallback
   return fetch(url, {
     ...options,
-    credentials: 'same-origin',
     headers
   });
 }

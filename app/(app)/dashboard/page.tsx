@@ -6,6 +6,7 @@ import RecentActivity from './components/RecentActivity';
 import DeliveryChart from './components/DeliveryChart';
 import RepliesChart from './components/RepliesChart';
 import Funnel from './components/Funnel';
+import UserInfo from './components/UserInfo';
 import { headers, cookies } from 'next/headers';
 
 export const metadata: Metadata = pageMeta('Dashboard — OutboundRevive', 'Metrics for your SMS outreach', '/dashboard') as any;
@@ -38,7 +39,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
   return (
     <main className="mx-auto max-w-7xl px-6 py-10">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">Dashboard</h1>
+        <div>
+          <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">Dashboard</h1>
+          <UserInfo />
+        </div>
         <TimeRange current={range} />
       </div>
 

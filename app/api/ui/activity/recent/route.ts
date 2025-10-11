@@ -28,7 +28,7 @@ export async function GET(req: Request) {
     const cutoffIso = new Date(Date.now() - hours * 3600_000).toISOString();
 
     const db = svc();
-    const { data: ua } = await db.from('user_accounts').select('account_id').eq('user_id', user.id).single();
+    const { data: ua } = await db.from('user_data').select('account_id').eq('user_id', user.id).single();
     const accountId = ua?.account_id;
     if (!accountId) return NextResponse.json({ items: [] });
 

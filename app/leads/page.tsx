@@ -33,11 +33,11 @@ type ThreadItem = {
   intent?: string | null;
 };
 
-const th: React.CSSProperties = { textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid #1f2430', fontWeight: 600, fontSize: 13, color: '#9aa3b2' };
-const td: React.CSSProperties = { padding: '8px 10px', borderBottom: '1px solid #1f2430', fontSize: 13, color: '#e6e8ee' };
-const btn: React.CSSProperties = { padding: '8px 12px', border: '1px solid #1f2430', borderRadius: 8, background: '#0f1115', color: '#e6e8ee', cursor: 'pointer' };
+const th: React.CSSProperties = { textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid #e5e5e5', fontWeight: 600, fontSize: 13, color: '#374151' };
+const td: React.CSSProperties = { padding: '8px 10px', borderBottom: '1px solid #e5e5e5', fontSize: 13, color: '#111827' };
+const btn: React.CSSProperties = { padding: '8px 12px', borderWidth: 1, borderStyle: 'solid', borderColor: '#d1d5db', borderRadius: 8, background: '#f9fafb', color: '#374151', cursor: 'pointer' };
 const btnPrimary: React.CSSProperties = { ...btn, background: '#4f46e5', color: '#ffffff', borderColor: '#4f46e5' };
-const hint: React.CSSProperties = { color: '#9aa3b2', fontSize: 12 };
+const hint: React.CSSProperties = { color: '#6b7280', fontSize: 12 };
 
 const badgeBooked: React.CSSProperties = {
   display: 'inline-block',
@@ -98,7 +98,7 @@ function LeadsPageContent() {
         const r = await authenticatedFetch('/api/ui/onboarding/state', { cache: 'no-store' });
         const j = await r.json();
         if (r.ok && j?.step && j.step !== 'done') setOnboardingStep(j.step);
-      } catch {}
+      } catch { }
     })();
   }, []);
 
@@ -109,7 +109,7 @@ function LeadsPageContent() {
       try {
         const { id, at } = JSON.parse(ev.newValue);
         setData((rows) => rows.map((r) => (r.id === id ? { ...r, appointment_set_at: at } : r)));
-      } catch {}
+      } catch { }
       // also refresh quietly after a short delay to confirm
       setTimeout(() => load(), 800);
     }
@@ -279,11 +279,6 @@ function LeadsPageContent() {
 
   return (
     <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}>
-      {/* Debug info */}
-      <div style={{ marginBottom: 16, padding: 8, background: '#f0f0f0', fontSize: 12, borderRadius: 4 }}>
-        Auth Status: {authLoading ? 'Loading...' : user ? `Authenticated as ${user.email}` : 'Not authenticated'}
-      </div>
-
       {onboardingStep && (
         <div style={{ marginBottom: 12, padding: 10, border: '1px solid #ffe7c2', background: '#fff8ec', borderRadius: 8 }}>
           Finish onboarding (step: {onboardingStep}) → <a href="/onboarding">Open wizard</a>
@@ -291,7 +286,7 @@ function LeadsPageContent() {
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Leads</h1>
+        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, color: '#111827' }}>Leads</h1>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={load} style={btn}>Refresh</button>
           <a href="/upload" style={{ ...btn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Upload CSV</a>
@@ -309,7 +304,7 @@ function LeadsPageContent() {
           setTimeout(() => setFeedback(null), 3000);
         }}
         onSync={(results) => {
-          setFeedback(`Synced ${results.results.processed} contacts: ${results.results.created} new, ${results.results.updated} updated`);
+          setFeedback(`Synced ${results.processed} contacts: ${results.created} new, ${results.updated} updated`);
           setTimeout(() => setFeedback(null), 5000);
           load(); // Refresh the leads table
         }}
@@ -320,8 +315,8 @@ function LeadsPageContent() {
       />
 
       <div style={{ display: 'flex', gap: 8, margin: '16px 0' }}>
-        <input style={{ width: 240, padding: 8 }} value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Brand" />
-        <input style={{ flex: 1, padding: 8 }} value={msg} onChange={(e) => setMsg(e.target.value)} placeholder='Message (<=160, must include "Txt STOP to opt out")' />
+        <input style={{ width: 240, padding: 8, border: '1px solid #d1d5db', borderRadius: 6, color: '#111827' }} value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Brand" />
+        <input style={{ flex: 1, padding: 8, border: '1px solid #d1d5db', borderRadius: 6, color: '#111827' }} value={msg} onChange={(e) => setMsg(e.target.value)} placeholder='Message (<=160, must include "Txt STOP to opt out")' />
         <button onClick={send} disabled={!canSend} style={canSend ? btnPrimary : { ...btn, opacity: 0.6, cursor: 'not-allowed' }}>
           {sending ? 'Sending…' : `Send to selected (${selectedIds.length})`}
         </button>
@@ -330,9 +325,9 @@ function LeadsPageContent() {
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 8 }}>
         <span style={hint}>Preview: “{renderedPreview}”</span>
         <span style={hint}>Chars: {renderedPreview.trim().length}/160</span>
-        {!hasStop && <span style={{ ...hint, color: '#b00020' }}>Must include: “Txt STOP to opt out”</span>}
-        {tooLong && <span style={{ ...hint, color: '#b00020' }}>Too long (max 160)</span>}
-        {feedback && <span style={{ ...hint, color: '#0a7' }}>{feedback}</span>}
+        {!hasStop && <span style={{ ...hint, color: '#dc2626' }}>Must include: “Txt STOP to opt out”</span>}
+        {tooLong && <span style={{ ...hint, color: '#dc2626' }}>Too long (max 160)</span>}
+        {feedback && <span style={{ ...hint, color: '#059669' }}>{feedback}</span>}
       </div>
 
       {error && <div style={{ margin: '8px 0', padding: '8px 10px', background: '#fff6f6', border: '1px solid #f3e0e0', borderRadius: 6 }}>{error}</div>}
@@ -362,7 +357,7 @@ function LeadsPageContent() {
               <tr key={l.id} style={l.opted_out ? { opacity: 0.55 } : undefined}>
                 <td style={td}><input type="checkbox" checked={!!selected[l.id]} onChange={() => toggle(l.id)} /></td>
                 <td style={td}>{l.name || '—'}</td>
-                <td style={td}>{l.phone} {l.opted_out && <span style={{ marginLeft: 8, fontSize: 11, color: '#b00020' }}>OPTED OUT</span>}</td>
+                <td style={td}>{l.phone} {l.opted_out && <span style={{ marginLeft: 8, fontSize: 11, color: '#dc2626' }}>OPTED OUT</span>}</td>
                 <td style={td}>{l.status}</td>
                 <td style={td}>{l.replied ? '✅' : '—'}</td>
                 <td style={td}>{l.intent || '—'}</td>
@@ -397,7 +392,7 @@ function LeadsPageContent() {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <h3 style={{ margin: 0, fontSize: 18 }}>Thread</h3>
+              <h3 style={{ margin: 0, fontSize: 18, color: '#111827' }}>Thread</h3>
               <button style={btn} onClick={closeThread}>Close</button>
             </div>
 
@@ -406,10 +401,10 @@ function LeadsPageContent() {
               <div style={{ marginBottom: 12, padding: 10, border: '1px solid #eee', borderRadius: 8, background: '#fafafa' }}>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}>
                   <div>
-                    <div style={{ fontSize: 13, color: '#333', marginBottom: 4 }}>
+                    <div style={{ fontSize: 13, color: '#111827', marginBottom: 4 }}>
                       Booking link: <code>/book/{openLead.id}</code>
                     </div>
-                    <div style={{ fontSize: 12, color: '#666' }}>
+                    <div style={{ fontSize: 12, color: '#6b7280' }}>
                       {openLead.appointment_set_at
                         ? <>Booked at <b>{new Date(openLead.appointment_set_at).toLocaleString()}</b></>
                         : <>Not booked yet</>}
@@ -423,10 +418,10 @@ function LeadsPageContent() {
               </div>
             )}
 
-            {threadLoading && <div style={{ padding: 8 }}>Loading…</div>}
-            {threadError && <div style={{ padding: 8, color: '#b00020' }}>{threadError}</div>}
+            {threadLoading && <div style={{ padding: 8, color: '#111827' }}>Loading…</div>}
+            {threadError && <div style={{ padding: 8, color: '#dc2626' }}>{threadError}</div>}
             {!threadLoading && !threadError && (!thread || thread.length === 0) && (
-              <div style={{ padding: 8 }}>No messages yet.</div>
+              <div style={{ padding: 8, color: '#111827' }}>No messages yet.</div>
             )}
 
             {!threadLoading && !threadError && thread && thread.length > 0 && (
@@ -445,14 +440,14 @@ function LeadsPageContent() {
                       >
                         {m.dir === 'out' ? 'OUT' : 'IN'}
                       </span>
-                      <span style={{ fontSize: 12, color: '#666' }}>
+                      <span style={{ fontSize: 12, color: '#6b7280' }}>
                         {new Date(m.at).toLocaleString()}
                       </span>
-                      {m.status && <span style={{ fontSize: 11, color: '#444' }}>· {m.status}</span>}
-                      {m.intent && <span style={{ fontSize: 11, color: '#444' }}>· {m.intent}</span>}
-                      {m.sid && <span style={{ fontSize: 11, color: '#999' }}>· {m.sid}</span>}
+                      {m.status && <span style={{ fontSize: 11, color: '#374151' }}>· {m.status}</span>}
+                      {m.intent && <span style={{ fontSize: 11, color: '#374151' }}>· {m.intent}</span>}
+                      {m.sid && <span style={{ fontSize: 11, color: '#9ca3af' }}>· {m.sid}</span>}
                     </div>
-                    <div style={{ marginTop: 6, whiteSpace: 'pre-wrap' }}>{m.body}</div>
+                    <div style={{ marginTop: 6, whiteSpace: 'pre-wrap', color: '#111827' }}>{m.body}</div>
                   </li>
                 ))}
               </ul>
@@ -460,14 +455,14 @@ function LeadsPageContent() {
 
             {/* Composer */}
             <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #eee' }}>
-              <label htmlFor="composer" style={{ display: 'block', fontSize: 12, color: '#555', marginBottom: 6 }}>Reply</label>
+              <label htmlFor="composer" style={{ display: 'block', fontSize: 12, color: '#374151', marginBottom: 6 }}>Reply</label>
               <textarea
                 id="composer"
                 value={composer}
                 onChange={(e) => setComposer(e.target.value)}
                 rows={3}
                 placeholder="Type a reply or click AI Suggest…"
-                style={{ width: '100%', padding: 10, border: '1px solid #ddd', borderRadius: 8, resize: 'vertical' }}
+                style={{ width: '100%', padding: 10, border: '1px solid #d1d5db', borderRadius: 8, resize: 'vertical', color: '#111827' }}
               />
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -478,7 +473,7 @@ function LeadsPageContent() {
                     {sendingReply ? 'Sending…' : 'Send'}
                   </button>
                 </div>
-                <div style={{ fontSize: 12, color: '#666' }}>
+                <div style={{ fontSize: 12, color: '#6b7280' }}>
                   {composer.trim().length}/160
                 </div>
               </div>
