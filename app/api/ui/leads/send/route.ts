@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
     {
       const { data: ins, error: insErr } = await admin
         .from('messages_out')
-        .insert({ lead_id, account_id: (lead as any).account_id, body: text, status: 'queued' } as any)
+        .insert({ lead_id, account_id: (lead as any).account_id, body: text, status: 'queued', provider: 'twilio' } as any)
         .select('id')
         .maybeSingle();
       if (!insErr) messageId = ins?.id || null;
@@ -122,14 +122,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       lead_id,
-      to: phone,
-      message_out_id: messageId,
       sid: twilioSid,
       status: dryRun ? 'queued' : 'sent',
-      dry_run: dryRun,
       commit: process.env.VERCEL_GIT_COMMIT_SHA || 'local'
     }, { status: 200 });
-  } catch (e: any) {
-    return NextResponse.json({ error: 'unexpected', detail: e?.message || String(e) }, { status: 500 });
+  } catch (err: any) {
+    console.error('send route error:', err);
+    return NextResponse.json({ ok: false, error: String(err?.message || err) }, { status: 500 });
   }
 }
