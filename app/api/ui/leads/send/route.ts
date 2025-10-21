@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { getTwilioClient, getTwilioSender } from '@/lib/twilio';
+import twilio from 'twilio';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -79,14 +79,21 @@ export async function POST(req: NextRequest) {
     let twilioSid = `SM_${Date.now().toString(36)}`;
     if (!dryRun) {
       try {
-        const client = getTwilioClient();
-        const sender = getTwilioSender();
-        const res = await client.messages.create({
+        // ✅ Twilio API Key auth (preferred over Auth Token)
+        const client = twilio(
+          process.env.TWILIO_API_KEY_SID!,
+          process.env.TWILIO_API_KEY_SECRET!,
+          { accountSid: process.env.TWILIO_ACCOUNT_SID! }
+        );
+        const args: Record<string, string> = {
           to: phone,
           body: text,
-          ...sender,
           statusCallback: `${(process.env.PUBLIC_BASE_URL || req.nextUrl.origin).replace(/\/$/, '')}/api/webhooks/twilio/status`
-        });
+        };
+        if (process.env.TWILIO_MESSAGING_SERVICE_SID) args.messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID as string;
+        else if (process.env.TWILIO_FROM) args.from = process.env.TWILIO_FROM as string;
+        else if (process.env.TWILIO_FROM_NUMBER) args.from = process.env.TWILIO_FROM_NUMBER as string;
+        const res = await client.messages.create(args as any);
         twilioSid = res.sid;
       } catch (e: any) {
         // Update queued row to failed if we created one
@@ -112,7 +119,16 @@ export async function POST(req: NextRequest) {
       } as any).then(() => {});
     }
 
-    return NextResponse.json({ ok: true, lead_id, to: phone, message_out_id: messageId, sid: twilioSid, status: dryRun ? 'queued' : 'sent', dry_run: dryRun }, { status: 200 });
+    return NextResponse.json({
+      ok: true,
+      lead_id,
+      to: phone,
+      message_out_id: messageId,
+      sid: twilioSid,
+      status: dryRun ? 'queued' : 'sent',
+      dry_run: dryRun,
+      commit: process.env.VERCEL_GIT_COMMIT_SHA || 'local'
+    }, { status: 200 });
   } catch (e: any) {
     return NextResponse.json({ error: 'unexpected', detail: e?.message || String(e) }, { status: 500 });
   }
