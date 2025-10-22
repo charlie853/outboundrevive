@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseServer';
-import crypto from 'crypto';
+import twilio from 'twilio';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 function detectIntent(body: string) {
   const t = (body || '').trim().toUpperCase();
@@ -28,31 +29,16 @@ export async function POST(req: NextRequest) {
   try {
     const form = await req.formData();
 
-    // Signature verification (skipped if TWILIO_DISABLE=1)
+    // Signature verification (hardened): validate against the exact URL Twilio hit
     const prodLike = process.env.TWILIO_DISABLE !== '1';
     if (prodLike) {
       const authToken = process.env.TWILIO_AUTH_TOKEN || '';
-      const header =
-        req.headers.get('x-twilio-signature') ||
-        req.headers.get('X-Twilio-Signature') ||
-        '';
-      const inferred = `${req.nextUrl.origin}${req.nextUrl.pathname}`;
-      const baseUrl = process.env.PUBLIC_BASE_URL
-        ? `${process.env.PUBLIC_BASE_URL.replace(/\/$/, '')}/api/webhooks/twilio/inbound`
-        : inferred;
-      const keys = Array.from(form.keys()).sort();
-      let data = baseUrl;
-      for (const k of keys) data += k + String(form.get(k) ?? '');
-
-      const expected = crypto
-        .createHmac('sha1', authToken)
-        .update(Buffer.from(data, 'utf-8'))
-        .digest('base64');
-
-      const a = Buffer.from(header);
-      const b = Buffer.from(expected);
-      const ok = !!authToken && !!header && a.length === b.length && crypto.timingSafeEqual(a, b);
-      if (!ok) return new NextResponse(null, { status: 403 });
+      const signature = req.headers.get('x-twilio-signature') ?? req.headers.get('X-Twilio-Signature');
+      if (!signature) return new NextResponse('missing signature', { status: 403 });
+      const paramsObj = Object.fromEntries(Array.from(form.entries()).map(([k, v]) => [k, String(v)]));
+      const url = req.url; // exact URL (includes path and query)
+      const valid = twilio.validateRequest(authToken, signature as string, url, paramsObj);
+      if (!valid) return new NextResponse('invalid signature', { status: 403 });
     }
 
     const from = String(form.get('From') ?? '');
@@ -84,7 +70,7 @@ export async function POST(req: NextRequest) {
       console.error('[INBOUND] select error:', selErr);
       return new NextResponse(null, { status: 200 });
     }
-    const lead = leads?.[0] || null;
+    let lead = leads?.[0] || null;
 
     const intent = detectIntent(body);
 
@@ -141,7 +127,26 @@ export async function POST(req: NextRequest) {
         { onConflict: 'message_sid' }
       );
 
-    // No matching lead: still honor STOP/START/HELP with consent ledger
+    // No matching lead: try to upsert a lead mapped by incoming To number
+    if (!lead && to) {
+      try {
+        const { data: map } = await supabaseAdmin
+          .from('account_sms_config' as any)
+          .select('account_id')
+          .eq('from_number', to)
+          .maybeSingle();
+        if (map?.account_id) {
+          const { data: ins } = await supabaseAdmin
+            .from('leads')
+            .insert({ account_id: map.account_id, phone: from, status: 'pending' } as any)
+            .select('id,phone,opted_out,replied,intent')
+            .maybeSingle();
+          if (ins) lead = ins as any;
+        }
+      } catch {}
+    }
+
+    // Still no lead: honor STOP/START/HELP and exit
     if (!lead) {
       if (intent === 'STOP') {
         await supabaseAdmin.from('consent_events').insert({
@@ -336,9 +341,10 @@ export async function POST(req: NextRequest) {
     }
     // -----------------------------------------------------------
 
-    return new NextResponse(null, { status: 200 });
+    // Optional TwiML echo so testers see an immediate reply while the pipeline runs
+    return new NextResponse(xml('Got it — we’ll take it from here.'), { status: 200, headers: { 'Content-Type': 'text/xml' } });
   } catch (e) {
     console.error('[INBOUND] Handler exception:', e);
-    return new NextResponse(null, { status: 200 });
+    return new NextResponse('<Response/>', { status: 200, headers: { 'Content-Type': 'text/xml' } });
   }
 }
