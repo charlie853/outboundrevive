@@ -123,3 +123,185 @@ export async function POST(req: NextRequest) {
   // Always return empty TwiML so Twilio doesn’t auto-text on your behalf
   return new NextResponse('<Response/>', { headers: { 'Content-Type': 'text/xml' } });
 }
+export const runtime = 'nodejs';
+
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import OpenAI from 'openai';
+
+function escapeXml(s: string) {
+  return (s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function isQuietNow(tz: string, quietStart?: string | null, quietEnd?: string | null) {
+  try {
+    if (!quietStart || !quietEnd) return false;
+    const now = new Date();
+    // naive: compares local hour strings; your existing helper is fine if you have one
+    const [qsH] = quietStart.split(':').map(Number);
+    const [qeH] = quietEnd.split(':').map(Number);
+    const hour = now.getUTCHours(); // replace with tz-aware if you have it
+    // Interpret as: Do NOT send BETWEEN quietStart..quietEnd (overnight window)
+    if (qsH > qeH) return hour >= qsH || hour < qeH;
+    return hour >= qsH && hour < qeH;
+  } catch { return false; }
+}
+
+export async function POST(req: Request) {
+  // Twilio posts as x-www-form-urlencoded
+  const form = await req.formData();
+  const From = String(form.get('From') || '');
+  const To   = String(form.get('To')   || '');
+  const Body = String(form.get('Body') || '');
+
+  // 1) Supabase client (service role recommended in server env)
+  const supa = createClient(
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } }
+  );
+
+  // 2) Find account + lead by recipient/sender
+  //    - Adjust to your schema as needed
+  const { data: lead } = await supa
+    .from('leads')
+    .select('id, first_name, phone, account_id')
+    .eq('phone', From)                 // change to phone_e164 if that’s your column
+    .limit(1)
+    .maybeSingle();
+
+  // Fallback: try by incoming mapping table, if you have one
+  const accountId = lead?.account_id ?? null;
+
+  const { data: account } = await supa
+    .from('account_settings')
+    .select('id, brand, booking_link, timezone, quiet_start, quiet_end, prompt_system, prompt_examples')
+    .eq('account_id', accountId ?? '')
+    .maybeSingle();
+
+  // 3) Insert inbound row (now that you have lead_id to satisfy NOT NULL)
+  await supa.from('messages_in').insert({
+    lead_id: lead?.id ?? null,  // if null, your table must allow it; you already patched during diagnostics
+    from_phone: From,
+    to_phone: To,
+    body: Body
+  });
+
+  // 4) STOP/HELP compliance (don’t LLM on these)
+  if (/\bstop\b/i.test(Body)) {
+    // mark DNC if you have such a table/column
+    await supa.from('messages_out').insert({
+      lead_id: lead?.id ?? null,
+      body: `You’re opted out and won’t get more texts. Reply START to re-subscribe.`,
+      status: 'queued',
+      provider: 'twilio'
+    });
+    // send via your pipeline
+    await fetch(`${process.env.PUBLIC_BASE_URL}/api/admin/leads/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-key': process.env.ADMIN_API_KEY! },
+      body: JSON.stringify({
+        lead_id: lead?.id,
+        body: `You’re opted out and won’t get more texts. Reply START to re-subscribe.`
+      })
+    }).catch(()=>{});
+    return new NextResponse('<Response/>', { headers: { 'Content-Type': 'text/xml' } });
+  }
+
+  // 5) Quiet hours gate (optional)
+  const inQuiet = isQuietNow(account?.timezone || process.env.TIMEZONE || 'America/New_York',
+                             account?.quiet_start, account?.quiet_end);
+  if (inQuiet) {
+    return new NextResponse('<Response/>', { headers: { 'Content-Type': 'text/xml' } });
+  }
+
+  // 6) Build short conversation context (last N)
+  const N = 8;
+  const [recentIn, recentOut] = await Promise.all([
+    supa.from('messages_in')
+        .select('body, created_at')
+        .eq('lead_id', lead?.id ?? '')
+        .order('created_at', { ascending: false })
+        .limit(N),
+    supa.from('messages_out')
+        .select('body, created_at')
+        .eq('lead_id', lead?.id ?? '')
+        .order('created_at', { ascending: false })
+        .limit(N)
+  ]);
+
+  const history = [
+    ...(recentIn.data || []).map(m => ({ role: 'user' as const, content: m.body })),
+    ...(recentOut.data || []).map(m => ({ role: 'assistant' as const, content: m.body }))
+  ].slice(-N).reverse();
+
+  // 7) LLM call (OpenAI)
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  // System prompt: brand, offering, tone, compliance, booking intent
+  const brand = account?.brand || 'OutboundRevive';
+  const booking = account?.booking_link || process.env.CAL_BOOKING_URL || 'https://cal.com/charlie-fregozo-v8sczt/secret';
+  const systemPrompt = `
+You are the SMS sales assistant for ${brand}. Objective: revive old leads and convert new ones.
+Rules:
+- Be friendly, concise (<= 2 sentences), and helpful.
+- Always stay compliant: do not mislead, do not make medical/financial claims, no PHI/PII beyond what user provides.
+- If user seems ready, include the booking link: ${booking}
+- If user asks "who is this", briefly identify and value prop, then offer link.
+- If the user objects on price, acknowledge and position ROI; offer link.
+- If user texts STOP/UNSUBSCRIBE, do NOT reply (the server handles opt-out).
+End each message with "Txt STOP to opt out" unless the user previously opted out.
+Context from business owner:\n${(account?.prompt_system || '').slice(0, 1200)}
+Examples:\n${JSON.stringify(account?.prompt_examples || [], null, 2).slice(0, 2000)}
+  `.trim();
+
+  const messages = [
+    { role: 'system' as const, content: systemPrompt },
+    ...history,
+    { role: 'user' as const, content: Body }
+  ];
+
+  let llmText = '';
+  try {
+    const resp = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      temperature: 0.5,
+      max_tokens: 140,
+      messages
+    });
+    llmText = resp.choices?.[0]?.message?.content?.trim() || '';
+  } catch (e) {
+    console.error('[inbound] LLM error', e);
+    llmText = ''; // fall back below
+  }
+
+  if (!llmText) {
+    llmText = `Hey—it’s Charlie with ${brand}. Want a quick link to pick a time to chat? ${booking}`;
+  }
+
+  // Ensure opt-out tag
+  if (!/opt out/i.test(llmText)) {
+    llmText = `${llmText} Txt STOP to opt out`;
+  }
+
+  // 8) Send using your pipeline so it logs to messages_out and Twilio
+  const sendRes = await fetch(`${process.env.PUBLIC_BASE_URL}/api/admin/leads/send`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-key': process.env.ADMIN_API_KEY!
+    },
+    body: JSON.stringify({ lead_id: lead?.id, body: llmText })
+  });
+
+  if (!sendRes.ok) {
+    const t = await sendRes.text().catch(()=>'');
+    console.error('[inbound] auto-send failed', sendRes.status, t);
+  }
+
+  // 9) IMPORTANT: return empty TwiML so Twilio DOES NOT send the canned message itself
+  return new NextResponse('<Response/>', { headers: { 'Content-Type': 'text/xml' } });
+}
