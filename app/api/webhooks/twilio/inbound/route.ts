@@ -15,7 +15,9 @@ function escapeXml(s: string) {
 
 export async function POST(req: NextRequest) {
   let form: FormData;
-  try { form = await req.formData(); } catch {
+  try {
+    form = await req.formData();
+  } catch {
     console.error('[twilio/inbound] formData parse failed');
     return new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } });
   }
@@ -27,14 +29,33 @@ export async function POST(req: NextRequest) {
   console.log('[twilio/inbound] received', { From, To, Body });
 
   try {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL!;
+    const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
     console.log('[twilio/inbound] env present?', { url: !!supabaseUrl, srvKey: !!serviceKey });
 
-    const supabase = createClient(supabaseUrl!, serviceKey!, { auth: { persistSession: false } });
+    const supabase = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+
+    // Try to resolve an existing lead by phone (adjust column name if yours is different)
+    let leadId: string | null = null;
+    const { data: lead, error: leadErr } = await supabase
+      .from('leads')
+      .select('id, phone')
+      .eq('phone', From)       // if your column is phone_e164, change to .eq('phone_e164', From)
+      .maybeSingle();
+
+    if (leadErr) {
+      console.error('[twilio/inbound] lead lookup error', leadErr);
+    } else if (lead?.id) {
+      leadId = lead.id;
+      console.log('[twilio/inbound] matched lead', { leadId, phone: lead.phone });
+    } else {
+      console.log('[twilio/inbound] no matching lead for', From);
+    }
+
+    // Insert inbound row (with lead_id if found)
     const { data, error } = await supabase
       .from('messages_in')
-      .insert({ from_phone: From || null, to_phone: To || null, body: Body || null })
+      .insert({ lead_id: leadId, from_phone: From || null, to_phone: To || null, body: Body || null })
       .select()
       .single();
 
@@ -43,6 +64,7 @@ export async function POST(req: NextRequest) {
     } else {
       console.log('[twilio/inbound] insert ok', data);
     }
+
   } catch (e) {
     console.error('[twilio/inbound] insert threw', e);
   }
