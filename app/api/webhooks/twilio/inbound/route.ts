@@ -348,3 +348,113 @@ export async function POST(req: NextRequest) {
     return new NextResponse('<Response/>', { status: 200, headers: { 'Content-Type': 'text/xml' } });
   }
 }
+export const runtime = 'nodejs';
+
+import { NextRequest, NextResponse } from 'next/server';
+import twilio from 'twilio';
+import { createClient } from '@supabase/supabase-js';
+
+function toObj(formData: FormData) {
+  return Object.fromEntries(formData.entries()) as Record<string, string>;
+}
+
+export async function GET() {
+  return NextResponse.json({ ok: true, route: '/api/webhooks/twilio/inbound', method: 'GET' });
+}
+
+export async function POST(req: NextRequest) {
+  // 1) Parse Twilio x-www-form-urlencoded
+  const ctype = req.headers.get('content-type') || '';
+  if (!ctype.includes('application/x-www-form-urlencoded')) {
+    return NextResponse.json({ error: 'bad content-type' }, { status: 400 });
+  }
+  const form = await req.formData();
+  const params = toObj(form); // { From, To, Body, MessageSid, ... }
+
+  // 2) Optional: verify signature (enable once TOKEN is correct in Vercel)
+  try {
+    const sig = req.headers.get('x-twilio-signature') || '';
+    const authToken = process.env.TWILIO_AUTH_TOKEN; // **Account** Auth Token, not API key secret
+    if (!authToken) throw new Error('Missing TWILIO_AUTH_TOKEN');
+
+    // Important: URL must match exactly what Twilio hits
+    const publicUrl =
+      process.env.PUBLIC_BASE_URL?.replace(/\/$/, '') +
+      '/api/webhooks/twilio/inbound';
+    const urlForVerify = publicUrl || new URL(req.url).toString();
+
+    const ok = twilio.validateRequest(authToken, sig, urlForVerify, params);
+    if (!ok) return new NextResponse('Forbidden', { status: 403 });
+  } catch (e) {
+    // If you want to skip verification for now, comment out the block above
+    // and/or return 200 here to confirm webhooks flow end-to-end.
+    // return new NextResponse('<Response/>', { status: 200, headers: { 'Content-Type': 'text/xml' }});
+    return new NextResponse('Forbidden', { status: 403 });
+  }
+
+  // 3) Persist inbound (requires from_phone/to_phone columns to exist)
+  try {
+    const sb = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY! // server-side only
+    );
+    await sb.from('messages_in').insert({
+      from_phone: params.From ?? null,
+      to_phone: params.To ?? null,
+      body: params.Body ?? null,
+    });
+  } catch {
+    // Don't block Twilio on DB issues; still 200
+  }
+
+  // 4) (Optional) Kick your auto-reply logic here
+  // await yourSendEngine({ from: params.To, to: params.From, text: 'Auto-reply here...' });
+
+  // 5) Always return 200 with TwiML (even if no reply)
+  return new NextResponse('<Response></Response>', {
+    status: 200,
+    headers: { 'Content-Type': 'text/xml' },
+  });
+}
+export const runtime = 'nodejs';
+
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
+function formToObject(fd: FormData) {
+  return Object.fromEntries(fd.entries()) as Record<string, string>;
+}
+
+export async function GET() {
+  return NextResponse.json({ ok: true, route: '/api/webhooks/twilio/inbound', method: 'GET' });
+}
+
+export async function POST(req: NextRequest) {
+  const ct = req.headers.get('content-type') || '';
+  if (!ct.includes('application/x-www-form-urlencoded')) {
+    return NextResponse.json({ error: 'bad content-type' }, { status: 400 });
+  }
+
+  // Parse Twilio form body
+  const form = await req.formData();
+  const p = formToObject(form); // From, To, Body, MessageSid, ...
+
+  // Persist inbound (won’t block Twilio)
+  try {
+    const sb = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+    await sb.from('messages_in').insert({
+      from_phone: p.From ?? null,
+      to_phone: p.To ?? null,
+      body: p.Body ?? null,
+    });
+  } catch {}
+
+  // Always 200 with empty TwiML so Twilio is happy
+  return new NextResponse('<Response></Response>', {
+    status: 200,
+    headers: { 'Content-Type': 'text/xml' },
+  });
+}
