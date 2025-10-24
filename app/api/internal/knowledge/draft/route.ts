@@ -183,7 +183,7 @@ async function callLLM(opts: {
   const { provider, model, system, user, temperature = 0.3 } = opts;
 
   // Mock if disabled or missing keys
-  const disabled = process.env.LLM_DISABLE === '1';
+    const disabled = ['1','true'].includes(String(process.env.LLM_DISABLE||'').toLowerCase());
   const missingKey =
     (provider === 'openai' && !process.env.OPENAI_API_KEY) ||
     (provider === 'anthropic' && !process.env.ANTHROPIC_API_KEY) ||

@@ -170,7 +170,7 @@ function shapeSms(text: string, maxChars: number) {
 type Provider = 'openai'|'anthropic'|'openrouter'|'together'|'deepseek'|'mock';
 async function callLLM(opts: { provider: Provider; model: string; system: string; user: string; temperature?: number; }) {
   const { provider, model, system, user, temperature = 0.2 } = opts;
-  const disabled = process.env.LLM_DISABLE === '1';
+  const disabled = ['1','true'].includes(String(process.env.LLM_DISABLE||'').toLowerCase());
   const missingKey =
     (provider === 'openai' && !process.env.OPENAI_API_KEY) ||
     (provider === 'anthropic' && !process.env.ANTHROPIC_API_KEY) ||

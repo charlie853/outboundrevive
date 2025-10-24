@@ -38,7 +38,6 @@ async function llmReplyOrFallback(userBody: string, _accountId?: string) {
     return txt.slice(0, 300);
   } catch (e: any) {
     console.error('[ai-reply] LLM fallback:', e?.message || e);
-    return "Hi — it’s OutboundRevive. We re-engage your leads with friendly SMS. Want a quick link to book a 10-min call?";
   }
 }
 
@@ -51,7 +50,10 @@ export async function POST(req: Request) {
     }
 
     // Parse
-    const { from, to, body } = await req.json();
+    const payload = await req.json().catch(() => ({}));
+    const from = String(payload.from ?? payload.From ?? '').trim();
+    const to   = String(payload.to   ?? payload.To   ?? '').trim();
+    const body = String(payload.body ?? payload.Body ?? '').trim();
     if (!from || !to || !body) {
       return NextResponse.json({ ok: false, error: 'from/to/body required' }, { status: 400 });
     }
@@ -94,7 +96,7 @@ export async function POST(req: Request) {
         .limit(1)
         .maybeSingle();
       if (lastOut?.body && lastOut.body.trim() === reply.trim()) {
-        reply = reply.length > 3 ? reply.slice(0, reply.length - 1) : reply;
+        reply = reply.endsWith('.') ? reply : reply + '.';
       }
     }
 

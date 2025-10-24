@@ -62,7 +62,7 @@ export async function buildReply({ accountId, leadId, lastInboundText }: { accou
 
   const provider = (process.env.LLM_PROVIDER || 'openai').toLowerCase();
   const model = process.env.LLM_MODEL || 'gpt-4o-mini';
-  const disabled = process.env.LLM_DISABLE === '1';
+  const disabled = ['1','true'].includes(String(process.env.LLM_DISABLE||'').toLowerCase());
 
   if (disabled || !process.env.OPENAI_API_KEY) {
     // Mocked reply with booking nudge
@@ -83,4 +83,3 @@ export async function buildReply({ accountId, leadId, lastInboundText }: { accou
   if (text.length > 160) text = text.slice(0, 157) + '…';
   return { text };
 }
-
