@@ -4,6 +4,7 @@ export const runtime = 'nodejs';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendSms } from '@/lib/twilio';
+import { generateReply } from './generateReply';
 
 function resolvePublicBase(req: Request) {
   const envBase =
@@ -41,10 +42,6 @@ async function llmReplyOrFallback(userBody: string, _accountId?: string) {
   }
 }
 
-export async function GET() {
-  return NextResponse.json({ ok: true, ping: 'admin/ai-reply alive' });
-}
-
 export async function POST(req: Request) {
   try {
     // Admin auth
@@ -70,17 +67,36 @@ export async function POST(req: Request) {
 
     // Optional lead lookup (by phone)
     let lead_id: string | undefined = undefined;
+    let account_id: string | undefined = undefined;
     try {
       const { data: lead } = await supa
         .from('leads')
-        .select('id')
+        .select('id,account_id')
         .eq('phone', String(from).trim())
         .maybeSingle();
-      if (lead?.id) lead_id = String(lead.id);
+      if (lead?.id) {
+        lead_id = String(lead.id);
+        account_id = (lead as any).account_id || undefined;
+      }
     } catch (_) {}
 
-    // LLM reply with fallback
-    const reply = await llmReplyOrFallback(String(body), undefined);
+    // LLM reply
+    let reply = await generateReply(account_id, String(body));
+
+    // Anti-repeat guard (avoid sending identical text twice)
+    if (lead_id) {
+      const { data: lastOut } = await supa
+        .from('messages_out')
+        .select('body, created_at')
+        .eq('provider', 'twilio')
+        .eq('lead_id', lead_id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (lastOut?.body && lastOut.body.trim() === reply.trim()) {
+        reply = reply.length > 3 ? reply.slice(0, reply.length - 1) : reply;
+      }
+    }
 
     // Twilio send (fetch-based helper)
     const sent = await sendSms({
