@@ -1,39 +1,39 @@
-import Twilio from 'twilio';
+export type SendSmsParams = {
+  to: string;
+  body: string;
+  from?: string;                 // optional if using Messaging Service
+  messagingServiceSid?: string;  // preferred
+  statusCallback?: string;
+};
 
-// New helpers (API key preferred, token fallback)
-export function getTwilioClient() {
+export async function sendSms(params: SendSmsParams) {
+  const { to, body, from, messagingServiceSid, statusCallback } = params;
+
   const accountSid = process.env.TWILIO_ACCOUNT_SID!;
-  const keySid = process.env.TWILIO_API_KEY_SID;
-  const keySecret = process.env.TWILIO_API_KEY_SECRET;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const basic = (process.env.TWILIO_API_KEY_SID && process.env.TWILIO_API_KEY_SECRET)
+    ? `${process.env.TWILIO_API_KEY_SID}:${process.env.TWILIO_API_KEY_SECRET}`
+    : `${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN!}`;
 
-  if (!accountSid) throw new Error('TWILIO_ACCOUNT_SID missing');
+  const form = new URLSearchParams();
+  form.set('To', to.trim());
+  if (messagingServiceSid) form.set('MessagingServiceSid', messagingServiceSid);
+  if (from) form.set('From', from);
+  form.set('Body', body);
+  if (statusCallback) form.set('StatusCallback', statusCallback);
 
-  if (keySid && keySecret) {
-    return Twilio(keySid, keySecret, { accountSid });
+  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Authorization: 'Basic ' + Buffer.from(basic).toString('base64'),
+    },
+    body: form,
+    cache: 'no-store',
+  });
+
+  const json: any = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(`Twilio send failed: ${res.status} ${res.statusText} ${JSON.stringify(json)}`);
   }
-  if (authToken) {
-    return Twilio(accountSid, authToken);
-  }
-  throw new Error('No Twilio credentials: set API key (SK…/secret) or TWILIO_AUTH_TOKEN');
-}
-
-export function getTwilioSender() {
-  const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
-  // Support either TWILIO_FROM or TWILIO_FROM_NUMBER
-  const from = process.env.TWILIO_FROM || process.env.TWILIO_FROM_NUMBER;
-  if (messagingServiceSid) return { messagingServiceSid } as const;
-  if (from) return { from } as const;
-  throw new Error('Set TWILIO_MESSAGING_SERVICE_SID or TWILIO_FROM / TWILIO_FROM_NUMBER');
-}
-
-// Backwards-compatible exports used elsewhere in the app
-export const twilioClient = (() => {
-  try { return getTwilioClient(); } catch { return Twilio('AC', 'bad'); }
-})();
-
-export function getMessagingServiceSid() {
-  const sid = process.env.TWILIO_MESSAGING_SERVICE_SID || process.env.MESSAGING_SERVICE_SID;
-  if (!sid) throw new Error('TWILIO_MESSAGING_SERVICE_SID missing');
-  return sid;
+  return { sid: String(json.sid || ''), status: String(json.status || 'queued') };
 }
