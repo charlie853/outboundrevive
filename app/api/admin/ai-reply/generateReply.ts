@@ -1,92 +1,94 @@
 import OpenAI from 'openai';
-import { createClient } from '@supabase/supabase-js';
 
-function simpleFallback(userBody: string, brandName = 'OutboundRevive', link?: string) {
+const sysPrompt = `
+You are OutboundRevive’s SMS AI. Follow the "OutboundRevive — SMS AI System Prompt (Operator-Managed)" playbook and return JSON ONLY:
+{ "intent": "...", "confidence": 0-1, "message": "≤320 chars", "needs_footer": true/false, "actions": [...], "hold_until": "...", "policy_flags": {...} }
+If you are unsure, ask a short clarifying question in "message".
+`;
+
+type ORJSON = {
+  intent: string;
+  confidence: number;
+  message: string;
+  needs_footer?: boolean;
+  actions?: Array<Record<string, any>>;
+  hold_until?: string | null;
+  policy_flags?: Record<string, boolean>;
+};
+
+function simpleFallback(userBody: string, brandName: string, link?: string) {
   const t = (userBody || '').toLowerCase();
   if (/(price|cost|charge|pricing)/i.test(t)) {
-    return `Quick pricing overview from ${brandName}: flexible plans based on lead volume.${link ? ` Want me to send a quote? ${link}` : ''}`;
+    return `Quick pricing overview from ${brandName}: flexible plans based on lead volume. Want me to send a quote?${link ? ' ' + link : ''}`;
   }
-  if (/(hubspot|integrat)/i.test(t)) {
-    return `Yes—${brandName} integrates with HubSpot (and other CRMs).${link ? ` Want a quick link to see how it connects? ${link}` : ''}`;
+  if (/(hubspot|integrate)/i.test(t)) {
+    return `${brandName} supports HubSpot integration for lead sync & notes. Want a quick link to see how it connects?${link ? ' ' + link : ''}`;
   }
   if (/(who.*this|who.*text|who.*is this|who dis|new phone)/i.test(t)) {
-    return `Hey—it’s ${brandName}. We reconnect your old inbound leads with friendly SMS.${link ? ` Want a quick link to book a 10‑min call? ${link}` : ''}`;
+    return `Hey—it’s ${brandName}. We reconnect your old inbound leads with friendly SMS. Want a quick link to book a 10-min call?${link ? ' ' + link : ''}`;
   }
-  return `Hey—it’s ${brandName}. We help revive old leads with compliant SMS.${link ? ` Want a 10‑min walkthrough? ${link}` : ''}`;
+  return `Hey—it’s ${brandName}. We help revive old leads with compliant SMS. Want a 10-min walkthrough?${link ? ' ' + link : ''}`;
 }
 
-type HistoryTurn = { role: 'user'|'assistant'; content: string };
-
-export async function generateReply(
-  accountId: string | null,
-  userBody: string,
-  opts?: { history?: HistoryTurn[] }
-): Promise<string> {
+export async function generateReply({
+  userBody,
+  brandName,
+  bookingLink,
+  context,
+}: {
+  userBody: string;
+  brandName: string;
+  bookingLink?: string;
+  context?: Record<string, any>;
+}): Promise<{ kind: 'json'; intent: string; confidence: number; message: string; needs_footer?: boolean; actions?: any[]; hold_until?: string|null; policy_flags?: Record<string, boolean> } | { kind:'text'; message: string }> {
   const off = String(process.env.LLM_DISABLE || '').toLowerCase();
-  if (off === '1' || off === 'true') return simpleFallback(userBody);
-
-  const supa = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
-    auth: { persistSession: false },
-  });
-
-  let prompt_system =
-    "You are {{BRAND}}'s SMS assistant. Reply in under 160 chars. Be friendly, specific, and helpful. If it makes sense, include {{BOOKING_LINK}}. Never invent facts.";
-  let prompt_examples: Array<{ user: string; assistant: string }> = [];
-  let booking_link: string | null = null;
-  let brand: string | null = 'OutboundRevive';
-
-  if (accountId) {
-    const { data: acct } = await supa
-      .from('account_settings')
-      .select('prompt_system, prompt_examples, booking_link, brand')
-      .eq('account_id', accountId)
-      .maybeSingle();
-    if (acct?.prompt_system) prompt_system = String(acct.prompt_system);
-    if (acct?.prompt_examples) prompt_examples = acct.prompt_examples as any[];
-    if (acct?.booking_link) booking_link = String(acct.booking_link);
-    if (acct?.brand) brand = String(acct.brand);
+  if (off === '1' || off === 'true') {
+    return { kind: 'text', message: simpleFallback(userBody, brandName, bookingLink) } as const;
   }
 
-  const brandName = brand ?? 'OutboundRevive';
-  const link = booking_link ?? '';
-  const apply = (s: string) => s.replaceAll('{{BOOKING_LINK}}', link).replaceAll('{{BRAND}}', brandName);
-
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-
   try {
-    const fewShot = (prompt_examples || []).slice(0, 10).flatMap((ex) => [
-      { role: 'user' as const, content: ex.user },
-      { role: 'assistant' as const, content: apply(String(ex.assistant)) },
-    ]);
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+    const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-    // Pull up to 8 prior turns if provided
-    const prior = Array.isArray(opts?.history)
-      ? (opts!.history as HistoryTurn[])
-          .filter(h => h && (h.role === 'user' || h.role === 'assistant') && typeof h.content === 'string')
-          .slice(-8)
-      : [];
-
-    const messages = [
-      { role: 'system' as const, content: apply(prompt_system) },
-      ...fewShot,
-      ...prior.map(h => ({ role: h.role, content: h.content } as const)),
-      { role: 'user' as const, content: String(userBody || '') },
-    ];
+    const userPayload = {
+      brand: { name: brandName, booking_link: bookingLink || null },
+      contact_text: userBody,
+      context: context || {}
+    };
 
     const res = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-      messages,
-      temperature: 0.5,
-      max_tokens: 160,
+      model,
+      temperature: 0.4,
+      max_tokens: 220,
+      messages: [
+        { role: 'system', content: sysPrompt },
+        { role: 'user', content: JSON.stringify(userPayload) }
+      ]
     });
 
-    let txt = res.choices?.[0]?.message?.content?.trim() || '';
-    if (!txt) throw new Error('empty-llm-reply');
-    if (txt.length > 300) txt = txt.slice(0, 300);
-    console.log('[ai-reply] used=LLM input=', String(userBody || '').slice(0, 80));
-    return txt;
+    const raw = res.choices?.[0]?.message?.content?.trim() || '';
+    let parsed: ORJSON | null = null;
+    try { parsed = JSON.parse(raw); } catch {}
+
+    if (parsed && typeof parsed.message === 'string') {
+      let msg = parsed.message.slice(0, 320);
+      console.log('[ai-reply] used=LLM input=', String(userBody).slice(0, 80));
+      return {
+        kind: 'json',
+        intent: parsed.intent,
+        confidence: Number(parsed.confidence || 0),
+        message: msg,
+        needs_footer: !!parsed.needs_footer,
+        actions: parsed.actions || [],
+        hold_until: parsed.hold_until || null,
+        policy_flags: parsed.policy_flags || {}
+      } as const;
+    }
+
+    console.log('[ai-reply] used=FALLBACK reason=', 'non-json');
+    return { kind: 'text', message: simpleFallback(userBody, brandName, bookingLink) } as const;
   } catch (e) {
     console.log('[ai-reply] used=FALLBACK reason=', String((e as any)?.message || e));
-    return simpleFallback(userBody, brandName, link);
+    return { kind: 'text', message: simpleFallback(userBody, brandName, bookingLink) } as const;
   }
 }

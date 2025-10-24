@@ -111,8 +111,17 @@ export async function POST(req: Request) {
       }
     } catch (_) {}
 
-    // LLM reply (pass history for multi-turn context)
-    let reply = await generateReply(account_id || null, String(body), { history });
+    // Build brand + link context and call LLM JSON/text helper
+    const brandName = 'OutboundRevive';
+    const bookingLink = process.env.CAL_BOOKING_URL || process.env.CAL_PUBLIC_URL || '';
+    const ai = await generateReply({
+      userBody: String(body),
+      brandName,
+      bookingLink,
+      context: { channel: 'sms', history }
+    });
+    // Unify to plain text for now (use ai.message either way)
+    let reply = ai.kind === 'json' ? ai.message : ai.message;
 
     // Anti-repeat guard (avoid sending identical text twice)
     if (lead_id) {
@@ -146,12 +155,7 @@ export async function POST(req: Request) {
       provider_sid: sent.sid,
     });
 
-    return NextResponse.json({
-      ok: true,
-      reply,
-      send_result: { sid: sent.sid, status: sent.status },
-      base_used: PUBLIC_BASE
-    });
+    return NextResponse.json({ ok: true, strategy: ai.kind, reply, send_result: sent, base_used: PUBLIC_BASE });
   } catch (e: any) {
     console.error('[admin/ai-reply] error', e);
     return NextResponse.json({ ok: false, error: e?.message || 'internal-error' }, { status: 500 });
