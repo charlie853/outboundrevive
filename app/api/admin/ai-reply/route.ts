@@ -136,6 +136,20 @@ export async function POST(req: Request) {
       if (lastOut?.body && lastOut.body.trim() === reply.trim()) {
         reply = reply.endsWith('.') ? reply : reply + '.';
       }
+    } else {
+      // Fallback: if we don't have a lead_id, compare with last Twilio outbound globally
+      try {
+        const { data: lastAny } = await supa
+          .from('messages_out')
+          .select('body')
+          .eq('provider', 'twilio')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (lastAny?.body && lastAny.body.trim() === reply.trim()) {
+          reply = reply.replace(/[\.!]?$/, ' — happy to share more details!');
+        }
+      } catch (_) {}
     }
 
     // Twilio send (fetch-based helper)
