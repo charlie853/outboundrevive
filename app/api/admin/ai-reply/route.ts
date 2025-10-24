@@ -61,11 +61,7 @@ export async function POST(req: Request) {
     const PUBLIC_BASE = resolvePublicBase(req);
 
     // Supabase admin client
-    const supa = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false } }
-    );
+    const supa = supabaseAdmin;
 
     // Optional lead lookup (by phone)
     let lead_id: string | undefined = undefined;
@@ -82,44 +78,10 @@ export async function POST(req: Request) {
       }
     } catch (_) {}
 
-    // Optional short conversation history (last few in/out)
-    let history: Array<{ role: 'user'|'assistant'; content: string }> = [];
-    try {
-      if (lead_id) {
-        const LIMIT = 6;
-        const [ins, outs] = await Promise.all([
-          supa
-            .from('messages_in')
-            .select('body, created_at')
-            .eq('lead_id', lead_id)
-            .order('created_at', { ascending: false })
-            .limit(LIMIT),
-          supa
-            .from('messages_out')
-            .select('body, created_at')
-            .eq('lead_id', lead_id)
-            .order('created_at', { ascending: false })
-            .limit(LIMIT),
-        ]);
-        const turns: Array<{ role: 'user'|'assistant'; content: string; at: string }> = [];
-        (ins.data || []).forEach(m => turns.push({ role: 'user', content: String((m as any).body || ''), at: String((m as any).created_at || '') }));
-        (outs.data || []).forEach(m => turns.push({ role: 'assistant', content: String((m as any).body || ''), at: String((m as any).created_at || '') }));
-        history = turns
-          .sort((a,b) => new Date(a.at).getTime() - new Date(b.at).getTime())
-          .map(t => ({ role: t.role, content: t.content }))
-          .slice(-LIMIT);
-      }
-    } catch (_) {}
-
-    // Build brand + link context and call LLM JSON/text helper
+    // Build brand + link context and call LLM JSON/text helper (generator fetches thread)
     const brandName = 'OutboundRevive';
     const bookingLink = process.env.CAL_BOOKING_URL || process.env.CAL_PUBLIC_URL || '';
-    const ai = await generateReply({
-      userBody: String(body),
-      brandName,
-      bookingLink,
-      context: { channel: 'sms', history }
-    });
+    const ai = await generateReply({ userBody: String(body), fromPhone: from, toPhone: to, brandName, bookingLink });
     // Unify to plain text for now (use ai.message either way)
     let reply = ai.kind === 'json' ? ai.message : ai.message;
 

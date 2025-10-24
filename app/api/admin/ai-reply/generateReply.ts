@@ -1,10 +1,5 @@
-import OpenAI from 'openai';
-
-const sysPrompt = `
-You are OutboundRevive’s SMS AI. Follow the "OutboundRevive — SMS AI System Prompt (Operator-Managed)" playbook and return JSON ONLY:
-{ "intent": "...", "confidence": 0-1, "message": "≤320 chars", "needs_footer": true/false, "actions": [...], "hold_until": "...", "policy_flags": {...} }
-If you are unsure, ask a short clarifying question in "message".
-`;
+import OpenAI from "openai";
+import { supabaseAdmin } from "@/lib/supabaseServer";
 
 type ORJSON = {
   intent: string;
@@ -16,79 +11,127 @@ type ORJSON = {
   policy_flags?: Record<string, boolean>;
 };
 
-function simpleFallback(userBody: string, brandName: string, link?: string) {
-  const t = (userBody || '').toLowerCase();
-  if (/(price|cost|charge|pricing)/i.test(t)) {
-    return `Quick pricing overview from ${brandName}: flexible plans based on lead volume. Want me to send a quote?${link ? ' ' + link : ''}`;
+const SYSTEM = `
+You are OutboundRevive’s SMS AI. Return ONLY JSON:
+{"intent":"...", "confidence":0-1, "message":"<=320 chars", "needs_footer":true/false, "actions":[]}
+Follow the OutboundRevive playbook (compliance, opt-out, quiet hours, caps, tone, booking CTA).
+No prose, no backticks—JSON object only.
+`;
+
+function stripToJSON(s: string): string | null {
+  const i = s.indexOf("{");
+  const j = s.lastIndexOf("}");
+  if (i >= 0 && j > i) {
+    const slice = s.slice(i, j + 1);
+    try { JSON.parse(slice); return slice; } catch {}
   }
-  if (/(hubspot|integrate)/i.test(t)) {
-    return `${brandName} supports HubSpot integration for lead sync & notes. Want a quick link to see how it connects?${link ? ' ' + link : ''}`;
+  return null;
+}
+
+function simpleFallback(userBody: string, brand: string, link?: string) {
+  if (/stop|unsubscribe|quit|end|cancel|remove/i.test(userBody)) {
+    return `You’re opted out and won’t receive more messages. Reply START to resubscribe.`;
   }
-  if (/(who.*this|who.*text|who.*is this|who dis|new phone)/i.test(t)) {
-    return `Hey—it’s ${brandName}. We reconnect your old inbound leads with friendly SMS. Want a quick link to book a 10-min call?${link ? ' ' + link : ''}`;
+  if (/price|cost|charge/i.test(userBody)) {
+    return `Quick pricing overview from ${brand}: flexible plans based on lead volume. Want me to send a quote?${link ? " " + link : ""}`;
   }
-  return `Hey—it’s ${brandName}. We help revive old leads with compliant SMS. Want a 10-min walkthrough?${link ? ' ' + link : ''}`;
+  if (/hubspot|integrate/i.test(userBody)) {
+    return `${brand} supports HubSpot for lead sync & notes. Want a 10-min walkthrough?${link ? " " + link : ""}`;
+  }
+  return `Hey—it’s ${brand}. We help revive old leads with compliant SMS. Want a quick link to book?${link ? " " + link : ""}`;
+}
+
+async function fetchThread(from: string, to: string) {
+  const { data: inbound } = await supabaseAdmin
+    .from("messages_in")
+    .select("from_phone,to_phone,body,created_at")
+    .or(
+      `and(from_phone.eq.${from},to_phone.eq.${to}),and(from_phone.eq.${to},to_phone.eq.${from})`
+    )
+    .order("created_at", { ascending: false })
+    .limit(8);
+
+  const { data: outbound } = await supabaseAdmin
+    .from("messages_out")
+    .select("body,created_at")
+    .order("created_at", { ascending: false })
+    .limit(4);
+
+  const convo: Array<{ role: "user" | "assistant"; content: string; at: string; }> = [];
+  for (const m of (inbound || []).reverse()) {
+    const role = (m as any).from_phone === from ? "user" : "assistant";
+    convo.push({ role, content: (m as any).body, at: (m as any).created_at });
+  }
+  for (const m of (outbound || []).reverse()) {
+    convo.push({ role: "assistant", content: (m as any).body, at: (m as any).created_at });
+  }
+  return convo.slice(-10);
 }
 
 export async function generateReply({
   userBody,
+  fromPhone,
+  toPhone,
   brandName,
-  bookingLink,
-  context,
+  bookingLink
 }: {
   userBody: string;
+  fromPhone: string;
+  toPhone: string;
   brandName: string;
   bookingLink?: string;
-  context?: Record<string, any>;
-}): Promise<{ kind: 'json'; intent: string; confidence: number; message: string; needs_footer?: boolean; actions?: any[]; hold_until?: string|null; policy_flags?: Record<string, boolean> } | { kind:'text'; message: string }> {
-  const off = String(process.env.LLM_DISABLE || '').toLowerCase();
-  if (off === '1' || off === 'true') {
-    return { kind: 'text', message: simpleFallback(userBody, brandName, bookingLink) } as const;
+}) {
+  const disabled = (process.env.LLM_DISABLE || "").trim() === "1";
+  if (disabled) {
+    return { kind: "text", reason: "llm_disabled", message: simpleFallback(userBody, brandName, bookingLink) } as const;
   }
 
+  const key = (process.env.OPENAI_API_KEY || "").trim();
+  if (!key) {
+    return { kind: "text", reason: "missing_api_key", message: simpleFallback(userBody, brandName, bookingLink) } as const;
+  }
+
+  const model = (process.env.OPENAI_MODEL || "gpt-4o-mini").trim();
+  const openai = new OpenAI({ apiKey: key });
+
   try {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-    const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+    const thread = await fetchThread(fromPhone, toPhone);
 
-    const userPayload = {
-      brand: { name: brandName, booking_link: bookingLink || null },
-      contact_text: userBody,
-      context: context || {}
-    };
-
-    const res = await openai.chat.completions.create({
+    const response = await openai.responses.create({
       model,
       temperature: 0.4,
-      max_tokens: 220,
-      messages: [
-        { role: 'system', content: sysPrompt },
-        { role: 'user', content: JSON.stringify(userPayload) }
+      response_format: { type: "json_object" },
+      input: [
+        {
+          role: "system",
+          content: [{ type: "text", text: SYSTEM }]
+        },
+        {
+          role: "user",
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              brand: { name: brandName, booking_link: bookingLink || null },
+              recent_thread: thread,
+              contact_text: userBody
+            })
+          }]
+        }
       ]
     });
 
-    const raw = res.choices?.[0]?.message?.content?.trim() || '';
-    let parsed: ORJSON | null = null;
-    try { parsed = JSON.parse(raw); } catch {}
+    let out = (response as any).output_text
+           || (response as any).output?.[0]?.content?.[0]?.text?.value
+           || (response as any).choices?.[0]?.message?.content
+           || "";
 
-    if (parsed && typeof parsed.message === 'string') {
-      let msg = parsed.message.slice(0, 320);
-      console.log('[ai-reply] used=LLM input=', String(userBody).slice(0, 80));
-      return {
-        kind: 'json',
-        intent: parsed.intent,
-        confidence: Number(parsed.confidence || 0),
-        message: msg,
-        needs_footer: !!parsed.needs_footer,
-        actions: parsed.actions || [],
-        hold_until: parsed.hold_until || null,
-        policy_flags: parsed.policy_flags || {}
-      } as const;
-    }
+    const jsonText = stripToJSON(String(out)) || String(out);
+    const parsed = JSON.parse(jsonText) as ORJSON;
 
-    console.log('[ai-reply] used=FALLBACK reason=', 'non-json');
-    return { kind: 'text', message: simpleFallback(userBody, brandName, bookingLink) } as const;
-  } catch (e) {
-    console.log('[ai-reply] used=FALLBACK reason=', String((e as any)?.message || e));
-    return { kind: 'text', message: simpleFallback(userBody, brandName, bookingLink) } as const;
+    let msg = (parsed.message || "").slice(0, 320);
+    console.log('[ai-reply] used=LLM input=', String(userBody).slice(0, 80));
+    return { kind: "json", parsed, message: msg } as const;
+  } catch (e: any) {
+    return { kind: "text", reason: String(e?.message || e), message: simpleFallback(userBody, brandName, bookingLink) } as const;
   }
 }
