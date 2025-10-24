@@ -1,7 +1,7 @@
+import { sendSms } from '@/lib/twilio';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 import { requireAccountAccess } from '@/lib/account';
-import { twilioClient, process.env.TWILIO_MESSAGING_SERVICE_SID } from '@/lib/twilio';
 
 export const runtime = 'nodejs';
 
