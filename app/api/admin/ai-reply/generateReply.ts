@@ -1,7 +1,6 @@
-import { supabaseAdmin } from '@/lib/supabaseServer';
 export const runtime = 'nodejs';
+import { supabaseAdmin } from '@/lib/supabaseServer';
 import OpenAI from "openai";
-import { supabaseAdmin } from "@/lib/supabaseServer";
 
 type ORJSON = {
   intent: string;

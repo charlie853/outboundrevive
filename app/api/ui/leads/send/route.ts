@@ -1,3 +1,4 @@
+import { supabaseAdmin } from '@/lib/supabaseServer';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -13,7 +14,6 @@ const TWILIO_API_KEY_SECRET = process.env.TWILIO_API_KEY_SECRET!;
 const TWILIO_MESSAGING_SERVICE_SID = process.env.TWILIO_MESSAGING_SERVICE_SID!;
 const TWILIO_DISABLE = process.env.TWILIO_DISABLE ?? '0';
 
-const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 /** Verify Supabase user from a Bearer token */
 async function requireUser(req: NextRequest) {
