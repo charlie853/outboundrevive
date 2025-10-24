@@ -16,6 +16,23 @@ function resolvePublicBase(req: Request) {
 
 export async function POST(req: Request) {
   const form = await req.formData();
+  const from = String(form.get('From') || '').trim();
+  const to = String(form.get('To') || '').trim();
+  const text = String(form.get('Body') || '').trim();
+
+  const cleaned = text.replace(/\W/g,"").toUpperCase();
+  const isStop = /^(STOP|STOPALL|UNSUBSCRIBE|CANCEL|END|QUIT|REMOVE)$/.test(cleaned);
+  const isHelp = /^HELP$/.test(cleaned);
+  if (isStop) {
+    try { await supabaseAdmin.from("global_suppressions").upsert({ phone: from }); } catch {}
+    const xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Message>You are opted out and will not receive more messages. Reply START to resubscribe.</Message></Response>";
+    return new Response(xml, { headers: { "Content-Type": "text/xml" } });
+  }
+  if (isHelp) {
+    const xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Message>Help: Reply STOP to opt out. Msg&Data rates may apply.</Message></Response>";
+    return new Response(xml, { headers: { "Content-Type": "text/xml" } });
+  }
+
   const From = String(form.get('From') || '');
   const To   = String(form.get('To')   || '');
   const Body = String(form.get('Body') || '');
