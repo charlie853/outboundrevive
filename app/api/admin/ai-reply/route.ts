@@ -18,6 +18,50 @@ export async function GET() {
   return NextResponse.json({ ok: true, ping: 'admin/ai-reply alive' });
 }
 
+// Twilio send helper via fetch only (no SDK)
+async function sendSmsViaTwilioFetch(args: {
+  to: string;
+  body: string;
+  messagingServiceSid: string;
+  statusCallback: string;
+}) {
+  const { to, body, messagingServiceSid, statusCallback } = args;
+
+  const accountSid = process.env.TWILIO_ACCOUNT_SID!;
+  const basic = (() => {
+    if (process.env.TWILIO_API_KEY_SID && process.env.TWILIO_API_KEY_SECRET) {
+      return `${process.env.TWILIO_API_KEY_SID}:${process.env.TWILIO_API_KEY_SECRET}`;
+    }
+    return `${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN!}`;
+  })();
+
+  const res = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Authorization: 'Basic ' + Buffer.from(basic).toString('base64'),
+      },
+      body: new URLSearchParams({
+        To: String(to).trim(),
+        MessagingServiceSid: messagingServiceSid,
+        Body: body,
+        StatusCallback: statusCallback,
+      }),
+      cache: 'no-store',
+    }
+  );
+
+  const json: any = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(
+      `Twilio send failed: ${res.status} ${res.statusText} ${JSON.stringify(json)}`
+    );
+  }
+  return { sid: String(json.sid), status: String(json.status || 'queued') };
+}
+
 export async function POST(req: Request) {
   try {
     console.log('[ai-reply] step1: auth');
@@ -97,36 +141,24 @@ export async function POST(req: Request) {
     if (reply.length > 300) reply = reply.slice(0,300);
 
     console.log('[ai-reply] step8: twilio send (fetch)');
-    const accountSid = process.env.TWILIO_ACCOUNT_SID!;
-    const user = process.env.TWILIO_API_KEY_SID || accountSid;
-    const pass = process.env.TWILIO_API_KEY_SECRET || process.env.TWILIO_AUTH_TOKEN!;
-    const auth = Buffer.from(`${user}:${pass}`).toString('base64');
-    const params = new URLSearchParams({
-      To: String(from).trim(),
-      MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID!,
-      Body: reply,
-      StatusCallback: `${PUBLIC_BASE}/api/webhooks/twilio/status`,
+    const send_result = await sendSmsViaTwilioFetch({
+      to: String(from).trim(),
+      body: reply,
+      messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID!,
+      statusCallback: `${PUBLIC_BASE}/api/webhooks/twilio/status`,
     });
-    const twRes = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
-      method: 'POST',
-      headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params,
-    });
-    const twJson: any = await twRes.json().catch(() => ({}));
-    if (!twRes.ok) throw new Error(`twilio-send-failed: ${twJson?.message || twRes.status}`);
-    const sent = { sid: String(twJson.sid), status: String(twJson.status || 'queued') };
 
     console.log('[ai-reply] step9: persist');
     await supa.from('messages_out').insert({
       lead_id: lead?.id,
       body: reply,
-      status: sent.status || 'queued',
+      status: send_result.status || 'queued',
       provider: 'twilio',
-      provider_sid: sent.sid,
+      provider_sid: send_result.sid,
     });
 
     console.log('[ai-reply] done');
-    return NextResponse.json({ ok:true, reply, send_result:{ sid: sent.sid, status: sent.status }, base_used: PUBLIC_BASE });
+    return NextResponse.json({ ok:true, reply, send_result, base_used: PUBLIC_BASE });
   } catch (e:any) {
     console.error('[admin/ai-reply] error', e);
     return NextResponse.json({ ok:false, error: e?.message || 'internal-error' }, { status:500 });
