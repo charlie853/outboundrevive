@@ -1,3 +1,4 @@
+import { supabaseAdmin } from '@/lib/supabaseServer';
 // app/api/webhooks/twilio/inbound/route.ts
 export const runtime = 'nodejs';
 

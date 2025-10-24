@@ -1,3 +1,4 @@
+import { supabaseAdmin } from '@/lib/supabaseServer';
 // app/api/admin/ai-reply/route.ts
 export const runtime = 'nodejs';
 
