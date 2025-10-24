@@ -81,15 +81,10 @@ export async function POST(req: NextRequest) {
   }
 
 
-  // Send via Twilio
+  // Send via Twilio (Messaging Service via helper)
   let sent: any = null;
   try {
-    sent = await sendSms({
-      to: from,
-      body: replyText,
-      messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID!,
-      statusCallback: base ? `${base}/api/webhooks/twilio/status` : undefined,
-    });
+    sent = await sendSms({ to: from, body: replyText });
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: 'twilio_send_failed', detail: e?.message || String(e) },

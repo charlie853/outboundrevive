@@ -282,14 +282,7 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
             if (!msgSvcSid && !fromNumber) {
               throw new Error('twilio_config_missing');
             }
-            const params: any = {
-              to: l.phone,
-              body,
-              statusCallback: `${statusCallbackBase}/api/webhooks/twilio/status`
-            };
-            if (msgSvcSid) params.messagingServiceSid = msgSvcSid;
-            else params.from = fromNumber;
-            const tw = await sendSms(params);
+            const tw = await sendSms({ to: l.phone, body });
             sid = tw.sid;
             const s = String(tw.status || '').toLowerCase();
             provider_status = (s === 'sent' || s === 'sending') ? 'sent' : 'queued';

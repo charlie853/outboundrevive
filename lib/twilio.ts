@@ -1,53 +1,31 @@
-export type SendSmsArgs = {
-  to: string;
-  body: string;
-  messagingServiceSid: string;
-  statusCallback?: string;
-};
+export async function sendSms(opts: { to: string; body: string }) {
+  const acc = process.env.TWILIO_ACCOUNT_SID!;
+  const key = process.env.TWILIO_API_KEY_SID!;
+  const secret = process.env.TWILIO_API_KEY_SECRET!;
+  const msid = process.env.TWILIO_MESSAGING_SERVICE_SID!; // REQUIRED
+  const base = (process.env.PUBLIC_BASE || process.env.PUBLIC_BASE_URL || '').trim();
 
-export async function sendSms({
-  to,
-  body,
-  messagingServiceSid,
-  statusCallback,
-}: SendSmsArgs): Promise<{ sid: string; status: string }> {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID!;
-  const apiKeySid = process.env.TWILIO_API_KEY_SID;
-  const apiKeySecret = process.env.TWILIO_API_KEY_SECRET;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  if (!msid) throw new Error('Missing TWILIO_MESSAGING_SERVICE_SID');
+  const params = new URLSearchParams();
+  params.append('To', opts.to);
+  params.append('MessagingServiceSid', msid);
+  params.append('Body', opts.body);
+  if (base) params.append('StatusCallback', `${base}/api/webhooks/twilio/status`);
 
-  if (!accountSid) throw new Error('TWILIO_ACCOUNT_SID missing');
-  if (!((apiKeySid && apiKeySecret) || authToken)) {
-    throw new Error('Twilio credentials missing (API key pair or AUTH token)');
-  }
-
-  const basic = apiKeySid && apiKeySecret
-    ? `${apiKeySid}:${apiKeySecret}`
-    : `${accountSid}:${authToken!}`;
-
-  const form = new URLSearchParams({
-    To: to,
-    MessagingServiceSid: messagingServiceSid,
-    Body: body,
+  const auth = Buffer.from(`${key}:${secret}`).toString('base64');
+  const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${acc}/Messages.json`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: params,
   });
-  if (statusCallback) form.set('StatusCallback', statusCallback);
 
-  const res = await fetch(
-    `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Authorization: 'Basic ' + Buffer.from(basic).toString('base64'),
-      },
-      body: form,
-      cache: 'no-store',
-    }
-  );
-
-  const json: any = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(`Twilio send failed: ${res.status} ${res.statusText} ${JSON.stringify(json)}`);
+  const json = await resp.json().catch(() => ({} as any));
+  if (!resp.ok) {
+    console.error('[twilio.sendSms] error', resp.status, json);
+    throw new Error((json as any)?.message || `Twilio ${resp.status}`);
   }
-  return { sid: String(json.sid || ''), status: String(json.status || 'queued') };
+  return { sid: (json as any).sid as string, status: (json as any).status as string };
 }
