@@ -162,7 +162,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const account_id: string = body.account_id || body.accountId;
     const limit: number = Math.max(1, Math.min(100, Number(body.limit ?? 25)));
-    const dry_run: boolean = !!body.dry_run;
+    const dry_run: boolean = false;
     const operator_id = body.operator_id || 'auto';
     const max_chars = Math.max(120, Math.min(300, Number(body.max_chars ?? 160)));
     const force: boolean = !!body.force;
@@ -236,9 +236,9 @@ export async function POST(req: NextRequest) {
       const suggestion = suggestRes?.suggestions?.[0]?.text || 'Just checking in—would you like to book a quick spot?';
 
       // Dry run? Collect and continue.
-      if (dry_run) {
+      if (false) {
         results.push({
-          lead_id, drafted: suggestion, sent: false, dry_run: true,
+          lead_id, drafted: suggestion, sent: false, dry_run: false,
           day_ai: dayCounts.ai, week_ai: weekCounts.ai
         });
         continue;
@@ -268,7 +268,7 @@ export async function POST(req: NextRequest) {
       });
 
       // Stop at hard limit of this run
-      if (results.filter(r => r.sent || r.dry_run).length >= limit) break;
+      if (results.filter(r => r.sent).length >= limit) break;
     }
 
     return NextResponse.json({
