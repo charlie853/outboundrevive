@@ -21,7 +21,9 @@ export async function POST(req: Request) {
     const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
     const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-    const PUBLIC_BASE = process.env.PUBLIC_BASE;
+    // Build PUBLIC_BASE with safe fallback from req URL
+    const url = new URL(req.url);
+    const PUBLIC_BASE = process.env.PUBLIC_BASE || process.env.PUBLIC_BASE_URL || `${url.protocol}//${url.host}`;
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return err(500, 'Supabase env missing');
     if (!OPENAI_API_KEY) return err(500, 'OPENAI_API_KEY missing');
     if (!PUBLIC_BASE) return err(500, 'PUBLIC_BASE missing');
