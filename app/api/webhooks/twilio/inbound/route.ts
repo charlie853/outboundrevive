@@ -14,7 +14,6 @@ function resolvePublicBase(req: Request) {
 }
 
 export async function POST(req: Request) {
-  // Twilio posts x-www-form-urlencoded
   const form = await req.formData();
   const From = String(form.get('From') || '');
   const To   = String(form.get('To')   || '');
@@ -22,8 +21,7 @@ export async function POST(req: Request) {
 
   try {
     const base = resolvePublicBase(req);
-    // fire-and-forget call to your admin route
-    fetch(`${base}/api/admin/ai-reply`, {
+    const resp = await fetch(`${base}/api/admin/ai-reply`, {
       method: 'POST',
       headers: {
         'x-admin-key': process.env.ADMIN_API_KEY || '',
@@ -31,12 +29,15 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({ from: From, to: To, body: Body }),
       cache: 'no-store',
-    }).catch(err => console.error('[twilio/inbound] forward error', err));
-  } catch (e) {
-    console.error('[twilio/inbound] error', e);
+    });
+
+    let info: any = null;
+    try { info = await resp.json(); } catch {}
+    console.log('[twilio/inbound→admin] status=', resp.status, 'ok=', info?.ok, 'err=', info?.error);
+  } catch (e: any) {
+    console.error('[twilio/inbound] forward error', e?.message || e);
   }
 
-  // Acknowledge Twilio immediately
   const xml = `<?xml version="1.0" encoding="UTF-8"?><Response/>`;
   return new Response(xml, { headers: { 'Content-Type': 'text/xml' } });
 }
