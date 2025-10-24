@@ -1,6 +1,6 @@
 export const runtime = 'nodejs';
+import OpenAI from 'openai';
 import { supabaseAdmin } from '@/lib/supabaseServer';
-import OpenAI from "openai";
 
 type ORJSON = {
   intent: string;
@@ -13,126 +13,88 @@ type ORJSON = {
 };
 
 const SYSTEM = `
-You are OutboundRevive’s SMS AI. Return ONLY JSON:
-{"intent":"...", "confidence":0-1, "message":"<=320 chars", "needs_footer":true/false, "actions":[]}
-Follow the OutboundRevive playbook (compliance, opt-out, quiet hours, caps, tone, booking CTA).
-No prose, no backticks—JSON object only.
-`;
-
-function stripToJSON(s: string): string | null {
-  const i = s.indexOf("{");
-  const j = s.lastIndexOf("}");
-  if (i >= 0 && j > i) {
-    const slice = s.slice(i, j + 1);
-    try { JSON.parse(slice); return slice; } catch {}
-  }
-  return null;
-}
+You are OutboundRevive’s SMS AI. Return ONLY JSON with:
+{ "intent": "...", "confidence": 0.0-1.0, "message": "≤320 chars, one clear CTA", "needs_footer": bool?, "actions": [], "hold_until": iso8601?, "policy_flags": {} }
+Use the short conversation, be truthful, comply with STOP/HELP, keep it friendly and concise. No prose outside JSON.
+`.trim();
 
 function simpleFallback(userBody: string, brand: string, link?: string) {
-  if (/stop|unsubscribe|quit|end|cancel|remove/i.test(userBody)) {
-    return `You’re opted out and won’t receive more messages. Reply START to resubscribe.`;
+  const lower = (userBody || '').toLowerCase();
+  if (/(price|cost|charge|how much)/.test(lower)) {
+    return `Quick pricing overview from ${brand}: flexible plans based on lead volume.${link ? ` Want me to send a quote? ${link}` : ''}`;
   }
-  if (/price|cost|charge/i.test(userBody)) {
-    return `Quick pricing overview from ${brand}: flexible plans based on lead volume. Want me to send a quote?${link ? " " + link : ""}`;
+  if (/(who.*this|who is this|what is this|help)/.test(lower)) {
+    return `Hey—it’s ${brand}. We help revive old leads with compliant SMS.${link ? ` Want a quick link to book? ${link}` : ''}`;
   }
-  if (/hubspot|integrate/i.test(userBody)) {
-    return `${brand} supports HubSpot for lead sync & notes. Want a 10-min walkthrough?${link ? " " + link : ""}`;
-  }
-  return `Hey—it’s ${brand}. We help revive old leads with compliant SMS. Want a quick link to book?${link ? " " + link : ""}`;
+  return `Hi—${brand} here.${link ? ` Want a quick link to book? ${link}` : ''}`;
 }
 
-async function fetchThread(from: string, to: string) {
+async function fetchThread(fromPhone: string, toPhone: string) {
   const { data: inbound } = await supabaseAdmin
-    .from("messages_in")
-    .select("from_phone,to_phone,body,created_at")
-    .or(
-      `and(from_phone.eq.${from},to_phone.eq.${to}),and(from_phone.eq.${to},to_phone.eq.${from})`
-    )
-    .order("created_at", { ascending: false })
-    .limit(8);
+    .from('messages_in')
+    .select('body,created_at')
+    .eq('from_phone', fromPhone)
+    .eq('to_phone', toPhone)
+    .order('created_at', { ascending: false })
+    .limit(6);
 
   const { data: outbound } = await supabaseAdmin
-    .from("messages_out")
-    .select("body,created_at")
-    .order("created_at", { ascending: false })
-    .limit(4);
+    .from('messages_out')
+    .select('body,created_at')
+    .eq('to_phone', fromPhone)     // our outbounds go to the contact
+    .order('created_at', { ascending: false })
+    .limit(6);
 
-  const convo: Array<{ role: "user" | "assistant"; content: string; at: string; }> = [];
-  for (const m of (inbound || []).reverse()) {
-    const role = (m as any).from_phone === from ? "user" : "assistant";
-    convo.push({ role, content: (m as any).body, at: (m as any).created_at });
-  }
-  for (const m of (outbound || []).reverse()) {
-    convo.push({ role: "assistant", content: (m as any).body, at: (m as any).created_at });
-  }
-  return convo.slice(-10);
+  const combo = [
+    ...(inbound || []).map(i => ({ role: 'user' as const, content: i.body, at: i.created_at })),
+    ...(outbound || []).map(o => ({ role: 'assistant' as const, content: o.body, at: o.created_at })),
+  ].sort((a,b) => (a.at < b.at ? -1 : 1));
+
+  return combo.map(m => ({ role: m.role, content: m.content }));
 }
 
-export async function generateReply({
-  userBody,
-  fromPhone,
-  toPhone,
-  brandName,
-  bookingLink
-}: {
+export async function generateReply(opts: {
   userBody: string;
   fromPhone: string;
   toPhone: string;
   brandName: string;
   bookingLink?: string;
 }) {
-  const disabled = (process.env.LLM_DISABLE || "").trim() === "1";
-  if (disabled) {
-    return { kind: "text", reason: "llm_disabled", message: simpleFallback(userBody, brandName, bookingLink) } as const;
+  const { userBody, fromPhone, toPhone, brandName, bookingLink } = opts;
+
+  if (!process.env.OPENAI_API_KEY || /^(1|true)$/i.test(process.env.LLM_DISABLE || '')) {
+    const msg = simpleFallback(userBody, brandName, bookingLink);
+    return { kind: 'text' as const, message: msg, reason: 'llm_disabled_or_missing_key' };
   }
 
-  const key = (process.env.OPENAI_API_KEY || "").trim();
-  if (!key) {
-    return { kind: "text", reason: "missing_api_key", message: simpleFallback(userBody, brandName, bookingLink) } as const;
-  }
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const history = await fetchThread(fromPhone, toPhone);
 
-  const model = (process.env.OPENAI_MODEL || "gpt-4o-mini").trim();
-  const openai = new OpenAI({ apiKey: key });
+  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    { role: 'system', content: SYSTEM },
+    ...history,
+    { role: 'user', content: `Contact says: ${userBody}\nReturn ONLY JSON as specified.` },
+  ];
 
   try {
-    const thread = await fetchThread(fromPhone, toPhone);
-
-    const response = await openai.responses.create({
-      model,
+    const res = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      messages,
+      response_format: { type: 'json_object' },
       temperature: 0.4,
-      response_format: { type: "json_object" },
-      input: [
-        {
-          role: "system",
-          content: [{ type: "text", text: SYSTEM }]
-        },
-        {
-          role: "user",
-          content: [{
-            type: "text",
-            text: JSON.stringify({
-              brand: { name: brandName, booking_link: bookingLink || null },
-              recent_thread: thread,
-              contact_text: userBody
-            })
-          }]
-        }
-      ]
+      max_tokens: 220,
     });
 
-    let out = (response as any).output_text
-           || (response as any).output?.[0]?.content?.[0]?.text?.value
-           || (response as any).choices?.[0]?.message?.content
-           || "";
+    const raw = res.choices?.[0]?.message?.content?.trim() || '';
+    const parsed: ORJSON = JSON.parse(raw);
+    let msg = (parsed.message || '').trim();
+    if (!msg) throw new Error('json_missing_message');
+    if (msg.length > 320) msg = msg.slice(0, 320);
 
-    const jsonText = stripToJSON(String(out)) || String(out);
-    const parsed = JSON.parse(jsonText) as ORJSON;
-
-    let msg = (parsed.message || "").slice(0, 320);
-    console.log('[ai-reply] used=LLM input=', String(userBody).slice(0, 80));
-    return { kind: "json", parsed, message: msg } as const;
-  } catch (e: any) {
-    return { kind: "text", reason: String(e?.message || e), message: simpleFallback(userBody, brandName, bookingLink) } as const;
+    return { kind: 'json' as const, parsed, message: msg, raw };
+  } catch (err: any) {
+    console.error('[ai-reply] JSON path failed → fallback', err?.message || err);
+    const msg = simpleFallback(userBody, brandName, bookingLink);
+    return { kind: 'text' as const, message: msg, reason: 'json_parse_or_api_error' };
   }
 }

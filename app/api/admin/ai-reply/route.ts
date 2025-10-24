@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     // Admin auth
     const provided = req.headers.get('x-admin-key') || '';
     if (!process.env.ADMIN_API_KEY || provided !== process.env.ADMIN_API_KEY) {
-      return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
+      return NextResponse.json({, ...(debug ? { ai_debug: ai } : {})});
     }
 
     // Parse
@@ -132,7 +132,7 @@ export async function POST(req: Request) {
       provider_sid: sent.sid,
     });
 
-    return NextResponse.json({ ok: true, strategy: ai.kind, reply, send_result: sent, base_used: PUBLIC_BASE });
+    
   } catch (e: any) {
     console.error('[admin/ai-reply] error', e);
     return NextResponse.json({ ok: false, error: e?.message || 'internal-error' }, { status: 500 });
