@@ -68,7 +68,6 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true, reply, send_result, base_used: PUBLIC_BASE });
 }
 
-import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
 import twilio from 'twilio';
