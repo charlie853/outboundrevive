@@ -56,6 +56,31 @@ export async function POST(req: NextRequest) {
   const ai = await generateReply({ userBody: body, fromPhone: from, toPhone: to, brandName, bookingLink });
   let replyText = ai.message;
 
+  // Block if globally suppressed
+  try {
+    const { data: sup } = await supabaseAdmin
+      .from("global_suppressions").select("phone").eq("phone", from).maybeSingle();
+    if (sup?.phone) {
+      return NextResponse.json({ ok: true, suppressed: true, strategy: ai.kind, reply: "[suppressed]", send_result: null, base_used: base, ...(debug ? { ai_debug: ai } : {}) });
+    }
+  } catch {}
+
+  // Apply footer + actions from JSON contract
+  if (ai.kind === "json") {
+    const needsFooter = ai.parsed?.needs_footer === true;
+    if (needsFooter && !replyText.includes("Txt STOP to opt out")) {
+      replyText += "\nTxt STOP to opt out";
+    }
+    const acts = Array.isArray(ai.parsed?.actions) ? ai.parsed.actions : [];
+    for (const act of acts) {
+      const t = (act?.type || act)?.toString?.() || "";
+      if (/^suppress_number$/i.test(t)) {
+        await supabaseAdmin.from("global_suppressions").upsert({ phone: from });
+      }
+    }
+  }
+
+
   // Send via Twilio
   let sent: any = null;
   try {
