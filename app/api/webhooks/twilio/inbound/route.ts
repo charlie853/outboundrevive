@@ -33,10 +33,6 @@ export async function POST(req: Request) {
     return new Response(xml, { headers: { "Content-Type": "text/xml" } });
   }
 
-  const From = String(form.get('From') || '');
-  const To   = String(form.get('To')   || '');
-  const Body = String(form.get('Body') || '');
-
   // Persist inbound then forward (order matters)
   try {
     await supabaseAdmin.from('messages_in').insert({
@@ -44,8 +40,9 @@ export async function POST(req: Request) {
       to_phone: to,
       body: text,
     });
+    console.log('[twilio/inbound] messages_in insert OK', { from, to });
   } catch (e) {
-    console.error('[twilio/inbound] messages_in insert', e);
+    console.error('[twilio/inbound] messages_in insert ERROR', e);
   }
 
   try {
@@ -56,7 +53,7 @@ export async function POST(req: Request) {
         'x-admin-key': process.env.ADMIN_API_KEY || '',
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ from: From, to: To, body: Body }),
+      body: JSON.stringify({ from, to, body: text }),
       cache: 'no-store',
     });
 
