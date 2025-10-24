@@ -96,18 +96,25 @@ export async function POST(req: Request) {
     let reply = cmp.choices?.[0]?.message?.content?.trim() || 'Thanks for reaching out!';
     if (reply.length > 300) reply = reply.slice(0,300);
 
-    console.log('[ai-reply] step8: twilio send');
+    console.log('[ai-reply] step8: twilio send (fetch)');
     const accountSid = process.env.TWILIO_ACCOUNT_SID!;
-    const client = (process.env.TWILIO_API_KEY_SID && process.env.TWILIO_API_KEY_SECRET)
-      ? twilio(process.env.TWILIO_API_KEY_SID, process.env.TWILIO_API_KEY_SECRET, { accountSid })
-      : twilio(accountSid, process.env.TWILIO_AUTH_TOKEN!);
-
-    const sent = await client.messages.create({
-      to: String(from).trim(),
-      messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID!,
-      body: reply,
-      statusCallback: `${PUBLIC_BASE}/api/webhooks/twilio/status`,
+    const user = process.env.TWILIO_API_KEY_SID || accountSid;
+    const pass = process.env.TWILIO_API_KEY_SECRET || process.env.TWILIO_AUTH_TOKEN!;
+    const auth = Buffer.from(`${user}:${pass}`).toString('base64');
+    const params = new URLSearchParams({
+      To: String(from).trim(),
+      MessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID!,
+      Body: reply,
+      StatusCallback: `${PUBLIC_BASE}/api/webhooks/twilio/status`,
     });
+    const twRes = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
+      method: 'POST',
+      headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params,
+    });
+    const twJson: any = await twRes.json().catch(() => ({}));
+    if (!twRes.ok) throw new Error(`twilio-send-failed: ${twJson?.message || twRes.status}`);
+    const sent = { sid: String(twJson.sid), status: String(twJson.status || 'queued') };
 
     console.log('[ai-reply] step9: persist');
     await supa.from('messages_out').insert({
