@@ -1,14 +1,13 @@
 export type SendSmsParams = {
   to: string;
   body: string;
-  from?: string;                 // optional if using Messaging Service
-  messagingServiceSid?: string;  // preferred
+  from?: string;
+  messagingServiceSid?: string;
   statusCallback?: string;
 };
 
 export async function sendSms(params: SendSmsParams) {
   const { to, body, from, messagingServiceSid, statusCallback } = params;
-
   const accountSid = process.env.TWILIO_ACCOUNT_SID!;
   const basic = (process.env.TWILIO_API_KEY_SID && process.env.TWILIO_API_KEY_SECRET)
     ? `${process.env.TWILIO_API_KEY_SID}:${process.env.TWILIO_API_KEY_SECRET}`
@@ -25,15 +24,13 @@ export async function sendSms(params: SendSmsParams) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      Authorization: 'Basic ' + Buffer.from(basic).toString('base64'),
+      Authorization: 'Basic ' + Buffer.from(basic).toString('base64')
     },
     body: form,
-    cache: 'no-store',
+    cache: 'no-store'
   });
 
   const json: any = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(`Twilio send failed: ${res.status} ${res.statusText} ${JSON.stringify(json)}`);
-  }
+  if (!res.ok) throw new Error(`Twilio send failed: ${res.status} ${res.statusText} ${JSON.stringify(json)}`);
   return { sid: String(json.sid || ''), status: String(json.status || 'queued') };
 }

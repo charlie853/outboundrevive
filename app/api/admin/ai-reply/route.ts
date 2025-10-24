@@ -1,3 +1,4 @@
+import { sendSms } from '@/lib/twilio';
 // app/api/admin/ai-reply/route.ts
 export const runtime = 'nodejs';
 
@@ -82,8 +83,6 @@ export async function POST(req: Request) {
     // Lazy imports to avoid load-time crashes
     const { createClient } = await import('@supabase/supabase-js');
     const { default: OpenAI } = await import('openai');
-    const twilioMod = await import('twilio');
-    const twilio = twilioMod.default;
 
     console.log('[ai-reply] step4: supabase init');
     const supa = createClient(

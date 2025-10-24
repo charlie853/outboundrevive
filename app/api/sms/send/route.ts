@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 import { requireAccountAccess } from '@/lib/account';
-import { twilioClient, getMessagingServiceSid } from '@/lib/twilio';
+import { twilioClient, process.env.TWILIO_MESSAGING_SERVICE_SID } from '@/lib/twilio';
 
 export const runtime = 'nodejs';
 
@@ -152,7 +152,7 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
     const statusCallbackBase = (process.env.PUBLIC_BASE_URL || req.nextUrl.origin).replace(/\/$/, '');
     // Defaults from env
     let msgSvcSid: string | null = null;
-    try { msgSvcSid = getMessagingServiceSid(); } catch { msgSvcSid = null; }
+    try { msgSvcSid = process.env.TWILIO_MESSAGING_SERVICE_SID(); } catch { msgSvcSid = null; }
     let fromNumber: string | null = (process.env.TWILIO_FROM_NUMBER || '').trim() || null;
 
     // Per-account Twilio override (if table exists)
@@ -289,7 +289,7 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
             };
             if (msgSvcSid) params.messagingServiceSid = msgSvcSid;
             else params.from = fromNumber;
-            const tw = await twilioClient.messages.create(params);
+            const tw = await sendSms(params);
             sid = tw.sid;
             const s = String(tw.status || '').toLowerCase();
             provider_status = (s === 'sent' || s === 'sending') ? 'sent' : 'queued';
