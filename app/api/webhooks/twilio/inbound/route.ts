@@ -37,6 +37,17 @@ export async function POST(req: Request) {
   const To   = String(form.get('To')   || '');
   const Body = String(form.get('Body') || '');
 
+  // Persist inbound then forward (order matters)
+  try {
+    await supabaseAdmin.from('messages_in').insert({
+      from_phone: from,
+      to_phone: to,
+      body: text,
+    });
+  } catch (e) {
+    console.error('[twilio/inbound] messages_in insert', e);
+  }
+
   try {
     const base = resolvePublicBase(req);
     const resp = await fetch(`${base}/api/admin/ai-reply`, {
