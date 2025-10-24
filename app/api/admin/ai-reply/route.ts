@@ -82,8 +82,37 @@ export async function POST(req: Request) {
       }
     } catch (_) {}
 
-    // LLM reply
-    let reply = await generateReply(account_id, String(body));
+    // Optional short conversation history (last few in/out)
+    let history: Array<{ role: 'user'|'assistant'; content: string }> = [];
+    try {
+      if (lead_id) {
+        const LIMIT = 6;
+        const [ins, outs] = await Promise.all([
+          supa
+            .from('messages_in')
+            .select('body, created_at')
+            .eq('lead_id', lead_id)
+            .order('created_at', { ascending: false })
+            .limit(LIMIT),
+          supa
+            .from('messages_out')
+            .select('body, created_at')
+            .eq('lead_id', lead_id)
+            .order('created_at', { ascending: false })
+            .limit(LIMIT),
+        ]);
+        const turns: Array<{ role: 'user'|'assistant'; content: string; at: string }> = [];
+        (ins.data || []).forEach(m => turns.push({ role: 'user', content: String((m as any).body || ''), at: String((m as any).created_at || '') }));
+        (outs.data || []).forEach(m => turns.push({ role: 'assistant', content: String((m as any).body || ''), at: String((m as any).created_at || '') }));
+        history = turns
+          .sort((a,b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+          .map(t => ({ role: t.role, content: t.content }))
+          .slice(-LIMIT);
+      }
+    } catch (_) {}
+
+    // LLM reply (pass history for multi-turn context)
+    let reply = await generateReply(account_id || null, String(body), { history });
 
     // Anti-repeat guard (avoid sending identical text twice)
     if (lead_id) {

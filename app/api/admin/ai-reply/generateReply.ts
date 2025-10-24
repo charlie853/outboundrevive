@@ -15,7 +15,13 @@ function simpleFallback(userBody: string, brandName = 'OutboundRevive', link?: s
   return `Hey—it’s ${brandName}. We help revive old leads with compliant SMS.${link ? ` Want a 10‑min walkthrough? ${link}` : ''}`;
 }
 
-export async function generateReply(accountId: string | null, userBody: string): Promise<string> {
+type HistoryTurn = { role: 'user'|'assistant'; content: string };
+
+export async function generateReply(
+  accountId: string | null,
+  userBody: string,
+  opts?: { history?: HistoryTurn[] }
+): Promise<string> {
   const off = String(process.env.LLM_DISABLE || '').toLowerCase();
   if (off === '1' || off === 'true') return simpleFallback(userBody);
 
@@ -48,12 +54,22 @@ export async function generateReply(accountId: string | null, userBody: string):
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
   try {
+    const fewShot = (prompt_examples || []).slice(0, 10).flatMap((ex) => [
+      { role: 'user' as const, content: ex.user },
+      { role: 'assistant' as const, content: apply(String(ex.assistant)) },
+    ]);
+
+    // Pull up to 8 prior turns if provided
+    const prior = Array.isArray(opts?.history)
+      ? (opts!.history as HistoryTurn[])
+          .filter(h => h && (h.role === 'user' || h.role === 'assistant') && typeof h.content === 'string')
+          .slice(-8)
+      : [];
+
     const messages = [
       { role: 'system' as const, content: apply(prompt_system) },
-      ...(prompt_examples || []).slice(0, 10).flatMap((ex) => [
-        { role: 'user' as const, content: ex.user },
-        { role: 'assistant' as const, content: apply(String(ex.assistant)) },
-      ]),
+      ...fewShot,
+      ...prior.map(h => ({ role: h.role, content: h.content } as const)),
       { role: 'user' as const, content: String(userBody || '') },
     ];
 
