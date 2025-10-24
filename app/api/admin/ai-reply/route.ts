@@ -17,114 +17,104 @@ function resolvePublicBase(req: Request) {
 }
 
 export async function POST(req: Request) {
-  // --- Admin auth ---
-  const provided = req.headers.get('x-admin-key') || '';
-  if (!process.env.ADMIN_API_KEY || provided !== process.env.ADMIN_API_KEY) {
-    return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
-  }
+  try {
+    // --- Admin auth ---
+    const provided = req.headers.get('x-admin-key') || '';
+    if (!process.env.ADMIN_API_KEY || provided !== process.env.ADMIN_API_KEY) {
+      return NextResponse.json({ ok:false, error:'unauthorized' }, { status:401 });
+    }
 
-  // --- Parse ---
-  const { from, to, body } = await req.json();
-  if (!from || !to || !body) {
-    return NextResponse.json({ ok: false, error: 'from/to/body required' }, { status: 400 });
-  }
+    // --- Parse ---
+    const { from, to, body } = await req.json();
+    if (!from || !to || !body) {
+      return NextResponse.json({ ok:false, error:'from/to/body required' }, { status:400 });
+    }
 
-  const PUBLIC_BASE = resolvePublicBase(req);
+    const PUBLIC_BASE = resolvePublicBase(req);
 
-  // --- Supabase (service role) ---
-  const supa = createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } }
-  );
+    // --- Supabase ---
+    const supa = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession:false } }
+    );
 
-  // Lead + account lookup (swap 'phone' -> 'phone_e164' if that’s your column)
-  const { data: lead } = await supa
-    .from('leads')
-    .select('id, account_id, phone')
-    .eq('phone', String(from).trim())
-    .maybeSingle();
-
-  const lead_id = (lead?.id as string) || undefined;
-  const account_id = (lead?.account_id as string) || undefined;
-
-  // --- Pull account prompts ---
-  let prompt_system = 'You are a concise SMS assistant.';
-  let prompt_examples: Array<{ user: string; assistant: string }> = [];
-  let booking_link: string | null = null;
-  let brand: string | null = null;
-
-  if (account_id) {
-    const { data: acct } = await supa
-      .from('account_settings')
-      .select('prompt_system, prompt_examples, booking_link, brand')
-      .eq('account_id', account_id)
+    // lead/account lookup (swap 'phone' -> 'phone_e164' if needed)
+    const { data: lead } = await supa
+      .from('leads')
+      .select('id,account_id,phone')
+      .eq('phone', String(from).trim())
       .maybeSingle();
 
-    if (acct?.prompt_system) prompt_system = String(acct.prompt_system);
-    if (acct?.prompt_examples) prompt_examples = acct.prompt_examples as any[];
-    if (acct?.booking_link) booking_link = String(acct.booking_link);
-    if (acct?.brand) brand = String(acct.brand);
+    const { data: acct } = lead?.account_id
+      ? await supa.from('account_settings')
+          .select('prompt_system,prompt_examples,booking_link,brand')
+          .eq('account_id', lead.account_id)
+          .maybeSingle()
+      : { data: null as any };
 
-    if (booking_link) {
-      prompt_system = prompt_system.replaceAll('{{BOOKING_LINK}}', booking_link);
-      prompt_examples = (prompt_examples || []).map(ex => ({
-        user: ex.user,
-        assistant: String(ex.assistant).replaceAll('{{BOOKING_LINK}}', booking_link!)
+    // prompts (no RAG)
+    let system = acct?.prompt_system || 'You are a concise SMS assistant.';
+    let examples: Array<{user:string;assistant:string}> = (acct?.prompt_examples as any[]) || [];
+    if (acct?.booking_link) {
+      system = system.replaceAll('{{BOOKING_LINK}}', String(acct.booking_link));
+      examples = examples.map(e => ({
+        user: e.user,
+        assistant: String(e.assistant).replaceAll('{{BOOKING_LINK}}', String(acct!.booking_link))
       }));
     }
-    if (brand) {
-      prompt_system = prompt_system.replaceAll('{{BRAND}}', brand);
-      prompt_examples = (prompt_examples || []).map(ex => ({
-        user: ex.user,
-        assistant: String(ex.assistant).replaceAll('{{BRAND}}', brand!)
+    if (acct?.brand) {
+      system = system.replaceAll('{{BRAND}}', String(acct.brand));
+      examples = examples.map(e => ({
+        user: e.user,
+        assistant: String(e.assistant).replaceAll('{{BRAND}}', String(acct!.brand))
       }));
     }
+
+    // OpenAI
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+      { role:'system', content: system },
+      ...examples.slice(0,10).flatMap(e => [
+        { role:'user' as const, content: e.user },
+        { role:'assistant' as const, content: e.assistant }
+      ]),
+      { role:'user', content: String(body) },
+    ];
+    const cmp = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      messages,
+      temperature: 0.5,
+      max_tokens: 180,
+    });
+    let reply = cmp.choices?.[0]?.message?.content?.trim() || 'Thanks for reaching out!';
+    if (reply.length > 300) reply = reply.slice(0,300);
+
+    // Twilio send
+    const accountSid = process.env.TWILIO_ACCOUNT_SID!;
+    const client = (process.env.TWILIO_API_KEY_SID && process.env.TWILIO_API_KEY_SECRET)
+      ? twilio(process.env.TWILIO_API_KEY_SID, process.env.TWILIO_API_KEY_SECRET, { accountSid })
+      : twilio(accountSid, process.env.TWILIO_AUTH_TOKEN!);
+
+    const sent = await client.messages.create({
+      to: String(from).trim(),
+      messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID!,
+      body: reply,
+      statusCallback: `${PUBLIC_BASE}/api/webhooks/twilio/status`,
+    });
+
+    // Persist to messages_out
+    await supa.from('messages_out').insert({
+      lead_id: lead?.id,
+      body: reply,
+      status: sent.status || 'queued',
+      provider: 'twilio',
+      provider_sid: sent.sid,
+    });
+
+    return NextResponse.json({ ok:true, reply, send_result:{ sid: sent.sid, status: sent.status }, base_used: PUBLIC_BASE });
+  } catch (e:any) {
+    console.error('[admin/ai-reply] error', e);
+    return NextResponse.json({ ok:false, error: e?.message || 'internal-error' }, { status:500 });
   }
-
-  // --- OpenAI (no RAG) ---
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    { role: 'system', content: prompt_system },
-    ...(prompt_examples || []).slice(0, 10).flatMap(ex => [
-      { role: 'user' as const, content: ex.user },
-      { role: 'assistant' as const, content: ex.assistant },
-    ]),
-    { role: 'user', content: String(body) },
-  ];
-
-  const completion = await openai.chat.completions.create({
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-    messages,
-    temperature: 0.5,
-    max_tokens: 180,
-  });
-
-  let reply = completion.choices?.[0]?.message?.content?.trim() || 'Thanks for reaching out!';
-  if (reply.length > 300) reply = reply.slice(0, 300);
-
-  // --- Twilio send ---
-  const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID!;
-  const TWILIO_MESSAGING_SERVICE_SID = process.env.TWILIO_MESSAGING_SERVICE_SID!;
-  const client = (process.env.TWILIO_API_KEY_SID && process.env.TWILIO_API_KEY_SECRET)
-    ? twilio(process.env.TWILIO_API_KEY_SID, process.env.TWILIO_API_KEY_SECRET, { accountSid: TWILIO_ACCOUNT_SID })
-    : twilio(TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN!);
-
-  const sent = await client.messages.create({
-    to: String(from).trim(),
-    messagingServiceSid: TWILIO_MESSAGING_SERVICE_SID,
-    body: reply,
-    statusCallback: `${PUBLIC_BASE}/api/webhooks/twilio/status`,
-  });
-
-  // --- Persist to messages_out ---
-  await supa.from('messages_out').insert({
-    lead_id,
-    body: reply,
-    status: sent.status || 'queued',
-    provider: 'twilio',
-    provider_sid: sent.sid,
-  });
-
-  return NextResponse.json({ ok: true, reply, send_result: { sid: sent.sid, status: sent.status }, base_used: PUBLIC_BASE });
 }
