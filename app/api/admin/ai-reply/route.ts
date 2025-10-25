@@ -5,7 +5,30 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseServer";
 import { sendSms } from "@/lib/twilio";
 import { generateReply } from "./generateReply";
-import { checkReminderCaps } from "@/lib/messagingCompliance";
+
+async function reminderCounts(supabase: typeof supabaseAdmin, lead_id: string | null, to_phone: string) {
+  const dayStart = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const weekStart = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+
+  const baseDay = supabase
+    .from("messages_out")
+    .select("id", { head: true, count: "exact" })
+    .contains("gate_log", { category: "reminder" })
+    .gte("created_at", dayStart);
+
+  const baseWeek = supabase
+    .from("messages_out")
+    .select("id", { head: true, count: "exact" })
+    .contains("gate_log", { category: "reminder" })
+    .gte("created_at", weekStart);
+
+  const dayQ = lead_id ? baseDay.eq("lead_id", lead_id) : baseDay.eq("to_phone", to_phone);
+  const weekQ = lead_id ? baseWeek.eq("lead_id", lead_id) : baseWeek.eq("to_phone", to_phone);
+
+  const [{ count: dayCount = 0 }, { count: weekCount = 0 }] = await Promise.all([dayQ, weekQ]);
+
+  return { dayCount, weekCount, dayStart, weekStart };
+}
 
 export async function POST(req: NextRequest) {
   const debug = req.headers.get("x-debug") === "1";
@@ -32,17 +55,17 @@ export async function POST(req: NextRequest) {
   }
   const baseUsed = process.env.PUBLIC_BASE || "";
 
-  // Reminder-only caps (conversation replies are NOT capped)
-  if (sendContext === "reminder") {
-    try {
-      const cap = await checkReminderCaps(from);
-      if (cap.held) {
-        return NextResponse.json({ ok: true, held: true, reason: "reminder_cap", dayCount: cap.dayCount, weekCount: cap.weekCount });
-      }
-    } catch (e: any) {
-      // Fail-open on cap check errors (but log them)
-      console.error("[ai-reply] reminder cap check error → proceeding", e?.message || e);
-    }
+  let lead_id: string | null = null;
+  try {
+    const { data: leadRow, error: leadErr } = await supabaseAdmin
+      .from("leads")
+      .select("id")
+      .eq("phone", from)
+      .maybeSingle();
+    if (leadErr) console.warn("[ai-reply] lead lookup warn:", leadErr.message);
+    lead_id = leadRow?.id ?? null;
+  } catch (e: any) {
+    console.warn("[ai-reply] lead lookup error:", e?.message || e);
   }
 
   const brandName = "OutboundRevive";
@@ -56,6 +79,29 @@ export async function POST(req: NextRequest) {
   });
   const replyText = ai?.message || "";
 
+  if (sendContext === "reminder") {
+    const caps = {
+      daily: parseInt(process.env.REMINDER_CAP_DAILY || "1", 10),
+      weekly: parseInt(process.env.REMINDER_CAP_WEEKLY || "3", 10),
+    };
+
+    const counts = await reminderCounts(supabaseAdmin, lead_id, from);
+
+    if ((caps.daily > 0 && counts.dayCount >= caps.daily) ||
+        (caps.weekly > 0 && counts.weekCount >= caps.weekly)) {
+      if (debug && ai) (ai as any)._cap_meta = { caps, ...counts, reason: "reminder_cap" };
+      return NextResponse.json({
+        ok: true,
+        held: true,
+        reason: "reminder_cap",
+        dayCount: counts.dayCount,
+        weekCount: counts.weekCount,
+      });
+    }
+
+    if (debug && ai) (ai as any)._cap_meta = { caps, ...counts, reason: null };
+  }
+
   // Send via Twilio helper (uses MessagingServiceSid)
   let sent: { sid?: string; status?: string } | null = null;
   try {
@@ -63,19 +109,6 @@ export async function POST(req: NextRequest) {
   } catch (e: any) {
     console.error("[ai-reply] twilio send ERROR", e?.message || e);
     return NextResponse.json({ ok: false, error: "twilio_send_failed" }, { status: 502 });
-  }
-
-  let lead_id: string | null = null;
-  try {
-    const { data: leadRow, error: leadErr } = await supabaseAdmin
-      .from("leads")
-      .select("id")
-      .eq("phone", from)
-      .maybeSingle();
-    if (leadErr) console.warn("[ai-reply] lead lookup warn:", leadErr.message);
-    lead_id = leadRow?.id ?? null;
-  } catch (e: any) {
-    console.warn("[ai-reply] lead lookup error:", e?.message || e);
   }
 
   const outboxPayload = {
