@@ -1,5 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabaseServer";
+import { nextReminderVariant } from "@/lib/reminderTemplates";
 
 const DEFAULT_INTERVALS = "24h,72h";
 
@@ -37,26 +39,61 @@ type Candidate = {
   lastOut: Date;
 };
 
-export async function GET(req: NextRequest) {
+function parseTimes(timesCsv: string) {
+  return timesCsv
+    .split(",")
+    .map(t => t.trim())
+    .filter(Boolean);
+}
+
+function isWithinSlotNow(tz: string, timesCsv: string, driftMins = 10) {
+  const now = DateTime.now().setZone(tz, { keepLocalTime: false });
+  if (!now.isValid) return false;
+  const slots = parseTimes(timesCsv);
+  for (const slot of slots) {
+    const [hh, mm] = slot.split(":" ).map(Number);
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) continue;
+    const slotTime = now.set({ hour: hh, minute: mm, second: 0, millisecond: 0 });
+    if (!slotTime.isValid) continue;
+    const diff = Math.abs(now.diff(slotTime, "minutes").minutes);
+    if (diff <= driftMins) return true;
+  }
+  return false;
+}
+
+async function handler(req: Request) {
   if (!process.env.CRON_KEY) {
     console.warn("[cron/reminders] CRON_KEY not configured");
     return NextResponse.json({ ok: false, error: "cron_unconfigured" }, { status: 500 });
   }
 
-  const cronKey = req.headers.get("x-cron-key") || "";
-  if (cronKey !== process.env.CRON_KEY) {
+  const url = new URL(req.url);
+  const keyFromHeader = (req.headers.get("x-cron-key") || req.headers.get("x-cron-secret") || "").trim();
+  const keyFromQuery = (url.searchParams.get("key") || "").trim();
+  const expected = (process.env.CRON_KEY || "").trim();
+  const hasVercelCron = req.headers.get("x-vercel-cron") === "1";
+  const dry = url.searchParams.has("dry") || req.headers.get("x-dry-run") === "1";
+  const okKey = (!!keyFromHeader && keyFromHeader === expected) || (!!keyFromQuery && keyFromQuery === expected);
+
+  if (!okKey && !hasVercelCron) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  const url = new URL(req.url);
   const limitParam = url.searchParams.get("limit");
   const limit = Math.max(1, Math.min(100, limitParam ? Number(limitParam) || 25 : 25));
-  const dryRun = url.searchParams.get("dry") === "1" || req.headers.get("x-dry-run") === "1";
 
   const intervals = parseIntervals(process.env.REMINDER_INTERVALS);
   if (!intervals.length) {
     console.warn("[cron/reminders] no valid REMINDER_INTERVALS; skipping");
     return NextResponse.json({ ok: false, error: "no_intervals" }, { status: 500 });
+  }
+
+  const tz = process.env.BUSINESS_TZ || process.env.REMINDER_TIMEZONE || "America/Los_Angeles";
+  const timesCsv = process.env.REMINDER_DAILY_TIMES || "10:00,14:00,17:30";
+  const drift = Number(process.env.REMINDER_SLOT_DRIFT || process.env.REMINDER_TIME_DRIFT || 10);
+
+  if (!isWithinSlotNow(tz, timesCsv, drift)) {
+    return NextResponse.json({ ok: true, skipped: "outside_timeslot" });
   }
 
   const outboundRes = await supabaseAdmin
@@ -141,6 +178,12 @@ export async function GET(req: NextRequest) {
   if (!baseUrl) console.warn("[cron/reminders] PUBLIC_BASE not set; reminder dispatch may fail");
   if (!twilioFrom) console.warn("[cron/reminders] TWILIO_DEFAULT_FROM not set; reminder dispatch may fail");
 
+  const variantIndexToday = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
+  const reminderBody = nextReminderVariant(variantIndexToday);
+  const minGapHoursRaw = Number(process.env.REMINDER_MIN_GAP_HOURS || 3);
+  const minGapHours = Number.isFinite(minGapHoursRaw) && minGapHoursRaw > 0 ? minGapHoursRaw : 3;
+  const minGapMs = minGapHours * 60 * 60 * 1000;
+
   for (const candidate of candidatesMap.values()) {
     const { leadId, toPhone, lastOut } = candidate;
     const lastInbound = lastInboundMap.get(toPhone) || null;
@@ -149,12 +192,37 @@ export async function GET(req: NextRequest) {
       continue;
     }
 
+    const { data: pausedData, error: pauseErr } = await supabaseAdmin
+      .from("global_suppressions")
+      .select("phone")
+      .eq("phone", toPhone)
+      .eq("scope", "reminders")
+      .gt("expires_at", new Date().toISOString())
+      .maybeSingle();
+
+    if (pauseErr) {
+      console.warn('[cron/reminders] pause check warn', pauseErr.message);
+    }
+    if (pausedData) {
+      results.push({ to_phone: toPhone, skipped: true, reason: "suppressed" });
+      continue;
+    }
+
     const reminderDates = remindersByPhone.get(toPhone) || [];
-    const reminderCount = reminderDates.filter(d => !lastInbound || d > lastInbound).length;
+    const relevantReminders = reminderDates.filter(d => !lastInbound || d > lastInbound);
+    const reminderCount = relevantReminders.length;
 
     if (reminderCount >= intervals.length) {
       results.push({ to_phone: toPhone, skipped: true, reason: "cadence_complete" });
       continue;
+    }
+
+    if (relevantReminders.length) {
+      const lastReminder = relevantReminders[relevantReminders.length - 1];
+      if (Date.now() - lastReminder.getTime() < minGapMs) {
+        results.push({ to_phone: toPhone, skipped: true, reason: "min_gap", waitMs: minGapMs - (Date.now() - lastReminder.getTime()) });
+        continue;
+      }
     }
 
     const elapsed = Date.now() - lastOut.getTime();
@@ -164,8 +232,8 @@ export async function GET(req: NextRequest) {
       continue;
     }
 
-    if (dryRun) {
-      results.push({ to_phone: toPhone, lead_id: leadId, action: "would_send", intervalMs: requiredMs });
+    if (dry) {
+      results.push({ to_phone: toPhone, lead_id: leadId, action: "would_send", intervalMs: requiredMs, body: reminderBody });
       continue;
     }
 
@@ -177,7 +245,7 @@ export async function GET(req: NextRequest) {
     const payload = {
       from: toPhone,
       to: twilioFrom,
-      body: "(reminder) Checking in",
+      body: reminderBody,
     };
 
     try {
@@ -205,5 +273,17 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  if (dry) {
+    return NextResponse.json({ ok: true, mode: "dry-run", processed: results.length, results });
+  }
+
   return NextResponse.json({ ok: true, processed: results.length, results });
+}
+
+export async function GET(req: Request) {
+  return handler(req);
+}
+
+export async function POST(req: Request) {
+  return handler(req);
 }

@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '@/lib/supabaseServer';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 // app/api/webhooks/twilio/inbound/route.ts
 export const runtime = 'nodejs';
 
@@ -18,7 +18,43 @@ export async function POST(req: Request) {
   const form = await req.formData();
   const from = String(form.get('From') || '').trim();
   const to = String(form.get('To') || '').trim();
-  const text = String(form.get('Body') || '').trim();
+  const rawText = String(form.get('Body') || '').trim();
+  const text = rawText.toLowerCase();
+
+  // Handle reminder pause/resume before any other logic
+  const pauseMatch = text.match(/^pause(?:\s+(\d+)([dw]))?$/);
+  if (pauseMatch) {
+    const amount = Number(pauseMatch[1] || 30);
+    const unit = (pauseMatch[2] || 'd') === 'w' ? 'w' : 'd';
+    const days = unit === 'w' ? amount * 7 : amount;
+    const until = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+
+    const { error } = await supabaseAdmin
+      .from('global_suppressions')
+      .upsert({ phone: from, scope: 'reminders', expires_at: until }, { onConflict: 'phone,scope' });
+
+    if (error) console.error('[twilio/inbound] PAUSE upsert error', error);
+
+    return new NextResponse(
+      `<?xml version="1.0" encoding="UTF-8"?><Response><Message>Okay — I’ll pause reminders for ${days} day(s). Reply "resume" anytime.</Message></Response>`,
+      { headers: { 'Content-Type': 'text/xml' } }
+    );
+  }
+
+  if (/^(resume|unpause)$/.test(text)) {
+    const { error } = await supabaseAdmin
+      .from('global_suppressions')
+      .delete()
+      .eq('phone', from)
+      .eq('scope', 'reminders');
+
+    if (error) console.error('[twilio/inbound] RESUME delete error', error);
+
+    return new NextResponse(
+      `<?xml version="1.0" encoding="UTF-8"?><Response><Message>Got it — reminders are back on.</Message></Response>`,
+      { headers: { 'Content-Type': 'text/xml' } }
+    );
+  }
 
   const cleaned = text.replace(/\W/g,"").toUpperCase();
   const isStop = /^(STOP|STOPALL|UNSUBSCRIBE|CANCEL|END|QUIT|REMOVE)$/.test(cleaned);
@@ -38,7 +74,7 @@ export async function POST(req: Request) {
     await supabaseAdmin.from('messages_in').insert({
       from_phone: from,
       to_phone: to,
-      body: text,
+      body: rawText,
     });
     console.log('[twilio/inbound] messages_in insert OK', { from, to });
   } catch (e) {
@@ -54,7 +90,7 @@ export async function POST(req: Request) {
         'content-type': 'application/json',
         'x-send-context': 'response',
       },
-      body: JSON.stringify({ from, to, body: text }),
+      body: JSON.stringify({ from, to, body: rawText }),
       cache: 'no-store',
     });
 
