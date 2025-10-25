@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseServer";
 import { sendSms } from "@/lib/twilio";
 import { generateReply } from "./generateReply";
+import { shouldAddFooter, isNewThread, FOOTER_TEXT } from "@/lib/messagingCompliance";
 
 async function reminderCounts(supabase: typeof supabaseAdmin, lead_id: string | null, to_phone: string) {
   const dayStart = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
@@ -25,9 +26,17 @@ async function reminderCounts(supabase: typeof supabaseAdmin, lead_id: string | 
   const dayQ = lead_id ? baseDay.eq("lead_id", lead_id) : baseDay.eq("to_phone", to_phone);
   const weekQ = lead_id ? baseWeek.eq("lead_id", lead_id) : baseWeek.eq("to_phone", to_phone);
 
-  const [{ count: dayCount = 0 }, { count: weekCount = 0 }] = await Promise.all([dayQ, weekQ]);
+  const [dayRes, weekRes] = await Promise.all([dayQ, weekQ]);
 
-  return { dayCount, weekCount, dayStart, weekStart };
+  if (dayRes.error) throw dayRes.error;
+  if (weekRes.error) throw weekRes.error;
+
+  return {
+    dayCount: dayRes.count ?? 0,
+    weekCount: weekRes.count ?? 0,
+    dayStart,
+    weekStart,
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -77,7 +86,23 @@ export async function POST(req: NextRequest) {
     brandName,
     bookingLink,
   });
-  const replyText = ai?.message || "";
+  let replyText = (ai?.message || "").trim();
+
+  if (!replyText) {
+    return NextResponse.json({ ok: false, error: "empty_reply" }, { status: 500 });
+  }
+
+  if (await isNewThread(from) && !/charlie/i.test(replyText)) {
+    replyText = `Hey—it’s Charlie from OutboundRevive. ${replyText}`;
+  }
+
+  if (await shouldAddFooter(from) && !/opt out/i.test(replyText)) {
+    replyText += `\n${FOOTER_TEXT}`;
+  }
+
+  if (replyText.length > 320) {
+    replyText = replyText.slice(0, 320).trim();
+  }
 
   if (sendContext === "reminder") {
     const caps = {
@@ -85,21 +110,25 @@ export async function POST(req: NextRequest) {
       weekly: parseInt(process.env.REMINDER_CAP_WEEKLY || "3", 10),
     };
 
-    const counts = await reminderCounts(supabaseAdmin, lead_id, from);
+    try {
+      const counts = await reminderCounts(supabaseAdmin, lead_id, from);
 
-    if ((caps.daily > 0 && counts.dayCount >= caps.daily) ||
-        (caps.weekly > 0 && counts.weekCount >= caps.weekly)) {
-      if (debug && ai) (ai as any)._cap_meta = { caps, ...counts, reason: "reminder_cap" };
-      return NextResponse.json({
-        ok: true,
-        held: true,
-        reason: "reminder_cap",
-        dayCount: counts.dayCount,
-        weekCount: counts.weekCount,
-      });
+      if ((caps.daily > 0 && counts.dayCount >= caps.daily) ||
+          (caps.weekly > 0 && counts.weekCount >= caps.weekly)) {
+        if (debug && ai) (ai as any)._cap_meta = { caps, ...counts, reason: "reminder_cap" };
+        return NextResponse.json({
+          ok: true,
+          held: true,
+          reason: "reminder_cap",
+          dayCount: counts.dayCount,
+          weekCount: counts.weekCount,
+        });
+      }
+
+      if (debug && ai) (ai as any)._cap_meta = { caps, ...counts, reason: null };
+    } catch (err: any) {
+      console.error("[ai-reply] reminder cap check error → proceeding", err?.message || err);
     }
-
-    if (debug && ai) (ai as any)._cap_meta = { caps, ...counts, reason: null };
   }
 
   // Send via Twilio helper (uses MessagingServiceSid)
@@ -111,6 +140,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "twilio_send_failed" }, { status: 502 });
   }
 
+  const gateCategory = sendContext === "reminder" ? "reminder" : "response";
+
   const outboxPayload = {
     lead_id,
     from_phone: to,         // Twilio (sender)
@@ -120,7 +151,7 @@ export async function POST(req: NextRequest) {
     provider_sid: sent?.sid ?? null,
     provider_status: "queued",
     sent_by: "ai",
-    gate_log: { category: sendContext === "reminder" ? "reminder" : "response" },
+    gate_log: { category: gateCategory },
   };
 
   const { data: ins, error: insErr } = await supabaseAdmin

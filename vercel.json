@@ -12,6 +12,7 @@
   ],
   "crons": [
     { "path": "/api/internal/agent/consume", "schedule": "*/2 * * * *" },
-    { "path": "/api/internal/followups/tick", "schedule": "*/10 * * * *" }
+    { "path": "/api/internal/followups/tick", "schedule": "*/10 * * * *" },
+    { "path": "/api/cron/reminders", "schedule": "*/5 * * * *" }
   ]
 }
