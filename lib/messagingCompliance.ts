@@ -4,6 +4,10 @@ export const FOOTER_TEXT = 'Txt STOP to opt out';
 export const FOOTER_REFRESH_DAYS = 30;     // show footer if not sent in last 30 days
 export const INTRO_WINDOW_DAYS = 14;       // treat as new thread if no outbound in last 14 days
 
+function isoMinus(hours: number) {
+  return new Date(Date.now() - hours * 3_600_000).toISOString();
+}
+
 function isoDaysAgo(days: number) {
   return new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
 }
@@ -41,4 +45,44 @@ export async function isNewThread(toPhone: string): Promise<boolean> {
     return false;
   }
   return !data || data.length === 0;
+}
+
+export async function checkReminderCaps(toPhone: string) {
+  const DAILY = parseInt(process.env.REMINDER_CAP_DAILY ?? '1', 10);
+  const WEEKLY = parseInt(process.env.REMINDER_CAP_WEEKLY ?? '3', 10);
+
+  const bypassCsv = (process.env.CAPS_DISABLE_FOR || '')
+    .split(/[\s,]+/)
+    .filter(Boolean);
+  if (bypassCsv.includes(toPhone)) return { held: false, dayCount: 0, weekCount: 0 };
+
+  const dayStart = isoMinus(24);
+  const weekStart = isoMinus(24 * 7);
+
+  const dayQ = supabaseAdmin
+    .from('messages_out')
+    .select('id', { count: 'exact', head: true })
+    .eq('to_phone', toPhone)
+    .gte('created_at', dayStart)
+    .contains('gate_log', { category: 'reminder' });
+
+  const weekQ = supabaseAdmin
+    .from('messages_out')
+    .select('id', { count: 'exact', head: true })
+    .eq('to_phone', toPhone)
+    .gte('created_at', weekStart)
+    .contains('gate_log', { category: 'reminder' });
+
+  const [{ count: dayCount, error: dayErr }, { count: weekCount, error: weekErr }] = await Promise.all([dayQ, weekQ]);
+  if (dayErr) throw dayErr;
+  if (weekErr) throw weekErr;
+
+  const held = (typeof dayCount === 'number' && dayCount >= DAILY) ||
+               (typeof weekCount === 'number' && weekCount >= WEEKLY);
+
+  return {
+    held,
+    dayCount: dayCount ?? 0,
+    weekCount: weekCount ?? 0,
+  };
 }

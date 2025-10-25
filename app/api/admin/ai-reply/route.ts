@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseServer";
 import { sendSms } from "@/lib/twilio";
 import { generateReply } from "./generateReply";
-import { checkReminderCaps } from "@/lib/compliance";
+import { checkReminderCaps } from "@/lib/messagingCompliance";
 
 export async function POST(req: NextRequest) {
   const debug = req.headers.get("x-debug") === "1";
@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
   if (!from || !to || !body) {
     return NextResponse.json({ ok: false, error: "missing_fields" }, { status: 400 });
   }
+  const baseUsed = process.env.PUBLIC_BASE || "";
 
   // Reminder-only caps (conversation replies are NOT capped)
   if (sendContext === "reminder") {
@@ -44,9 +45,16 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Generate AI reply (your existing function; returns text + optional ai_debug)
-  const ai = await generateReply({ from, to, body, debug });
-  const replyText = ai?.message || ai?.reply || "";
+  const brandName = "OutboundRevive";
+  const bookingLink = process.env.CAL_LINK || "";
+  const ai = await generateReply({
+    userBody: body,
+    fromPhone: from,
+    toPhone: to,
+    brandName,
+    bookingLink,
+  });
+  const replyText = ai?.message || "";
 
   // Send via Twilio helper (uses MessagingServiceSid)
   let sent: { sid?: string; status?: string } | null = null;
@@ -57,21 +65,39 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "twilio_send_failed" }, { status: 502 });
   }
 
-  // Persist outbox with category tag so counts stay clean
+  let lead_id: string | null = null;
   try {
-    await supabaseAdmin.from("messages_out").insert({
-      from_phone: to,           // Twilio number (sender)
-      to_phone: from,           // Lead number (recipient)
-      body: replyText,
-      provider_sid: sent?.sid ?? null,
-      provider: "twilio",
-      provider_status: "queued",
-      sent_by: "ai",
-      gate_log: { category: sendContext === "reminder" ? "reminder" : "response" },
-    });
+    const { data: leadRow, error: leadErr } = await supabaseAdmin
+      .from("leads")
+      .select("id")
+      .eq("phone", from)
+      .maybeSingle();
+    if (leadErr) console.warn("[ai-reply] lead lookup warn:", leadErr.message);
+    lead_id = leadRow?.id ?? null;
   } catch (e: any) {
-    console.error("[ai-reply] messages_out insert ERROR", e?.message || e);
-    // non-fatal
+    console.warn("[ai-reply] lead lookup error:", e?.message || e);
+  }
+
+  const payload = {
+    lead_id,
+    from_phone: to,         // Twilio (sender)
+    to_phone: from,         // Lead (recipient)
+    body: replyText,
+    provider: "twilio",
+    provider_sid: sent?.sid ?? null,
+    provider_status: "queued",
+    sent_by: "ai",
+    gate_log: { category: sendContext === "reminder" ? "reminder" : "response" },
+  };
+
+  const { data: ins, error: insErr } = await supabaseAdmin
+    .from("messages_out")
+    .insert(payload)
+    .select("id");
+
+  if (insErr) {
+    console.error("[ai-reply] messages_out insert ERROR", insErr.message, insErr.details);
+    if (debug && ai) (ai as any)._db_error = insErr.message || "insert_error";
   }
 
   return NextResponse.json({
@@ -79,6 +105,7 @@ export async function POST(req: NextRequest) {
     strategy: ai?.kind || ai?.strategy || "text",
     reply: replyText,
     send_result: sent,
+    base_used: baseUsed,
     ...(debug ? { ai_debug: ai } : {}),
   });
 }

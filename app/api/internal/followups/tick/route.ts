@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin as db } from '@/lib/supabaseServer';
-import { shouldAddFooter, isNewThread, FOOTER_TEXT } from '@/lib/messagingCompliance';
-import { checkReminderCaps } from '@/lib/compliance';
+import { shouldAddFooter, isNewThread, FOOTER_TEXT, checkReminderCaps } from '@/lib/messagingCompliance';
 
 export const runtime = 'nodejs';
 
@@ -123,8 +122,14 @@ export async function POST(req: NextRequest) {
       }
 
       // Respect daily/weekly caps before sending
-      const cap = await checkReminderCaps(leadPhone);
+      let cap = { held: false, dayCount: 0, weekCount: 0 };
+      try {
+        cap = await checkReminderCaps(leadPhone);
+      } catch (err: any) {
+        console.warn('[followups] reminder cap check error → skip cap', err?.message || err);
+      }
       if (cap.held) {
+        const holdReason = 'reminder_cap';
         await db.from('messages_out').insert({
           lead_id,
           from_phone: fromNumber,
@@ -134,9 +139,9 @@ export async function POST(req: NextRequest) {
           provider: 'twilio',
           provider_status: 'held',
           sent_by: 'system',
-          gate_log: { category: 'reminder', reason: cap.reason ?? 'reminder_cap', dayCount: cap.dayCount, weekCount: cap.weekCount }
+          gate_log: { category: 'reminder', reason: holdReason, dayCount: cap.dayCount, weekCount: cap.weekCount }
         });
-        results.push({ lead_id, skipped: true, reason: cap.reason ?? 'reminder_cap', dayCount: cap.dayCount, weekCount: cap.weekCount });
+        results.push({ lead_id, skipped: true, reason: holdReason, dayCount: cap.dayCount, weekCount: cap.weekCount });
         continue;
       }
 
