@@ -45,24 +45,54 @@ export async function isNewThread(toPhone: string): Promise<boolean> {
   return !data || data.length === 0;
 }
 
-export async function checkCaps(toPhone: string): Promise<{ allowed: boolean; dayCount: number; weekCount: number; }> {
-  const daySince = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-  const weekSince = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+export async function getCaps({
+  leadId,
+  toPhone,
+  dayWindowISO,
+  weekWindowISO,
+}: {
+  leadId?: string;
+  toPhone?: string;
+  dayWindowISO: string;
+  weekWindowISO: string;
+}) {
+  const applyWhere = (q: any, sinceISO: string) => {
+    let query = q.gte('created_at', sinceISO);
+    if (leadId) query = query.eq('lead_id', leadId);
+    else if (toPhone) query = query.eq('to_phone', toPhone);
+    query = query.eq('provider', 'twilio');
+    query = query.not('provider_sid', 'is', null);
+    return query;
+  };
 
-  const daySel = await supabaseAdmin
-    .from('messages_out')
-    .select('id', { count: 'exact', head: true })
-    .eq('to_phone', toPhone)
-    .gte('created_at', daySince);
+  const dayQuery = applyWhere(
+    supabaseAdmin.from('messages_out').select('id', { count: 'exact', head: true }),
+    dayWindowISO
+  );
+  const dayRes = await dayQuery;
 
-  const weekSel = await supabaseAdmin
-    .from('messages_out')
-    .select('id', { count: 'exact', head: true })
-    .eq('to_phone', toPhone)
-    .gte('created_at', weekSince);
+  const weekQuery = applyWhere(
+    supabaseAdmin.from('messages_out').select('id', { count: 'exact', head: true }),
+    weekWindowISO
+  );
+  const weekRes = await weekQuery;
 
-  const dayCount = daySel.count ?? 0;
-  const weekCount = weekSel.count ?? 0;
+  return {
+    dayCount: dayRes.count ?? 0,
+    weekCount: weekRes.count ?? 0,
+  };
+}
 
+export async function checkCaps({
+  leadId,
+  toPhone,
+}: {
+  leadId?: string;
+  toPhone?: string;
+}): Promise<{ allowed: boolean; dayCount: number; weekCount: number }> {
+  const now = new Date();
+  const dayWindowISO = new Date(now.getTime() - 24 * 3600 * 1000).toISOString();
+  const weekWindowISO = new Date(now.getTime() - 7 * 24 * 3600 * 1000).toISOString();
+  const { dayCount, weekCount } = await getCaps({ leadId, toPhone, dayWindowISO, weekWindowISO });
   return { allowed: dayCount < DAILY_CAP && weekCount < WEEKLY_CAP, dayCount, weekCount };
 }

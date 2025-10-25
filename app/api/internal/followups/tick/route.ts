@@ -63,9 +63,8 @@ export async function POST(req: NextRequest) {
       }
 
       // 2) Build a “q” from the last inbound or fallback and fetch lead details
-      const [lastIn, lastOut, leadRes] = await Promise.all([
+      const [lastIn, leadRes] = await Promise.all([
         db.from('messages_in').select('body,created_at').eq('lead_id', lead_id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
-        db.from('messages_out').select('body,created_at').eq('lead_id', lead_id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
         db.from('leads').select('id,phone').eq('id', lead_id).maybeSingle(),
       ]);
 
@@ -123,7 +122,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Respect daily/weekly caps before sending
-      const cap = await checkCaps(leadPhone);
+      const cap = await checkCaps({ leadId: lead_id, toPhone: leadPhone });
       if (!cap.allowed) {
         await db.from('messages_out').insert({
           lead_id,

@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 import { generateReply } from './generateReply';
 import { sendSms } from '@/lib/twilio';
-import { shouldAddFooter, isNewThread, checkCaps, FOOTER_TEXT } from '@/lib/compliance';
+import { shouldAddFooter, isNewThread, getCaps, FOOTER_TEXT, DAILY_CAP, WEEKLY_CAP } from '@/lib/compliance';
 
 function publicBaseFromRequest(req: NextRequest): string {
   const envBase =
@@ -23,6 +23,7 @@ function publicBaseFromRequest(req: NextRequest): string {
 
 export async function POST(req: NextRequest) {
   const debug = req.headers.get('x-debug') === '1';
+  const skipCaps = req.headers.get('x-skip-caps') === '1';
 
   // Admin auth
   const provided = (req.headers.get('x-admin-key') || '').trim();
@@ -54,12 +55,20 @@ export async function POST(req: NextRequest) {
   const bookingLink = process.env.CAL_LINK || 'https://cal.com/charlie-fregozo-v8sczt/30min';
 
   // (optional) resolve lead for logging
+  let leadId: string | undefined;
   let lead_id: string | null = null;
   try {
     const { data: lead } = await supabaseAdmin
       .from('leads').select('id').eq('phone', from).maybeSingle();
-    lead_id = lead?.id || null;
+    if (lead?.id) {
+      leadId = lead.id;
+      lead_id = lead.id;
+    }
   } catch {}
+
+  const now = new Date();
+  const dayWindowISO = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  const weekWindowISO = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   // Generate reply (LLM JSON when possible)
   const ai = await generateReply({ userBody: body, fromPhone: from, toPhone: to, brandName, bookingLink });
@@ -83,27 +92,37 @@ export async function POST(req: NextRequest) {
   } catch {}
 
   // Respect daily/weekly caps per recipient (the lead's phone is `from`)
-  const cap = await checkCaps(from);
-  if (!cap.allowed) {
-    // Optionally log a held/blocked row for audit
-    await supabaseAdmin.from('messages_out').insert({
-      lead_id,
-      from_phone: to,      // your Twilio number
-      to_phone: from,      // recipient
-      body: replyText,
-      status: 'held',
-      provider: 'twilio',
-      provider_status: 'held',
-      sent_by: 'ai',
-      gate_log: { reason: 'cap_reached', dayCount: cap.dayCount, weekCount: cap.weekCount },
+  if (!skipCaps) {
+    const { dayCount, weekCount } = await getCaps({
+      leadId,
+      toPhone: from,
+      dayWindowISO,
+      weekWindowISO,
     });
-    return NextResponse.json({
-      ok: true,
-      held: true,
-      reason: 'cap_reached',
-      dayCount: cap.dayCount,
-      weekCount: cap.weekCount,
-    });
+    const capAllowed = dayCount < DAILY_CAP && weekCount < WEEKLY_CAP;
+    if (!capAllowed) {
+      // Optionally log a held/blocked row for audit
+      await supabaseAdmin.from('messages_out').insert({
+        lead_id,
+        from_phone: to,      // your Twilio number
+        to_phone: from,      // recipient
+        body: replyText,
+        status: 'held',
+        provider: 'twilio',
+        provider_status: 'held',
+        sent_by: 'ai',
+        gate_log: { reason: 'cap_reached', dayCount, weekCount },
+      });
+      return NextResponse.json({
+        ok: true,
+        held: true,
+        reason: 'cap_reached',
+        dayCount,
+        weekCount,
+      });
+    }
+  } else {
+    console.log('[caps] BYPASS via header');
   }
 
   // Add "Charlie" intro once per thread window
