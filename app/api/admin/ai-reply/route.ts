@@ -85,6 +85,31 @@ export async function POST(req: NextRequest) {
   let sent: any = null;
   try {
     sent = await sendSms({ to: from, body: replyText });
+  try {
+    const payload1 = {
+      from_phone: to,     // Twilio sender (your MSID number)
+      to_phone: from,     // Lead's phone
+      body: replyText,
+      provider_sid: (typeof sent !== 'undefined' && sent && sent.sid) ? sent.sid : null
+    };
+    const ins1 = await supabaseAdmin.from('messages_out').insert(payload1);
+    if (ins1.error) throw ins1.error;
+    console.log('[ai-reply] messages_out insert OK', { to, from, sid: sent?.sid });
+  } catch (e) {
+    console.warn('[ai-reply] messages_out insert fallback', e?.message || e);
+    const payload2 = {
+      body: replyText,
+      provider_sid: (typeof sent !== 'undefined' && sent && sent.sid) ? sent.sid : null
+    };
+    try {
+      const ins2 = await supabaseAdmin.from('messages_out').insert(payload2);
+      if (ins2.error) throw ins2.error;
+      console.log('[ai-reply] messages_out insert MINIMAL OK', { sid: sent?.sid });
+    } catch (e2) {
+      console.error('[ai-reply] messages_out insert ERROR (both attempts)', e2);
+    }
+  }
+
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: 'twilio_send_failed', detail: e?.message || String(e) },
