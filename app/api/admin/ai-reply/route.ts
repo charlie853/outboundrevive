@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
     console.warn("[ai-reply] lead lookup error:", e?.message || e);
   }
 
-  const payload = {
+  const outboxPayload = {
     lead_id,
     from_phone: to,         // Twilio (sender)
     to_phone: from,         // Lead (recipient)
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
 
   const { data: ins, error: insErr } = await supabaseAdmin
     .from("messages_out")
-    .insert(payload)
+    .insert(outboxPayload)
     .select("id");
 
   if (insErr) {
