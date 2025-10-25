@@ -61,7 +61,7 @@ async function countsInLast24h(lead_id: string) {
 export async function POST(req: NextRequest) {
   try {
     const payload = await req.json().catch(() => ({}));
-    const { leadIds, message, body, brand, aiMeta, replyMode, operator_id, sentBy, account_id, lead_id } = payload as {
+    const { leadIds, message, body, brand, aiMeta, replyMode, operator_id, sentBy, account_id, lead_id, gate_context } = payload as {
       leadIds?: string[];
       message?: string;
       body?: string;
@@ -78,6 +78,7 @@ export async function POST(req: NextRequest) {
       };
       account_id?: string;
       lead_id?: string;
+      gate_context?: string;
     };
     // Normalize payload shapes
     const normalizedLeadIds: string[] = Array.isArray(leadIds)
@@ -110,7 +111,8 @@ export async function POST(req: NextRequest) {
       .eq('id', accountId)
       .maybeSingle();
     if (acct?.outbound_paused) return NextResponse.json({ error: 'account_paused' }, { status: 423 });
-  const isReply = replyMode === true || String(replyMode).toLowerCase() === 'true';
+    const isReply = replyMode === true || String(replyMode).toLowerCase() === 'true';
+    const gateContext = typeof gate_context === 'string' ? gate_context.toLowerCase() : null;
 
     // decide provenance for this send
     // decide provenance for this send (match DB constraint: only 'ai' | 'operator')
@@ -230,7 +232,8 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
           stateCapOk = sentCount24h < 3;
         }
 
-        const gateLog = {
+        const gateCategory = gateContext || (isReply ? 'response' : 'outreach');
+        const gateLog: any = {
           is_reply: isReply,
           tz,
           quiet_window: { start: cfg?.quiet_start || '08:00', end: cfg?.quiet_end || '21:00', now_min_local: nowMinLocal, passed: quietOk },
@@ -251,6 +254,7 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
           sent_by: baseSentBy,
           operator_id: operator_id ?? null
         };
+        gateLog.category = gateCategory;
 
         // render + footer gating (once/30d)
         const needsFooter = daysSince(l.last_footer_at) > 30;

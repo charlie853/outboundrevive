@@ -52,6 +52,7 @@ export async function POST(req: Request) {
       headers: {
         'x-admin-key': process.env.ADMIN_API_KEY || '',
         'content-type': 'application/json',
+        'x-send-context': 'response',
       },
       body: JSON.stringify({ from, to, body: text }),
       cache: 'no-store',

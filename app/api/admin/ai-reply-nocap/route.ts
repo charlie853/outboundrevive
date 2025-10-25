@@ -13,9 +13,11 @@ export async function POST(req: NextRequest) {
 
   const { from = "", to = "", body = "" } = await req.json();
   const base = process.env.PUBLIC_BASE || "";
+  const brandName = "OutboundRevive";
+  const bookingLink = process.env.CAL_LINK || "https://cal.com/charlie-fregozo-v8sczt/30min";
 
   // 100% skip caps here
-  const ai = await generateReply({ userBody: body, fromPhone: from, toPhone: to, brandName: "", bookingLink: undefined });
+  const ai = await generateReply({ userBody: body, fromPhone: from, toPhone: to, brandName, bookingLink });
   const replyText = ai.message || "";
 
   // Send SMS
@@ -39,6 +41,7 @@ export async function POST(req: NextRequest) {
       provider: "twilio",
       provider_status: "queued",
       sent_by: "ai",
+      gate_log: { category: "response" },
     });
   } catch {}
 

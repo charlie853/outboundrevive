@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin as db } from '@/lib/supabaseServer';
-import { checkCaps, shouldAddFooter, isNewThread, FOOTER_TEXT } from '@/lib/compliance';
+import { shouldAddFooter, isNewThread, FOOTER_TEXT } from '@/lib/messagingCompliance';
+import { checkReminderCaps } from '@/lib/compliance';
 
 export const runtime = 'nodejs';
 
@@ -122,8 +123,8 @@ export async function POST(req: NextRequest) {
       }
 
       // Respect daily/weekly caps before sending
-      const cap = await checkCaps({ leadId: lead_id, toPhone: leadPhone });
-      if (!cap.allowed) {
+      const cap = await checkReminderCaps(leadPhone);
+      if (cap.held) {
         await db.from('messages_out').insert({
           lead_id,
           from_phone: fromNumber,
@@ -133,9 +134,9 @@ export async function POST(req: NextRequest) {
           provider: 'twilio',
           provider_status: 'held',
           sent_by: 'system',
-          gate_log: { reason: 'cap_reached', dayCount: cap.dayCount, weekCount: cap.weekCount }
+          gate_log: { category: 'reminder', reason: cap.reason ?? 'reminder_cap', dayCount: cap.dayCount, weekCount: cap.weekCount }
         });
-        results.push({ lead_id, skipped: true, reason: 'cap_reached', dayCount: cap.dayCount, weekCount: cap.weekCount });
+        results.push({ lead_id, skipped: true, reason: cap.reason ?? 'reminder_cap', dayCount: cap.dayCount, weekCount: cap.weekCount });
         continue;
       }
 
@@ -164,7 +165,8 @@ export async function POST(req: NextRequest) {
           operator_id,
           account_id: acct,
           lead_id,
-          body: text
+          body: text,
+          gate_context: 'reminder',
         };
         const resp = await fetch(`${base}/api/sms/send`, {
           method: 'POST',
