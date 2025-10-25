@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin as db } from '@/lib/supabaseServer';
+import { checkCaps, shouldAddFooter, isNewThread, FOOTER_TEXT } from '@/lib/compliance';
 
 export const runtime = 'nodejs';
 
@@ -47,6 +48,7 @@ export async function POST(req: NextRequest) {
 
     // cache pause
     const pausedCache = new Map<string, boolean>();
+    const fromNumberCache = new Map<string, string | null>();
     for (const c of due) {
       const lead_id = c.lead_id as string;
       const acct = c.account_id as string;
@@ -60,60 +62,138 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // 2) Build a “q” from the last inbound or fallback
-      const [lastIn, lastOut] = await Promise.all([
+      // 2) Build a “q” from the last inbound or fallback and fetch lead details
+      const [lastIn, lastOut, leadRes] = await Promise.all([
         db.from('messages_in').select('body,created_at').eq('lead_id', lead_id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
         db.from('messages_out').select('body,created_at').eq('lead_id', lead_id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+        db.from('leads').select('id,phone').eq('id', lead_id).maybeSingle(),
       ]);
+
+      const leadPhone = leadRes.data?.phone?.trim();
+      if (!leadPhone) {
+        results.push({ lead_id, skipped: true, reason: 'missing_phone' });
+        continue;
+      }
 
       const lastInbound = lastIn.data?.body?.trim() || '';
       const q = lastInbound || 'Quick follow-up regarding your interest.';
 
-      // 3) Draft with Knowledge Pack (and send in one hop)
+      // cache account from-number for logging held messages
+      let fromNumber = fromNumberCache.get(acct);
+      if (fromNumber === undefined) {
+        const { data: cfg } = await db
+          .from('account_sms_config')
+          .select('from_number')
+          .eq('account_id', acct)
+          .maybeSingle();
+        fromNumber = cfg?.from_number || null;
+        fromNumberCache.set(acct, fromNumber);
+      }
+
+      // 3) Draft with Knowledge Pack (no immediate send)
       const base = process.env.PUBLIC_BASE_URL || 'http://localhost:3001';
       const admin = (process.env.ADMIN_API_KEY || process.env.ADMIN_TOKEN || '').trim();
 
-      const draftReq = await fetch(`${base}/api/internal/knowledge/draft`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-admin-token': admin },
-        body: JSON.stringify({
-          account_id: acct,
-          q,
-          k,
-          max_chars,
-          send: true,
-          lead_id,
-          operator_id
-        })
+      const draftPayload = (limitChars: number) => ({
+        account_id: acct,
+        q,
+        k,
+        max_chars: limitChars,
+        send: false,
+        lead_id,
+        operator_id
       });
 
-      const draftRes = await draftReq.json().catch(() => ({}));
-      const sentSid = draftRes?.sent?.results?.[0]?.sid || null;
-      const tooLong = draftRes?.sent?.results?.[0]?.error === 'too_long_with_footer';
-
-      // cheap retry if footer made it too long: shrink and resend once
-      if (!sentSid && tooLong) {
-        const retry = await fetch(`${base}/api/internal/knowledge/draft`, {
+      const fetchDraft = async (limitChars: number) => {
+        const resp = await fetch(`${base}/api/internal/knowledge/draft`, {
           method: 'POST',
           headers: { 'content-type': 'application/json', 'x-admin-token': admin },
-          body: JSON.stringify({
-            account_id: acct,
-            q,
-            k,
-            max_chars: Math.max(120, max_chars - 40),
-            send: true,
-            lead_id,
-            operator_id
-          })
+          body: JSON.stringify(draftPayload(limitChars))
         });
-        const retryRes = await retry.json().catch(() => ({}));
-        if (retryRes?.sent?.results?.[0]?.sid) {
-          draftRes.sent = retryRes.sent;
-        }
+        if (!resp.ok) return {};
+        return resp.json().catch(() => ({}));
+      };
+
+      let currentCap = max_chars;
+      let draftRes: any = await fetchDraft(currentCap);
+      let draftText = String(draftRes?.draft?.text || '').trim();
+      if (!draftText) {
+        results.push({ lead_id, skipped: true, reason: 'no_draft' });
+        continue;
       }
 
+      // Respect daily/weekly caps before sending
+      const cap = await checkCaps(leadPhone);
+      if (!cap.allowed) {
+        await db.from('messages_out').insert({
+          lead_id,
+          from_phone: fromNumber,
+          to_phone: leadPhone,
+          body: draftText,
+          status: 'held',
+          provider: 'twilio',
+          provider_status: 'held',
+          sent_by: 'system',
+          gate_log: { reason: 'cap_reached', dayCount: cap.dayCount, weekCount: cap.weekCount }
+        });
+        results.push({ lead_id, skipped: true, reason: 'cap_reached', dayCount: cap.dayCount, weekCount: cap.weekCount });
+        continue;
+      }
+
+      const [newThread, footerNeeded] = await Promise.all([
+        isNewThread(leadPhone),
+        shouldAddFooter(leadPhone)
+      ]);
+
+      const applyCompliance = (text: string) => {
+        let out = text.trim();
+        if (newThread && !/charlie/i.test(out)) {
+          out = `Hey—it’s Charlie from OutboundRevive. ${out}`;
+        }
+        if (footerNeeded && !/opt out/i.test(out)) {
+          out += `\n${FOOTER_TEXT}`;
+        }
+        if (out.length > 320) out = out.slice(0, 320).trim();
+        return out;
+      };
+
+      const sendOnce = async (text: string) => {
+        const payload = {
+          leadIds: [lead_id],
+          message: text,
+          replyMode: true,
+          operator_id,
+          account_id: acct,
+          lead_id,
+          body: text
+        };
+        const resp = await fetch(`${base}/api/sms/send`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-admin-token': admin },
+          body: JSON.stringify(payload)
+        });
+        const json = await resp.json().catch(() => ({}));
+        return { ok: resp.ok, json };
+      };
+
+      let finalText = applyCompliance(draftText);
+      let sendAttempt = await sendOnce(finalText);
+      let sendResult = Array.isArray(sendAttempt.json?.results) ? sendAttempt.json.results[0] : null;
+
+      if ((!sendResult || !sendResult.sid) && sendResult?.error === 'too_long_with_footer') {
+        currentCap = Math.max(120, currentCap - 40);
+        draftRes = await fetchDraft(currentCap);
+        draftText = String(draftRes?.draft?.text || '').trim() || draftText;
+        finalText = applyCompliance(draftText);
+        sendAttempt = await sendOnce(finalText);
+        sendResult = Array.isArray(sendAttempt.json?.results) ? sendAttempt.json.results[0] : sendResult;
+      }
+
+      const wasSent = !!sendResult?.sid;
+      const sentSid = wasSent ? sendResult.sid : null;
+      const sendError = sendResult?.error || sendAttempt.json?.error || (sendAttempt.ok ? null : 'send_failed');
+
       // 4) Log + reschedule
-      const wasSent = !!draftRes?.sent?.results?.[0]?.sid;
       const attempt = Number(c.attempt ?? 0) + 1;
       const done = attempt >= Number(c.max_attempts ?? 5);
 
@@ -129,9 +209,9 @@ export async function POST(req: NextRequest) {
         lead_id,
         attempt,
         planned_at: c.next_at ?? now.toISOString(),
-        sent_sid: draftRes?.sent?.results?.[0]?.sid ?? null,
+        sent_sid: sentSid,
         status: wasSent ? 'sent' : 'skipped',
-        reason: wasSent ? null : (draftRes?.sent?.results?.[0]?.error || draftRes?.send_error || 'not_sent')
+        reason: wasSent ? null : (sendError || 'not_sent')
       });
 
       await db.from('ai_followup_cursor')
@@ -144,7 +224,7 @@ export async function POST(req: NextRequest) {
         })
         .eq('lead_id', lead_id);
 
-      results.push({ lead_id, attempt, sent_sid: draftRes?.sent?.results?.[0]?.sid ?? null, next_at, done });
+      results.push({ lead_id, attempt, sent_sid: sentSid, next_at, done, error: sendError ?? null });
       processed++;
     }
 

@@ -102,44 +102,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, dry: true, message_id: msg.id, body: text });
     }
 
-    // 6) Send via Twilio (API Key auth)
-    const basic = Buffer.from(`${TWILIO_API_KEY_SID}:${TWILIO_API_KEY_SECRET}`).toString('base64');
-    const form = new URLSearchParams({
-      To: lead.phone,
-      MessagingServiceSid: TWILIO_MESSAGING_SERVICE_SID,
-      Body: text,
+    // 6) Send via Twilio helper (Messaging Service only)
+    const base = (process.env.PUBLIC_BASE || process.env.PUBLIC_BASE_URL || '').trim();
+    const twJson: any = await sendSms({
+      to: lead.phone,
+      body: text,
+      statusCallback: base ? `${base}/api/webhooks/twilio/status` : undefined,
     });
 
-    const twRes = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Basic ${basic}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: form,
-      }
-    );
-
-    const twJson = await twRes.json().catch(() => ({} as any));
-
     // 7) Persist Twilio result
-    if (twRes.ok && twJson?.sid) {
+    if (twJson?.sid) {
       await supabaseAdmin
         .from('messages_out')
         .update({
           provider_sid: twJson.sid,
-          status: twJson.status ?? 'accepted',
+          status: twJson.status ?? 'queued',
         })
         .eq('id', msg.id);
-      return NextResponse.json({ ok: true, sid: twJson.sid, status: twJson.status ?? 'accepted' });
+      return NextResponse.json({ ok: true, sid: twJson.sid, status: twJson.status ?? 'queued' });
     } else {
       await supabaseAdmin
         .from('messages_out')
         .update({
           status: 'failed',
-          error_code: twJson?.error_code ?? null,
+          error_code: twJson?.error_code ?? twJson?.message ?? null,
         })
         .eq('id', msg.id);
 
