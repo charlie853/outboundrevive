@@ -1,19 +1,35 @@
-export function firstName(full?: string | null) {
-  if (!full) return undefined;
-  const f = full.trim().split(/\s+/)[0];
-  return f && /^[A-Za-z'’-]+$/.test(f) ? f : undefined;
+export function firstNameOf(name?: string | null) {
+  if (!name) return undefined;
+  const match = String(name).trim().match(/^[^\s-]+/);
+  return match ? match[0] : undefined;
 }
 
-const REMINDER_VARIANTS: ((name?: string) => string)[] = [
-  (n) => `Hi${n ? ` ${n}` : ""}, just checking in. Happy to share pricing or answer any quick questions whenever you’re ready.`,
-  (n) => `Quick nudge${n ? `, ${n}` : ""} — would it help if I send a 2-min overview or a calendar link?`,
-  (n) => `No rush${n ? `, ${n}` : ""}! If now’s not ideal, reply "pause" to snooze reminders. Otherwise I can send a couple time options.`,
+export function renderIntro(first?: string | null, brand = 'OutboundRevive') {
+  const who = first ? `Hi ${first} — it’s Charlie from ${brand}.` : `Hi — it’s Charlie from ${brand}.`;
+  return `${who} Quick check-in: would you like pricing, a 2-min overview, or a quick call link?`;
+}
+
+const gentle: Array<(f?: string | null) => string> = [
+  (f?: string | null) =>
+    f ? `Hi ${f} — just checking in. Happy to help whenever you’re ready.` : `Hi — just checking in. Happy to help whenever you’re ready.`,
+  (f?: string | null) => (f ? `Hey ${f}, no rush — here if you have any questions.` : `Hey, no rush — here if you have any questions.`),
+  (f?: string | null) => (f ? `${f}, quick nudge in case my last note got buried.` : `Quick nudge in case my last note got buried.`),
 ];
 
-export function nextReminderCopy(name?: string, attemptIndex = 0) {
-  return REMINDER_VARIANTS[attemptIndex % REMINDER_VARIANTS.length](name);
+export function pickGentleReminder(first?: string | null) {
+  const fn = gentle[Math.floor(Math.random() * gentle.length)];
+  return fn(first);
 }
 
-export function introCopy(name?: string) {
-  return `Hi${name ? ` ${name}` : ""} — it’s Charlie from OutboundRevive. I can send pricing, a 2-min overview, or a quick call link — what works best?`;
+// Legacy helpers kept for callers still using the old names
+export function introCopy(first?: string | null, brand = 'OutboundRevive') {
+  return renderIntro(first, brand);
+}
+
+export function gentleReminder(first?: string | null, attemptIndex = 0) {
+  if (typeof attemptIndex === 'number' && attemptIndex > 0) {
+    // bias toward later cadence phrasing when attempt index increases
+    return gentle[2]?.(first) ?? pickGentleReminder(first);
+  }
+  return pickGentleReminder(first);
 }

@@ -40,11 +40,11 @@ export async function GET() {
       brand: 'OutboundRevive',
       booking_link: '',
       template_opener:
-        'Hi {{name}}—{{brand}} here re your earlier inquiry. We can hold 2 options. Reply YES to book. Txt STOP to opt out',
+        'Hi {{name}}—{{brand}} here re your earlier inquiry. We can hold 2 options. Reply YES to book.',
       template_nudge:
-        '{{brand}}: still want to book a quick chat? We can hold 2 options. Reply A/B or send a time. Txt STOP to opt out',
+        '{{brand}}: still want to book a quick chat? We can hold 2 options. Reply A/B or send a time.',
       template_reslot:
-        '{{brand}}: no problem. Early next week or later this week? Reply with a window. Txt STOP to opt out',
+        '{{brand}}: no problem. Early next week or later this week? Reply with a window.',
       templates: {},
       autopilot_enabled: false,
       kill_switch: false,

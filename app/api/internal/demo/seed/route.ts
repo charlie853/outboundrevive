@@ -37,9 +37,9 @@ export async function POST(req: NextRequest) {
 
     // 3) Upsert app settings + templates
     const templates = {
-      opener: 'Hi {{name}}—{{brand}} here re your earlier inquiry. We can hold 2 options. Reply YES to book. Txt STOP to opt out',
-      nudge: '{{brand}}: still want to book a quick chat? We can hold 2 options. Reply A/B or send a time. Txt STOP to opt out',
-      reslot: '{{brand}}: no problem. Early next week or later this week? Reply with a window. Txt STOP to opt out'
+      opener: 'Hi {{name}}—{{brand}} here re your earlier inquiry. We can hold 2 options. Reply YES to book.',
+      nudge: '{{brand}}: still want to book a quick chat? We can hold 2 options. Reply A/B or send a time.',
+      reslot: '{{brand}}: no problem. Early next week or later this week? Reply with a window.'
     };
 
     await db.from('app_settings').upsert({
@@ -60,11 +60,11 @@ export async function POST(req: NextRequest) {
     const pages: Array<{ title: string; body: string; source_url?: string | null }> = [
       {
         title: 'SMS Consent',
-        body: 'Program: OutboundRevive SMS. Who receives: clients who opt in. Consent: checkbox on form. Frequency: up to 4 msgs/mo. Msg & data rates may apply. STOP to opt out, HELP for help. Sample: OutboundRevive: Hi {first_name}, this is Charlie following up—any questions? STOP to opt out, HELP for help.'
+        body: 'Program: OutboundRevive SMS. Who receives: clients who opt in. Consent: checkbox on form. Frequency: up to 4 msgs/mo. Msg & data rates may apply. Reply PAUSE to pause reminders, HELP for help. Sample: OutboundRevive: Hi {first_name}, this is Charlie following up—any questions? Reply PAUSE to pause reminders, HELP for help.'
       },
       {
         title: 'Terms & Conditions',
-        body: 'Program: OutboundRevive SMS. Eligibility & consent required. Fees: message/data rates apply. Opt-out: reply STOP; HELP for help. Carrier disclaimer: not liable for delays/undelivered. Acceptable use: no unlawful/SHAFT content. Changes posted on the site.'
+        body: 'Program: OutboundRevive SMS. Eligibility & consent required. Fees: message/data rates apply. Pause: reply PAUSE to pause reminders; HELP for help. Carrier disclaimer: not liable for delays/undelivered. Acceptable use: no unlawful/SHAFT content. Changes posted on the site.'
       },
       {
         title: 'Value & Objections',

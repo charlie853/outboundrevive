@@ -21,7 +21,7 @@ export async function composeFollowup({ account_id, lead, lastInbound }:{ accoun
     `Goal: politely advance the conversation and offer booking via ${s.booking_link || '<<no link set>>'}.`,
     `Style: concise, friendly, no emojis, 1 question at a time, under 240 chars.`,
     `Respect quiet hours ${s.quiet_start}-${s.quiet_end} ${s.timezone}.`,
-    `Comply with STOP/UNSTOP/HELP keywords.`,
+    `Comply with PAUSE/RESUME/HELP and legacy STOP/UNSTOP keywords.`,
   ].join('\n');
 
   const tools = [
@@ -56,4 +56,3 @@ export async function composeFollowup({ account_id, lead, lastInbound }:{ accoun
   const text = r.choices?.[0]?.message?.content?.trim?.() || 'Got it—want to pick a time?';
   return { text };
 }
-

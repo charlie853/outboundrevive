@@ -8,7 +8,7 @@ export default function Hero() {
   const bullets = [
     "Hands-free SMS follow-ups",
     "Booking nudges that actually convert",
-    "Compliance built-in (STOP/HELP)",
+    "Compliance built-in (PAUSE/RESUME/HELP)",
   ];
 
   return (

@@ -43,9 +43,9 @@ export async function POST(_req: NextRequest, { params }: any) {
     const compliance = map['compliance'] || {};
 
     const template_opener = brandVoice.opener
-      || 'Hi {{first_name}}—{{brand}} here. Txt STOP to opt out';
+      || 'Hi {{first_name}}—{{brand}} here. We can hold a couple of times if you’re interested.';
     const template_nudge  = brandVoice.nudge
-      || '{{brand}}: still want to chat? Txt STOP to opt out';
+      || '{{brand}}: still want to chat? We can hold two quick time slots.';
 
     const quiet_start = compliance.quiet_start || '08:00';
     const quiet_end   = compliance.quiet_end   || '21:00';

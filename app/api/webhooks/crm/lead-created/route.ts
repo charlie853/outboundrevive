@@ -168,7 +168,7 @@ export async function POST(req: NextRequest) {
     const templates = (appCfg.data as any)?.templates || {};
     const openerTpl =
       templates.opener ||
-      'Hi {{first_name}}—{{brand}} here. {{slotA}} or {{slotB}}? Reply YES. Txt STOP to opt out';
+      'Hi {{first_name}}—{{brand}} here. {{slotA}} or {{slotB}}? Reply YES.';
 
     const smsStatus = (appCfg.data as any)?.sms_channel_status || 'unverified';
 

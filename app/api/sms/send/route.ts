@@ -2,6 +2,7 @@ import { sendSms } from '@/lib/twilio';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 import { requireAccountAccess } from '@/lib/account';
+import { addFooter } from '@/lib/messagingCompliance';
 
 export const runtime = 'nodejs';
 
@@ -25,10 +26,6 @@ function withinWindow(nowMin: number, startMin: number, endMin: number) {
 function hoursSince(iso?: string | null) {
   if (!iso) return Infinity;
   return (Date.now() - new Date(iso).getTime()) / 36e5;
-}
-function daysSince(iso?: string | null) {
-  if (!iso) return Infinity;
-  return (Date.now() - new Date(iso).getTime()) / 864e5;
 }
 function renderTemplate(t: string, vars: Record<string,string>) {
   let out = t || '';
@@ -80,6 +77,14 @@ export async function POST(req: NextRequest) {
       lead_id?: string;
       gate_context?: string;
     };
+    const payloadAny = payload as any;
+    const reminderSeq: number | undefined =
+      typeof payloadAny?.reminderSeq === 'number'
+        ? payloadAny.reminderSeq
+        : typeof payloadAny?.reminder_seq === 'number'
+          ? payloadAny.reminder_seq
+          : undefined;
+    const wasTriggeredByInbound = payloadAny?.wasTriggeredByInbound === true;
     // Normalize payload shapes
     const normalizedLeadIds: string[] = Array.isArray(leadIds)
       ? leadIds as string[]
@@ -232,7 +237,9 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
           stateCapOk = sentCount24h < 3;
         }
 
-        const gateCategory = gateContext || (isReply ? 'response' : 'outreach');
+        const rawCategory = gateContext || null;
+        const mappedCategory = rawCategory === 'outreach' || rawCategory === 'intro' ? 'initial_outreach' : rawCategory;
+        const gateCategory = mappedCategory || (isReply ? 'response' : 'initial_outreach');
         const gateLog: any = {
           is_reply: isReply,
           tz,
@@ -245,19 +252,15 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
             sent_count_24h: sentCount24h,
             state_cap_passed: stateCapOk
           },
-          footer: {
-            last_footer_at: l.last_footer_at || null,
-            needed: daysSince(l.last_footer_at) > 30
-          },
           channel_status: chanStatus,
           blueprint_version_id: (aiMeta?.blueprint_version_id ?? activeBlueprintVersionId) ?? null,
           sent_by: baseSentBy,
           operator_id: operator_id ?? null
         };
         gateLog.category = gateCategory;
+        if (typeof reminderSeq === 'number') gateLog.reminder_seq = reminderSeq;
+        if (wasTriggeredByInbound) gateLog.was_inbound = true;
 
-        // render + footer gating (once/30d)
-        const needsFooter = daysSince(l.last_footer_at) > 30;
         const base = renderTemplate(normalizedMessage, {
           name: l.name || '',
           brand: acctBrand,
@@ -265,11 +268,24 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
           booking_link: bookingUrl || `/r/book/${l.id}`
         });
 
-        let body = base.trim();
-        if (needsFooter && !/txt stop to opt out/i.test(body)) {
-          body = `${body}${body.endsWith('.') ? '' : ''} Txt STOP to opt out`;
-        }
-        if (body.length > 160) { results.push({ id: l.id, phone: l.phone, error: 'too_long_with_footer' }); continue; }
+        const baseBody = base.trim();
+        const requireFooter = gateCategory === 'reminder';
+        const footerOpts = {
+          requireFooter,
+          occasionalModulo: 3,
+          sentCountHint: typeof reminderSeq === 'number' ? reminderSeq : undefined,
+        } as const;
+        const finalBody = addFooter(baseBody, footerOpts);
+        const footerApplied = finalBody !== baseBody;
+        if (finalBody.length > 160) { results.push({ id: l.id, phone: l.phone, error: 'too_long_with_footer' }); continue; }
+        gateLog.footer = {
+          applied: footerApplied,
+          require_footer: requireFooter,
+          occasional_modulo: footerOpts.occasionalModulo,
+          sent_count_hint: footerOpts.sentCountHint ?? null,
+        };
+
+        const body = finalBody;
 
         // send (dry or real)
         type ProviderStatus = 'queued' | 'sent' | 'delivered' | 'failed';
@@ -305,7 +321,7 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
           delivery_status: provider_status,
           last_sent_at: nowIso,
         };
-        if (needsFooter) leadUpdate.last_footer_at = nowIso;
+        if (footerApplied) leadUpdate.last_footer_at = nowIso;
 
         await supabaseAdmin.from('leads').update(leadUpdate).eq('id', l.id).eq('account_id', accountId);
 

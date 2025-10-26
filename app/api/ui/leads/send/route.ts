@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     if (text === '/initial') {
       // You can swap this for a generator that pulls account_settings prompts.
       text =
-        "Hey—it’s Charlie from OutboundRevive. Quick test of our AI SMS. Want a link to pick a time? Txt STOP to opt out";
+        "Hey—it’s Charlie from OutboundRevive. Quick test of our AI SMS. Want a link to pick a time?";
     }
 
     // 3) Load the lead (need the phone)

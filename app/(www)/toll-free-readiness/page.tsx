@@ -29,7 +29,7 @@ export default function TollFreeReadinessPage() {
       <ul className="list-disc pl-6 text-gray-700 mb-6">
         <li>Business name, website</li>
         <li>Contact email & support hours</li>
-        <li>Sample messages (one per line, include STOP/HELP footer in practice)</li>
+        <li>Sample messages (one per line, include PAUSE/HELP guidance in practice)</li>
         <li>Opt-in method (how customers consent)</li>
         <li><a className="underline" href="/messaging-policy">Messaging Policy</a></li>
       </ul>

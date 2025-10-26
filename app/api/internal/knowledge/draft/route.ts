@@ -294,7 +294,7 @@ export async function POST(req: NextRequest) {
     const tone: string = (body.tone || 'friendly').toLowerCase();
     const max_chars = Math.max(120, Math.min(480, Number(body.max_chars || 240)));
     const include_footer = !!body.include_footer;
-    const footer = body.footer ?? ''; // usually leave empty; sending pipeline adds STOP
+    const footer = body.footer ?? ''; // usually leave empty; sending pipeline adds compliance footer
 
     // Optional: send the drafted SMS in one hop
     const send: boolean = body.send === true;
@@ -302,7 +302,7 @@ export async function POST(req: NextRequest) {
     const operator_id: string | null = body.operator_id || body.operatorId || null;
 
     // Guard for SMS + potential footer when actually sending now.
-    // If we're about to send, reserve room for STOP footer added downstream.
+    // If we're about to send, reserve room for the compliance footer added downstream.
     const estimatedFooter = 25; // rough allowance for carrier footer
     const hardCap = send ? Math.min(max_chars, 160 - estimatedFooter) : max_chars;
 

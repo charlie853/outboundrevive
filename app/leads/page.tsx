@@ -57,7 +57,7 @@ function LeadsPageContent() {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState(
-    'Hi {{name}}—{{brand}} here re your earlier inquiry. Reply YES to book. Txt STOP to opt out'
+    'Hi {{name}}—{{brand}} here re your earlier inquiry. Reply YES to book.'
   );
   const [brand, setBrand] = useState('OutboundRevive');
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -146,8 +146,7 @@ function LeadsPageContent() {
   }, [msg, previewName, brand]);
 
   const tooLong = renderedPreview.trim().length > 160;
-  const hasStop = /txt stop to opt out/i.test(renderedPreview);
-  const canSend = selectedIds.length > 0 && !tooLong && hasStop && !sending;
+  const canSend = selectedIds.length > 0 && !tooLong && !sending;
 
   const send = async () => {
     if (!canSend) return;
@@ -316,7 +315,7 @@ function LeadsPageContent() {
 
       <div style={{ display: 'flex', gap: 8, margin: '16px 0' }}>
         <input style={{ width: 240, padding: 8, border: '1px solid #d1d5db', borderRadius: 6, color: '#111827' }} value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Brand" />
-        <input style={{ flex: 1, padding: 8, border: '1px solid #d1d5db', borderRadius: 6, color: '#111827' }} value={msg} onChange={(e) => setMsg(e.target.value)} placeholder='Message (<=160, must include "Txt STOP to opt out")' />
+        <input style={{ flex: 1, padding: 8, border: '1px solid #d1d5db', borderRadius: 6, color: '#111827' }} value={msg} onChange={(e) => setMsg(e.target.value)} placeholder='Message (<=160 characters)' />
         <button onClick={send} disabled={!canSend} style={canSend ? btnPrimary : { ...btn, opacity: 0.6, cursor: 'not-allowed' }}>
           {sending ? 'Sending…' : `Send to selected (${selectedIds.length})`}
         </button>
@@ -325,7 +324,6 @@ function LeadsPageContent() {
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 8 }}>
         <span style={hint}>Preview: “{renderedPreview}”</span>
         <span style={hint}>Chars: {renderedPreview.trim().length}/160</span>
-        {!hasStop && <span style={{ ...hint, color: '#dc2626' }}>Must include: “Txt STOP to opt out”</span>}
         {tooLong && <span style={{ ...hint, color: '#dc2626' }}>Too long (max 160)</span>}
         {feedback && <span style={{ ...hint, color: '#059669' }}>{feedback}</span>}
       </div>

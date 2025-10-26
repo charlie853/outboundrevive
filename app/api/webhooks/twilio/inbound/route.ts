@@ -1,110 +1,98 @@
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
-// app/api/webhooks/twilio/inbound/route.ts
-export const runtime = 'nodejs';
+import { NextRequest } from "next/server";
+import { createClient } from "@/lib/supabaseAdmin";
+import { runAi } from "@/lib/runAi";
 
-import { NextResponse } from 'next/server';
+export const dynamic = "force-dynamic";
 
-function resolvePublicBase(req: Request) {
-  const envBase =
-    (process.env.PUBLIC_BASE && process.env.PUBLIC_BASE.trim()) ||
-    (process.env.PUBLIC_BASE_URL && process.env.PUBLIC_BASE_URL.trim()) ||
-    (process.env.NEXT_PUBLIC_BASE && process.env.NEXT_PUBLIC_BASE.trim());
-  if (envBase) return envBase;
-  const u = new URL(req.url);
-  return `${u.protocol}//${u.host}`;
+function twiml(message?: string) {
+  if (!message) return `<?xml version="1.0" encoding="UTF-8"?><Response/>`;
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${esc(message)}</Message></Response>`;
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const supabase = createClient();
   const form = await req.formData();
-  const from = String(form.get('From') || '').trim();
-  const to = String(form.get('To') || '').trim();
-  const rawText = String(form.get('Body') || '').trim();
-  const text = rawText.toLowerCase();
+  const from = (form.get("From") || "").toString();
+  const to = (form.get("To") || "").toString();
+  const body = (form.get("Body") || "").toString().trim();
+  const norm = body
+    .normalize("NFKC")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase();
 
-  // Handle reminder pause/resume before any other logic
-  const pauseMatch = text.match(/^pause(?:\s+(\d+)([dw]))?$/);
-  if (pauseMatch) {
-    const amount = Number(pauseMatch[1] || 30);
-    const unit = (pauseMatch[2] || 'd') === 'w' ? 'w' : 'd';
-    const days = unit === 'w' ? amount * 7 : amount;
-    const until = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
-
-    const { error } = await supabaseAdmin
-      .from('global_suppressions')
-      .upsert({ phone: from, scope: 'reminders', expires_at: until }, { onConflict: 'phone,scope' });
-
-    if (error) console.error('[twilio/inbound] PAUSE upsert error', error);
-
-    return new NextResponse(
-      `<?xml version="1.0" encoding="UTF-8"?><Response><Message>Okay — I’ll pause reminders for ${days} day(s). Reply "resume" anytime.</Message></Response>`,
-      { headers: { 'Content-Type': 'text/xml' } }
-    );
+  if (!from || !to) {
+    return new Response(twiml(), { headers: { "Content-Type": "text/xml" } });
   }
 
-  if (/^(resume|unpause)$/.test(text)) {
-    const { error } = await supabaseAdmin
-      .from('global_suppressions')
-      .delete()
-      .eq('phone', from)
-      .eq('scope', 'reminders');
+  await supabase
+    .from("messages_in")
+    .insert({ from_phone: from, to_phone: to, body })
+    .catch(() => {});
 
-    if (error) console.error('[twilio/inbound] RESUME delete error', error);
-
-    return new NextResponse(
-      `<?xml version="1.0" encoding="UTF-8"?><Response><Message>Got it — reminders are back on.</Message></Response>`,
-      { headers: { 'Content-Type': 'text/xml' } }
-    );
-  }
-
-  const cleaned = text.replace(/\W/g,"").toUpperCase();
-  const isStop = /^(STOP|STOPALL|UNSUBSCRIBE|CANCEL|END|QUIT|REMOVE)$/.test(cleaned);
-  const isHelp = /^HELP$/.test(cleaned);
-  if (isStop) {
-    try { await supabaseAdmin.from("global_suppressions").upsert({ phone: from }); } catch {}
-    const xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Message>You are opted out and will not receive more messages. Reply START to resubscribe.</Message></Response>";
-    return new Response(xml, { headers: { "Content-Type": "text/xml" } });
-  }
-  if (isHelp) {
-    const xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Message>Help: Reply STOP to opt out. Msg&Data rates may apply.</Message></Response>";
-    return new Response(xml, { headers: { "Content-Type": "text/xml" } });
-  }
-
-  // Persist inbound then forward (order matters)
-  try {
-    await supabaseAdmin.from('messages_in').insert({
-      from_phone: from,
-      to_phone: to,
-      body: rawText,
+  if (norm === "PAUSE") {
+    const until = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    await supabase.from("leads").update({ reminder_pause_until: until }).eq("phone", from);
+    return new Response(twiml(`Okay — I’ll pause reminders for 30 days. Reply RESUME anytime.`), {
+      headers: { "Content-Type": "text/xml" },
     });
-    console.log('[twilio/inbound] messages_in insert OK', { from, to });
+  }
+
+  if (norm === "RESUME") {
+    await supabase
+      .from("leads")
+      .update({ reminder_pause_until: null, opted_out: false })
+      .eq("phone", from);
+    return new Response(twiml(`Got it — reminders are back on.`), {
+      headers: { "Content-Type": "text/xml" },
+    });
+  }
+
+  // Silent compliance gates (do not advertise STOP)
+  if (["STOP", "UNSUBSCRIBE", "CANCEL", "QUIT", "END"].includes(norm)) {
+    await supabase
+      .from("leads")
+      .update({ reminder_pause_until: null, opted_out: true })
+      .eq("phone", from);
+    return new Response(twiml(), { headers: { "Content-Type": "text/xml" } });
+  }
+
+  if (["START", "UNSTOP"].includes(norm)) {
+    await supabase
+      .from("leads")
+      .update({ reminder_pause_until: null, opted_out: false })
+      .eq("phone", from);
+    return new Response(twiml(), { headers: { "Content-Type": "text/xml" } });
+  }
+
+  if (norm === "HELP") {
+    return new Response(
+      twiml("Help: reply PAUSE to pause reminders; RESUME to continue. For support, text us here."),
+      { headers: { "Content-Type": "text/xml" } }
+    );
+  }
+
+  // Normal inbound → call AI directly and reply via TwiML
+  let reply = "";
+  try {
+    reply = await runAi({ fromPhone: from, toPhone: to, userText: body });
   } catch (e) {
-    console.error('[twilio/inbound] messages_in insert ERROR', e);
+    reply = "Thanks — happy to help. Want me to share a quick booking link?";
   }
 
+  // Persist an outbound log for traceability (Twilio will deliver this reply)
   try {
-    const base = resolvePublicBase(req);
-    const resp = await fetch(`${base}/api/admin/ai-reply`, {
-      method: 'POST',
-      headers: {
-        'x-admin-key': process.env.ADMIN_API_KEY || '',
-        'content-type': 'application/json',
-        'x-send-context': 'response',
-      },
-      body: JSON.stringify({ from, to, body: rawText }),
-      cache: 'no-store',
+    await supabase.from("messages_out").insert({
+      from_phone: to,
+      to_phone: from,
+      body: reply,
+      provider_sid: null,
+      provider_status: "sent",
+      gate_log: { category: "response", chosen_branch: "ai", via: "twiml" },
+      sent_by: "ai",
     });
+  } catch {}
 
-    let info: any = null;
-    try { info = await resp.json(); } catch {}
-    console.log('[twilio/inbound→admin] status=', resp.status, 'ok=', info?.ok, 'err=', info?.error);
-  } catch (e: any) {
-    console.error('[twilio/inbound] forward error', e?.message || e);
-  }
-
-  const xml = `<?xml version="1.0" encoding="UTF-8"?><Response/>`;
-  return new Response(xml, { headers: { 'Content-Type': 'text/xml' } });
-}
-
-export async function GET() {
-  return NextResponse.json({ ok: true, ping: 'twilio inbound alive' });
+  return new Response(twiml(reply), { headers: { "Content-Type": "text/xml" } });
 }

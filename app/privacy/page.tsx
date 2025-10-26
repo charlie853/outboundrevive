@@ -45,7 +45,7 @@ export default function Page() {
 
           <h2 className="text-xl font-semibold mt-6 text-ink-1">Your Choices</h2>
           <ul className="list-disc pl-6 space-y-1">
-            <li>SMS: Reply <code>STOP</code> to opt out; <code>HELP</code> for help.</li>
+            <li>SMS: Reply <code>PAUSE</code> to pause reminders, <code>RESUME</code> to continue, and <code>HELP</code> for help.</li>
             <li>Email us at <a className="underline" href="mailto:support@outboundrevive.com">support@outboundrevive.com</a> to request access, correction, or deletion.</li>
           </ul>
 

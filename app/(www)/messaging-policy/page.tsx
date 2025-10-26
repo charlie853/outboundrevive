@@ -4,7 +4,7 @@ export default function MessagingPolicyPage() {
       <h1 className="text-3xl font-extrabold tracking-tight mb-4">Messaging Policy</h1>
       <ul className="list-disc pl-6 space-y-2 text-gray-700">
         <li>Consent/opt-in is required before receiving messages.</li>
-        <li>Opt-out: Text <strong>STOP</strong> to cancel; <strong>START</strong> to re-subscribe.</li>
+        <li>Opt-out: Text <strong>PAUSE</strong> to pause reminders; <strong>RESUME</strong> to continue.</li>
         <li>Help: Text <strong>HELP</strong> for help.</li>
         <li>Message frequency varies; Msg&amp;Data rates may apply.</li>
         <li>Support: <a className="underline" href="mailto:support@outboundrevive.com">support@outboundrevive.com</a></li>
@@ -18,6 +18,6 @@ import type { Metadata } from 'next';
 import { pageMeta } from '@/lib/seo';
 export const generateMetadata = (): Metadata => pageMeta(
   'Messaging Policy — OutboundRevive',
-  'Consent required. Text STOP to cancel, START to re‑subscribe, HELP for help.',
+  'Consent required. Text PAUSE to pause reminders, RESUME to continue, HELP for help.',
   '/messaging-policy'
 );

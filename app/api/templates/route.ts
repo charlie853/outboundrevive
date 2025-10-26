@@ -8,7 +8,7 @@ function validTemplate(t: string) {
   const body = (t || '').trim();
   if (!body) return 'Template cannot be empty';
   if (body.length > 160) return 'Template exceeds 160 characters';
-  if (!/txt stop to opt out/i.test(body)) return 'Template must include "Txt STOP to opt out"';
+  // validation removed (footer added conditionally)
   if (!/\{\{\s*brand\s*\}\}/i.test(body)) return 'Template must include {{brand}}';
   return null;
 }

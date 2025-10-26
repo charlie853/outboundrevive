@@ -2,11 +2,11 @@
 import { useState } from "react";
 
 const QA = [
-  { q: "How does consent and opt-out work?", a: "Every message supports STOP/HELP. STOP immediately opts the contact out and we log consent changes." },
+  { q: "How does consent and opt-out work?", a: "Every message supports PAUSE/RESUME/HELP. PAUSE pauses reminders instantly and we log consent updates automatically." },
   { q: "Can I bring my own number?", a: "Yes. We can use your existing A2P/Toll-Free setup or provision a compliant number." },
   { q: "What CRMs do you support?", a: "CSV import works everywhere; common CRMs connect via Nango-based connectors." },
   { q: "What’s the typical time-to-value?", a: "Most teams see replies within days and booked meetings within the first week." },
-  { q: "How do you handle STOP/HELP?", a: "Inbound STOP revokes messaging; HELP returns assistance info without altering consent." },
+  { q: "How do you handle PAUSE/HELP?", a: "Inbound PAUSE pauses reminders; RESUME restarts them, and HELP replies with assistance details without altering consent." },
   { q: "Is there a free trial?", a: "Book a demo and we’ll align a short pilot depending on your volumes." },
 ];
 
@@ -37,4 +37,3 @@ export default function FAQ() {
     </section>
   );
 }
-

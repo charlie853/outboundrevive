@@ -7,7 +7,7 @@ const features: Feature[] = [
   { title: "Hands-free follow-ups", description: "Automated SMS sequences trigger from your CRM or site forms.", icon: MessagesSquare, href: "/features" },
   { title: "Smart routing", description: "Replies are detected and assigned to the right owner instantly.", icon: UserRoundCheck, href: "/features" },
   { title: "Book more, no chasing", description: "Booking nudges convert warm leads while interest is high.", icon: CalendarCheck, href: "/features" },
-  { title: "Compliance built-in", description: "STOP/HELP, quiet hours, and consent logging out of the box.", icon: ShieldCheck, href: "/features" },
+  { title: "Compliance built-in", description: "PAUSE/RESUME/HELP keywords, quiet hours, and consent logging out of the box.", icon: ShieldCheck, href: "/features" },
   { title: "Bring your stack", description: "Connect CRMs and calendars in minutes—no heavy lift.", icon: Share2, href: "/features" },
   { title: "Real-time visibility", description: "See who replied and who booked—live KPIs, no exports.", icon: GaugeCircle, href: "/features" },
 ];
@@ -34,4 +34,3 @@ export default function FeatureGrid() {
     </section>
   );
 }
-

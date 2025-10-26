@@ -9,8 +9,8 @@ export default function DocsPage() {
         <li>Send your first message — the agent can follow up automatically.</li>
       </ol>
 
-      <h2 className="text-xl font-semibold mt-8 mb-2">Compliance (STOP/HELP)</h2>
-      <p className="text-gray-700">All messages include opt-out instructions as required. Text STOP to opt out, START to re-subscribe, and HELP for help.</p>
+      <h2 className="text-xl font-semibold mt-8 mb-2">Compliance (PAUSE/HELP)</h2>
+      <p className="text-gray-700">All messages include opt-out guidance as required. Text PAUSE to pause reminders, RESUME to continue, and HELP for help.</p>
 
       <h2 className="text-xl font-semibold mt-8 mb-2">Privacy</h2>
       <p className="text-gray-700">We only use your data to deliver the service. See our <a className="underline" href="/legal/privacy">Privacy Policy</a> and <a className="underline" href="/messaging-policy">Messaging Policy</a>.</p>
@@ -22,6 +22,6 @@ import type { Metadata } from 'next';
 import { pageMeta } from '@/lib/seo';
 export const generateMetadata = (): Metadata => pageMeta(
   'Docs — OutboundRevive',
-  'Getting started, compliance (STOP/HELP), and privacy basics.',
+  'Getting started, compliance (PAUSE/HELP), and privacy basics.',
   '/docs'
 );

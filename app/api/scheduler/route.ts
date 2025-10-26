@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin as supabase } from '@/lib/supabaseServer';
 import { requireAdmin } from '@/lib/admin';
+import { addFooter } from '@/lib/messagingCompliance';
 
 export const runtime = 'nodejs';
 
@@ -23,11 +24,15 @@ function renderTemplate(tpl: string, vars: Record<string, string>) {
   return tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? '');
 }
 
-function ensureCompliant(body: string) {
-  const t = body.trim();
-  if (t.length > 160) throw new Error('Message exceeds 160 characters');
-  if (!/txt stop to opt out/i.test(t)) throw new Error('Message must include "Txt STOP to opt out"');
-  return t;
+function ensureCompliant(body: string, options: { requireFooter?: boolean; reminderSeq?: number }) {
+  const trimmed = body.trim();
+  const finalBody = addFooter(trimmed, {
+    requireFooter: options.requireFooter ?? false,
+    occasionalModulo: 3,
+    sentCountHint: options.reminderSeq,
+  });
+  if (finalBody.length > 160) throw new Error('Message exceeds 160 characters');
+  return finalBody;
 }
 
 export async function GET(req: NextRequest) {
@@ -99,12 +104,10 @@ export async function GET(req: NextRequest) {
         appt_noun: s.templates?.appt_noun || 'appointment',
       };
 
-      // Always append compliance footer if author forgot
-      if (!/txt stop to opt out/i.test(tpl)) {
-        tpl = `${tpl} Txt STOP to opt out`;
-      }
-
-      const body = ensureCompliant(renderTemplate(tpl, vars));
+      const body = ensureCompliant(renderTemplate(tpl, vars), {
+        requireFooter: true,
+        reminderSeq: (step ?? 0) + 1,
+      });
 
       // Simulate send (or plug real Twilio call later)
       const sid = dryRun ? 'SIM' + Math.random().toString(36).slice(2, 14).toUpperCase() : 'SIM-DRY'; // placeholder

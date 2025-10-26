@@ -10,9 +10,8 @@ const bad  = { ...hint, color:'#b00020' };
 
 function checks(text: string) {
   const len = (text || '').trim().length;
-  const stop = /txt stop to opt out/i.test(text || '');
   const hasBrandVar = /\{\{\s*brand\s*\}\}/i.test(text || '');
-  return { len, stop, hasBrandVar, ok: len <= 160 && stop && hasBrandVar };
+  return { len, hasBrandVar, ok: len <= 160 && hasBrandVar };
 }
 
 export default function TemplatesPage() {
@@ -52,14 +51,13 @@ export default function TemplatesPage() {
   return (
     <div style={{ padding:24, maxWidth:880, margin:'0 auto' }}>
       <h1 style={{ fontSize:22, fontWeight:700, marginBottom:12 }}>Templates</h1>
-      <p style={hint}>Use <code>{'{{name}}'}</code> and <code>{'{{brand}}'}</code>. Must be ≤160 chars and include “Txt STOP to opt out”.</p>
+      <p style={hint}>Use <code>{'{{name}}'}</code> and <code>{'{{brand}}'}</code>. Keep copy ≤160 chars — the platform adds compliance footers automatically when required.</p>
 
       <section style={{ marginTop:16 }}>
         <label>Opener</label>
         <textarea style={box} value={t.opener} onChange={e=>setT({ ...t, opener: e.target.value })} />
         <div style={{ display:'flex', gap:12 }}>
           <span style={openerC.ok ? hint : bad}>Chars: {openerC.len}/160</span>
-          {!openerC.stop && <span style={bad}>Missing “Txt STOP to opt out”</span>}
           {!openerC.hasBrandVar && <span style={bad}>Missing {'{{brand}}'}</span>}
         </div>
       </section>
@@ -69,7 +67,6 @@ export default function TemplatesPage() {
         <textarea style={box} value={t.nudge} onChange={e=>setT({ ...t, nudge: e.target.value })} />
         <div style={{ display:'flex', gap:12 }}>
           <span style={nudgeC.ok ? hint : bad}>Chars: {nudgeC.len}/160</span>
-          {!nudgeC.stop && <span style={bad}>Missing “Txt STOP to opt out”</span>}
           {!nudgeC.hasBrandVar && <span style={bad}>Missing {'{{brand}}'}</span>}
         </div>
       </section>
@@ -79,7 +76,6 @@ export default function TemplatesPage() {
         <textarea style={box} value={t.reslot} onChange={e=>setT({ ...t, reslot: e.target.value })} />
         <div style={{ display:'flex', gap:12 }}>
           <span style={reslotC.ok ? hint : bad}>Chars: {reslotC.len}/160</span>
-          {!reslotC.stop && <span style={bad}>Missing “Txt STOP to opt out”</span>}
           {!reslotC.hasBrandVar && <span style={bad}>Missing {'{{brand}}'}</span>}
         </div>
       </section>

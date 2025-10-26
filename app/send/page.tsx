@@ -49,7 +49,7 @@ export default async function Page() {
         </label>
         <label className="block text-sm">
           Message:
-          <textarea name="message" rows={3} className="w-full border rounded p-2 mt-1" placeholder='Hi {{name}}—{{brand}} here. Txt STOP to opt out' />
+          <textarea name="message" rows={3} className="w-full border rounded p-2 mt-1" placeholder='Hi {{name}}—{{brand}} here.' />
         </label>
         <button className="px-4 py-2 rounded bg-black text-white" type="submit">Send</button>
       </form>
@@ -66,13 +66,13 @@ export default async function Page() {
         </label>
         <label className="block text-sm">
           Message:
-          <textarea name="message" rows={3} className="w-full border rounded p-2 mt-1" placeholder='Hi {{name}}—{{brand}} here. Txt STOP to opt out' />
+          <textarea name="message" rows={3} className="w-full border rounded p-2 mt-1" placeholder='Hi {{name}}—{{brand}} here.' />
         </label>
         <button className="px-4 py-2 rounded bg-black text-white" type="submit">Send pending</button>
       </form>
 
       <p className="text-xs text-gray-500">
-        Server-safe: admin token is added on the server via server actions. Compliant length &amp; STOP notice enforced in the API.
+        Server-safe: admin token is added on the server via server actions. Length is enforced in the API and compliance footers are added automatically when required.
       </p>
     </div>
   );

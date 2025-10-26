@@ -17,7 +17,7 @@ export default function Page() {
           </p>
           <p><strong className="text-ink-1">Frequency:</strong> Up to 4 messages per month (unless otherwise stated).</p>
           <p><strong className="text-ink-1">Fees:</strong> Message and data rates may apply.</p>
-          <p><strong className="text-ink-1">Opt-Out:</strong> Reply <code>STOP</code> at any time to unsubscribe.</p>
+          <p><strong className="text-ink-1">Opt-Out:</strong> Reply <code>PAUSE</code> at any time to pause reminders. Reply <code>RESUME</code> to continue.</p>
           <p><strong className="text-ink-1">Help:</strong> Reply <code>HELP</code> for assistance or email <a className="underline" href="mailto:support@outboundrevive.com">support@outboundrevive.com</a>.</p>
           <p><strong className="text-ink-1">Carrier Disclaimer:</strong> Carriers are not liable for delayed or undelivered messages.</p>
           <p><strong className="text-ink-1">Acceptable Use:</strong> You may not use our services for unlawful, abusive, or prohibited purposes. We may suspend or terminate service for violations.</p>

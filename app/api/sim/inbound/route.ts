@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   const body = url.searchParams.get('body') || '';
 
   if (!from || !body) {
-    return NextResponse.json({ error: 'Provide ?from=+1555…&body=YES|STOP' }, { status: 400 });
+    return NextResponse.json({ error: 'Provide ?from=+1555…&body=YES|PAUSE' }, { status: 400 });
   }
 
   const form = new URLSearchParams({ From: from, Body: body });

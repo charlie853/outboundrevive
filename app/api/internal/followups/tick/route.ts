@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin as db } from '@/lib/supabaseServer';
-import { shouldAddFooter, isNewThread, FOOTER_TEXT, checkReminderCaps } from '@/lib/messagingCompliance';
 
 export const runtime = 'nodejs';
 
@@ -12,6 +11,70 @@ function isAdmin(req: Request) {
 
 function addDays(ts: Date, days: number) {
   return new Date(ts.getTime() + days*86400*1000);
+}
+
+function isoMinus(hours: number) {
+  return new Date(Date.now() - hours * 3_600_000).toISOString();
+}
+
+function isoDaysAgo(days: number) {
+  return new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
+}
+
+async function checkReminderCaps(toPhone: string) {
+  const DAILY = parseInt(process.env.REMINDER_CAP_DAILY ?? '1', 10);
+  const WEEKLY = parseInt(process.env.REMINDER_CAP_WEEKLY ?? '3', 10);
+
+  const bypassCsv = (process.env.CAPS_DISABLE_FOR || '')
+    .split(/[\s,]+/)
+    .filter(Boolean);
+  if (bypassCsv.includes(toPhone)) return { held: false, dayCount: 0, weekCount: 0 };
+
+  const dayStart = isoMinus(24);
+  const weekStart = isoMinus(24 * 7);
+
+  const dayQ = db
+    .from('messages_out')
+    .select('id', { count: 'exact', head: true })
+    .eq('to_phone', toPhone)
+    .gte('created_at', dayStart)
+    .contains('gate_log', { category: 'reminder' });
+
+  const weekQ = db
+    .from('messages_out')
+    .select('id', { count: 'exact', head: true })
+    .eq('to_phone', toPhone)
+    .gte('created_at', weekStart)
+    .contains('gate_log', { category: 'reminder' });
+
+  const [{ count: dayCount, error: dayErr }, { count: weekCount, error: weekErr }] = await Promise.all([dayQ, weekQ]);
+  if (dayErr) throw dayErr;
+  if (weekErr) throw weekErr;
+
+  const held = (typeof dayCount === 'number' && dayCount >= DAILY) ||
+               (typeof weekCount === 'number' && weekCount >= WEEKLY);
+
+  return {
+    held,
+    dayCount: dayCount ?? 0,
+    weekCount: weekCount ?? 0,
+  };
+}
+
+async function isNewThread(toPhone: string): Promise<boolean> {
+  const since = isoDaysAgo(14);
+  const { data, error } = await db
+    .from('messages_out')
+    .select('id')
+    .eq('to_phone', toPhone)
+    .gte('created_at', since)
+    .limit(1);
+
+  if (error) {
+    console.warn('[followups] intro check error → treat as old thread', error.message);
+    return false;
+  }
+  return !data || data.length === 0;
 }
 
 export async function POST(req: NextRequest) {
@@ -145,18 +208,12 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const [newThread, footerNeeded] = await Promise.all([
-        isNewThread(leadPhone),
-        shouldAddFooter(leadPhone)
-      ]);
+      const newThread = await isNewThread(leadPhone);
 
       const applyCompliance = (text: string) => {
         let out = text.trim();
         if (newThread && !/charlie/i.test(out)) {
           out = `Hey—it’s Charlie from OutboundRevive. ${out}`;
-        }
-        if (footerNeeded && !/opt out/i.test(out)) {
-          out += `\n${FOOTER_TEXT}`;
         }
         if (out.length > 320) out = out.slice(0, 320).trim();
         return out;
