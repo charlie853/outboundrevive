@@ -5,7 +5,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseServer";
 import { sendSms } from "@/lib/twilio";
 import { generateReply } from "./generateReply";
-import { shouldAddFooter, isNewThread, FOOTER_TEXT } from "@/lib/messagingCompliance";
+import { introCopy, firstNameOf } from "@/lib/reminderTemplates";
+import { shouldAddFooter, FOOTER_TEXT } from "@/lib/messagingCompliance";
 
 async function reminderCounts(supabase: typeof supabaseAdmin, lead_id: string | null, to_phone: string) {
   const dayStart = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
@@ -42,6 +43,7 @@ async function reminderCounts(supabase: typeof supabaseAdmin, lead_id: string | 
 export async function POST(req: NextRequest) {
   const debug = req.headers.get("x-debug") === "1";
   const sendContext = (req.headers.get("x-send-context") || "response").toLowerCase(); // "response" | "reminder"
+  const fixedReply = req.headers.get("x-fixed-reply");
 
   // Admin auth
   const provided = req.headers.get("x-admin-key") || "";
@@ -65,35 +67,64 @@ export async function POST(req: NextRequest) {
   const baseUsed = process.env.PUBLIC_BASE || "";
 
   let lead_id: string | null = null;
+  let leadFirstName: string | undefined;
   try {
     const { data: leadRow, error: leadErr } = await supabaseAdmin
       .from("leads")
-      .select("id")
+      .select("id,name")
       .eq("phone", from)
       .maybeSingle();
     if (leadErr) console.warn("[ai-reply] lead lookup warn:", leadErr.message);
+    leadFirstName = firstNameOf(leadRow?.name);
     lead_id = leadRow?.id ?? null;
   } catch (e: any) {
     console.warn("[ai-reply] lead lookup error:", e?.message || e);
   }
 
-  const brandName = "OutboundRevive";
-  const bookingLink = process.env.CAL_LINK || "";
-  const ai = await generateReply({
-    userBody: body,
-    fromPhone: from,
-    toPhone: to,
-    brandName,
-    bookingLink,
-  });
-  let replyText = (ai?.message || "").trim();
+  const sinceIso = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+  const [{ count: recentOutCount = 0 }, { count: recentInCount = 0 }] = await Promise.all([
+    supabaseAdmin
+      .from("messages_out")
+      .select("id", { count: "exact", head: true })
+      .eq("to_phone", from)
+      .gte("created_at", sinceIso),
+    supabaseAdmin
+      .from("messages_in")
+      .select("id", { count: "exact", head: true })
+      .eq("from_phone", from)
+      .gte("created_at", sinceIso),
+  ]);
+  const isNewThread = (recentOutCount + recentInCount) === 0;
 
-  if (!replyText) {
-    return NextResponse.json({ ok: false, error: "empty_reply" }, { status: 500 });
+  let replyText: string | null = null;
+  let ai: any = null;
+  let branch = "ai";
+
+  if (fixedReply) {
+    replyText = fixedReply;
+    branch = "fixed";
   }
 
-  if (await isNewThread(from) && !/charlie/i.test(replyText)) {
-    replyText = `Hey—it’s Charlie from OutboundRevive. ${replyText}`;
+  if (!replyText && sendContext === "response" && isNewThread) {
+    replyText = introCopy(leadFirstName);
+    branch = "intro";
+  }
+
+  if (!replyText) {
+    const brandName = "OutboundRevive";
+    const bookingLink = process.env.CAL_LINK || "";
+    ai = await generateReply({
+      userBody: body,
+      fromPhone: from,
+      toPhone: to,
+      brandName,
+      bookingLink,
+    });
+    replyText = (ai?.message || "").trim();
+    branch = "ai";
+    if (!replyText) {
+      return NextResponse.json({ ok: false, error: "empty_reply" }, { status: 500 });
+    }
   }
 
   if (await shouldAddFooter(from) && !/opt out/i.test(replyText)) {
@@ -142,26 +173,31 @@ export async function POST(req: NextRequest) {
 
   const gateCategory = sendContext === "reminder" ? "reminder" : "response";
 
+  console.log("OUTBOX_CHOSEN", {
+    sendContext,
+    branch,
+    preview: replyText.slice(0, 80),
+  });
+
   const outboxPayload = {
     lead_id,
-    from_phone: to,         // Twilio (sender)
-    to_phone: from,         // Lead (recipient)
+    from_phone: to,
+    to_phone: from,
     body: replyText,
     provider: "twilio",
     provider_sid: sent?.sid ?? null,
-    provider_status: "queued",
+    provider_status: sent?.status ?? "queued",
     sent_by: "ai",
     gate_log: { category: gateCategory },
   };
 
-  const { data: ins, error: insErr } = await supabaseAdmin
-    .from("messages_out")
-    .insert(outboxPayload)
-    .select("id");
-
-  if (insErr) {
-    console.error("[ai-reply] messages_out insert ERROR", insErr.message, insErr.details);
-    if (debug && ai) (ai as any)._db_error = insErr.message || "insert_error";
+  console.log("OUTBOX_INSERT_TRY", outboxPayload);
+  const { error: insertErr } = await supabaseAdmin.from("messages_out").insert(outboxPayload);
+  if (insertErr) {
+    console.error("OUTBOX_INSERT_ERROR", insertErr.message, outboxPayload);
+    if (debug && ai) (ai as any)._db_error = insertErr.message || "insert_error";
+  } else {
+    console.log("OUTBOX_INSERT_OK", outboxPayload.provider_sid || "<no-sid>");
   }
 
   return NextResponse.json({

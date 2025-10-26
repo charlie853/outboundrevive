@@ -1,9 +1,17 @@
 import { NextResponse } from "next/server";
 import { DateTime } from "luxon";
 import { supabaseAdmin } from "@/lib/supabaseServer";
-import { nextReminderVariant } from "@/lib/reminderTemplates";
+import { nextReminderCopy, firstNameOf } from "@/lib/reminderTemplates";
 
 const DEFAULT_INTERVALS = "24h,72h";
+
+const envInt = (name: string, fallback: number) => {
+  const raw = process.env[name];
+  const parsed = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const minutesSince = (date: Date) => (Date.now() - date.getTime()) / 60000;
 
 function parseDuration(token: string): number | null {
   const trimmed = token.trim().toLowerCase();
@@ -62,7 +70,8 @@ function isWithinSlotNow(tz: string, timesCsv: string, driftMins = 10) {
 }
 
 async function handler(req: Request) {
-  if (!process.env.CRON_KEY) {
+  const envKey = (process.env.CRON_KEY || "").trim();
+  if (!envKey) {
     console.warn("[cron/reminders] CRON_KEY not configured");
     return NextResponse.json({ ok: false, error: "cron_unconfigured" }, { status: 500 });
   }
@@ -70,10 +79,9 @@ async function handler(req: Request) {
   const url = new URL(req.url);
   const keyFromHeader = (req.headers.get("x-cron-key") || req.headers.get("x-cron-secret") || "").trim();
   const keyFromQuery = (url.searchParams.get("key") || "").trim();
-  const expected = (process.env.CRON_KEY || "").trim();
   const hasVercelCron = req.headers.get("x-vercel-cron") === "1";
   const dry = url.searchParams.has("dry") || req.headers.get("x-dry-run") === "1";
-  const okKey = (!!keyFromHeader && keyFromHeader === expected) || (!!keyFromQuery && keyFromQuery === expected);
+  const okKey = envKey && (keyFromHeader === envKey || keyFromQuery === envKey);
 
   if (!okKey && !hasVercelCron) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
@@ -89,11 +97,14 @@ async function handler(req: Request) {
   }
 
   const tz = process.env.BUSINESS_TZ || process.env.REMINDER_TIMEZONE || "America/Los_Angeles";
-  const timesCsv = process.env.REMINDER_DAILY_TIMES || "10:00,14:00,17:30";
+  const timesCsv = process.env.REMINDER_DAILY_TIMES || "";
+  const usingDailySlots = !!timesCsv.trim();
   const drift = Number(process.env.REMINDER_SLOT_DRIFT || process.env.REMINDER_TIME_DRIFT || 10);
 
-  if (!isWithinSlotNow(tz, timesCsv, drift)) {
-    return NextResponse.json({ ok: true, skipped: "outside_timeslot" });
+  if (usingDailySlots) {
+    if (!isWithinSlotNow(tz, timesCsv, drift)) {
+      return NextResponse.json({ ok: true, skipped: "outside_timeslot" });
+    }
   }
 
   const outboundRes = await supabaseAdmin
@@ -178,11 +189,13 @@ async function handler(req: Request) {
   if (!baseUrl) console.warn("[cron/reminders] PUBLIC_BASE not set; reminder dispatch may fail");
   if (!twilioFrom) console.warn("[cron/reminders] TWILIO_DEFAULT_FROM not set; reminder dispatch may fail");
 
-  const variantIndexToday = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
-  const reminderBody = nextReminderVariant(variantIndexToday);
   const minGapHoursRaw = Number(process.env.REMINDER_MIN_GAP_HOURS || 3);
   const minGapHours = Number.isFinite(minGapHoursRaw) && minGapHoursRaw > 0 ? minGapHoursRaw : 3;
   const minGapMs = minGapHours * 60 * 60 * 1000;
+  const minSinceOutMin = envInt('REMINDER_MIN_SINCE_OUTBOUND_MIN', 180);
+  const minSinceInMin = envInt('REMINDER_MIN_SINCE_INBOUND_MIN', 60);
+  const slotCount = usingDailySlots ? parseTimes(timesCsv || "10:00,14:00,17:30").length : intervals.length;
+  const weekAgoIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   for (const candidate of candidatesMap.values()) {
     const { leadId, toPhone, lastOut } = candidate;
@@ -212,28 +225,82 @@ async function handler(req: Request) {
     const relevantReminders = reminderDates.filter(d => !lastInbound || d > lastInbound);
     const reminderCount = relevantReminders.length;
 
-    if (reminderCount >= intervals.length) {
-      results.push({ to_phone: toPhone, skipped: true, reason: "cadence_complete" });
-      continue;
-    }
-
-    if (relevantReminders.length) {
-      const lastReminder = relevantReminders[relevantReminders.length - 1];
-      if (Date.now() - lastReminder.getTime() < minGapMs) {
-        results.push({ to_phone: toPhone, skipped: true, reason: "min_gap", waitMs: minGapMs - (Date.now() - lastReminder.getTime()) });
+    if (usingDailySlots) {
+      if (reminderCount >= slotCount) {
+        results.push({ to_phone: toPhone, skipped: true, reason: "daily_limit_reached" });
         continue;
+      }
+
+      const minsSinceOut = minutesSince(lastOut);
+      if (minsSinceOut < minSinceOutMin) {
+        results.push({ to_phone: toPhone, skipped: true, reason: "waiting_min_since_outbound", waitMin: minSinceOutMin - minsSinceOut });
+        continue;
+      }
+
+      if (lastInbound && minutesSince(lastInbound) < minSinceInMin) {
+        results.push({ to_phone: toPhone, skipped: true, reason: "recent_inbound" });
+        continue;
+      }
+
+      if (relevantReminders.length) {
+        const lastReminder = relevantReminders[relevantReminders.length - 1];
+        if (Date.now() - lastReminder.getTime() < minGapMs) {
+          results.push({ to_phone: toPhone, skipped: true, reason: "min_gap", waitMs: minGapMs - (Date.now() - lastReminder.getTime()) });
+          continue;
+        }
+      }
+    } else {
+      if (reminderCount >= intervals.length) {
+        results.push({ to_phone: toPhone, skipped: true, reason: "cadence_complete" });
+        continue;
+      }
+
+      const elapsed = Date.now() - lastOut.getTime();
+      const requiredMs = intervals[reminderCount];
+      if (elapsed < requiredMs) {
+        results.push({ to_phone: toPhone, skipped: true, reason: "waiting_interval", waitMs: requiredMs - elapsed });
+        continue;
+      }
+
+      if (relevantReminders.length) {
+        const lastReminder = relevantReminders[relevantReminders.length - 1];
+        if (Date.now() - lastReminder.getTime() < minGapMs) {
+          results.push({ to_phone: toPhone, skipped: true, reason: "min_gap", waitMs: minGapMs - (Date.now() - lastReminder.getTime()) });
+          continue;
+        }
       }
     }
 
-    const elapsed = Date.now() - lastOut.getTime();
-    const requiredMs = intervals[reminderCount];
-    if (elapsed < requiredMs) {
-      results.push({ to_phone: toPhone, skipped: true, reason: "waiting_interval", waitMs: requiredMs - elapsed });
+    const since = lastInbound ? lastInbound.toISOString() : weekAgoIso;
+    const { count: prevReminderCount = 0, error: reminderCountErr } = await supabaseAdmin
+      .from('messages_out')
+      .select('id', { count: 'exact', head: true })
+      .eq('to_phone', toPhone)
+      .gte('created_at', since)
+      .contains('gate_log', { category: 'reminder' });
+
+    if (reminderCountErr) {
+      console.warn('[cron/reminders] reminder count warn', reminderCountErr.message);
+      results.push({ to_phone: toPhone, skipped: true, reason: 'count_error' });
       continue;
     }
 
+    const { data: leadRow, error: leadErr } = await supabaseAdmin
+      .from('leads')
+      .select('name')
+      .eq('id', leadId)
+      .maybeSingle();
+
+    if (leadErr) {
+      console.warn('[cron/reminders] lead lookup warn', leadErr.message);
+    }
+
+    const firstName = firstNameOf(leadRow?.name);
+    const attemptIndex = prevReminderCount;
+    const reminderCopy = nextReminderCopy(firstName, attemptIndex);
+
     if (dry) {
-      results.push({ to_phone: toPhone, lead_id: leadId, action: "would_send", intervalMs: requiredMs, body: reminderBody });
+      results.push({ to_phone: toPhone, lead_id: leadId, action: "would_send", intervalMs: usingDailySlots ? 0 : (intervals[reminderCount] ?? 0), body: reminderCopy, attempt: attemptIndex });
       continue;
     }
 
@@ -242,21 +309,27 @@ async function handler(req: Request) {
       continue;
     }
 
-    const payload = {
-      from: toPhone,
-      to: twilioFrom,
-      body: reminderBody,
-    };
-
     try {
+      console.log("OUTBOX_CHOSEN", {
+        sendContext: "reminder",
+        branch: "fixed",
+        preview: reminderCopy.slice(0, 80),
+        attempt: attemptIndex,
+        to: toPhone,
+      });
       const resp = await fetch(`${baseUrl.replace(/\/$/, "")}/api/admin/ai-reply`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           "x-admin-key": process.env.ADMIN_API_KEY,
           "x-send-context": "reminder",
+          "x-fixed-reply": reminderCopy,
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          from: toPhone,
+          to: twilioFrom,
+          body: '(system) reminder',
+        }),
       });
 
       const json = await resp.json().catch(() => ({}));
@@ -267,6 +340,7 @@ async function handler(req: Request) {
         ok: json?.ok ?? false,
         held: json?.held ?? false,
         reason: json?.reason ?? null,
+        attempt: attemptIndex,
       });
     } catch (err: any) {
       results.push({ to_phone: toPhone, lead_id: leadId, error: err?.message || "fetch_failed" });
