@@ -1,7 +1,7 @@
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
 
-import dynamic from 'next/dynamic';
+import nextDynamic from "next/dynamic";;
 
 const MetricsPanel = dynamic(() => import('@/app/components/MetricsPanel'), { ssr: false });
 const ThreadsPanel = dynamic(() => import('@/app/components/ThreadsPanel'), { ssr: false });
