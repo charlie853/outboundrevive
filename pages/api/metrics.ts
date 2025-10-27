@@ -1,0 +1,85 @@
+import type { NextApiRequest, NextApiResponse } from 'next';
+
+const URL = process.env.SUPABASE_URL!;
+const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+function sinceISO(range: string | string[] | undefined) {
+  const r = (Array.isArray(range) ? range[0] : range) || '7d';
+  const now = Date.now();
+  const days = r === '1d' ? 1 : r === '30d' ? 30 : 7;
+  return new Date(now - days * 24 * 3600 * 1000).toISOString();
+}
+
+async function count(table: string, filterQS: string) {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 5000);
+  try {
+    const u = `${URL}/rest/v1/${table}?select=id&${filterQS}&limit=1`;
+    const res = await fetch(u, {
+      signal: ac.signal,
+      headers: {
+        apikey: KEY,
+        Authorization: `Bearer ${KEY}`,
+        Prefer: 'count=exact',
+      },
+    });
+    if (!res.ok) return 0;
+    const cr = res.headers.get('content-range'); // e.g. "0-0/12"
+    const total = cr?.split('/')?.[1];
+    return total ? parseInt(total, 10) : 0;
+  } catch {
+    return 0;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // Always no-store so UI sees fresh data
+  res.setHeader('Cache-Control', 'no-store');
+
+  // Guard env
+  if (!URL || !KEY) {
+    res.status(500).json({ ok: false, error: 'Supabase env missing' });
+    return;
+  }
+
+  const since = sinceISO(req.query.range);
+
+  // We compute KPIs using only the leads table (your schema is present + fast)
+  // messagesSent = leads with last_sent_at >= since
+  // deliveredPct  = delivered over messagesSent
+  // replies       = leads with replied = true and last_reply_at >= since
+  // newLeads      = leads with created_at >= since
+
+  const qsSinceCreated = `created_at=gte.${encodeURIComponent(since)}`;
+  const qsSinceSent    = `last_sent_at=gte.${encodeURIComponent(since)}`;
+  const qsSinceReply   = `replied=eq.true&last_reply_at=gte.${encodeURIComponent(since)}`;
+  const qsDelivered    = `delivery_status=eq.delivered&last_sent_at=gte.${encodeURIComponent(since)}`;
+
+  const [newLeads, messagesSent, deliveredCount, replies] = await Promise.all([
+    count('leads', qsSinceCreated),
+    count('leads', qsSinceSent),
+    count('leads', qsDelivered),
+    count('leads', qsSinceReply),
+  ]);
+
+  const deliveredPct = messagesSent > 0 ? Math.round((deliveredCount / messagesSent) * 100) : 0;
+
+  // Minimal charts so UI renders (can enrich later)
+  const payload = {
+    ok: true,
+    kpis: {
+      newLeads,
+      messagesSent,
+      deliveredPct,
+      replies,
+    },
+    charts: {
+      deliveryOverTime: [], // keep arrays present for your components
+      repliesPerDay: [],
+    },
+  };
+
+  res.status(200).json(payload);
+}
