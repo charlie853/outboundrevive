@@ -1,9 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import useSWR from 'swr';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import ConnectCrmButton from '@/app/components/ConnectCrmButton';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import KpiCards from '@/app/(app)/dashboard/components/KpiCards';
 import DeliveryChart from '@/app/(app)/dashboard/components/DeliveryChart';
 import RepliesChart from '@/app/(app)/dashboard/components/RepliesChart';
@@ -13,282 +12,205 @@ import type { DayPoint, Kpis } from '@/lib/types/metrics';
 const WINDOWS = ['24h', '7d', '30d'] as const;
 type WindowKey = typeof WINDOWS[number];
 
-type SeriesPoint = { date: string; count: number };
-
-type MetricsApi = {
-  ok?: boolean;
-  out24?: number;
-  in24?: number;
-  deliveredPct24?: number;
-  newLeads24?: number;
-  series?: {
-    out?: SeriesPoint[];
-    in?: SeriesPoint[];
-  };
-  charts?: {
-    deliveryOverTime?: Array<{ date: string; sent?: number; delivered?: number; failed?: number }>;
-    repliesPerDay?: Array<{ date: string; replies?: number }>;
-  };
-  kpis?: {
-    leads?: { current?: number; previous?: number; deltaPct?: number };
-    messages?: { current?: number; previous?: number; deltaPct?: number };
-    delivered?: { pct?: number; prevPct?: number; deltaPct?: number };
-    replies?: { current?: number; previous?: number; deltaPct?: number };
-  };
-  funnel?: {
-    leads?: number;
-    contacted?: number;
-    delivered?: number;
-    replied?: number;
-  };
-};
-
-type AdaptedModel = {
-  kpis: Kpis;
-  delivery: Array<{ date: string; sent: number; delivered: number; failed: number }>;
-  replies: Array<{ date: string; replies: number }>;
-  funnel: { leads: number; sent: number; delivered: number; replied: number };
-};
-
-const EMPTY_MODEL: AdaptedModel = {
-  kpis: {
-    leadsNew: 0,
-    sent: 0,
-    delivered: 0,
-    deliveredRate: 0,
-    replies: 0,
-    deltas: { leadsNew: 0, sent: 0, deliveredRate: 0, replies: 0 },
-  },
-  delivery: [],
-  replies: [],
-  funnel: { leads: 0, sent: 0, delivered: 0, replied: 0 },
-};
-
-const fetchJson = async (url: string) => {
-  const res = await fetch(url, {
-    method: 'GET',
-    credentials: 'include',
-    cache: 'no-store',
-    headers: { 'x-requested-with': 'dashboard' },
-  });
-  const json = await res.json().catch(() => ({}));
+const fetcher = async (url: string) => {
+  const res = await fetch(url, { credentials: 'include', cache: 'no-store' });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    const error: any = new Error('unauthorized');
+    error.status = 401;
+    error.data = data;
+    throw error;
+  }
   if (!res.ok) {
-    const err: any = new Error('Fetch failed');
-    err.status = res.status;
-    err.data = json;
-    throw err;
+    const error: any = new Error(`http ${res.status}`);
+    error.status = res.status;
+    error.data = data;
+    throw error;
   }
-  return json;
+  return data;
 };
 
-const toNumber = (input: unknown, fallback = 0) => {
-  const num = Number(input);
-  return Number.isFinite(num) ? num : fallback;
+const toNumber = (value: unknown, fallback = 0) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
 };
 
-function adaptToUiModel(api?: MetricsApi | null): AdaptedModel {
-  if (!api) return EMPTY_MODEL;
+const normalisePct = (value: unknown) => {
+  const num = toNumber(value, NaN);
+  if (!Number.isFinite(num)) return undefined;
+  return Math.abs(num) > 1 ? num / 100 : num;
+};
 
-  const outSeries = api.series?.out ?? [];
-  const inSeries = api.series?.in ?? [];
-
-  const deliverySeries = api.charts?.deliveryOverTime ?? [];
-  const repliesSeries = api.charts?.repliesPerDay ?? [];
-
-  const deliveryMap = new Map<string, { sent: number; delivered: number; failed: number }>();
-
-  deliverySeries.forEach((row) => {
-    const date = row?.date;
-    if (!date) return;
-    deliveryMap.set(date, {
-      sent: toNumber(row.sent),
-      delivered: toNumber(row.delivered),
-      failed: toNumber(row.failed),
-    });
-  });
-
-  if (deliveryMap.size === 0 && outSeries.length) {
-    outSeries.forEach((point) => {
-      if (!point?.date) return;
-      const existing = deliveryMap.get(point.date) ?? { sent: 0, delivered: 0, failed: 0 };
-      existing.sent += toNumber(point.count);
-      deliveryMap.set(point.date, existing);
-    });
-  }
-
-  const delivery = Array.from(deliveryMap.entries())
-    .map(([date, counts]) => ({ date, ...counts }))
-    .sort((a, b) => a.date.localeCompare(b.date));
-
-  const repliesMap = new Map<string, number>();
-  repliesSeries.forEach((row) => {
-    if (!row?.date) return;
-    repliesMap.set(row.date, toNumber(row.replies));
-  });
-  if (repliesMap.size === 0 && inSeries.length) {
-    inSeries.forEach((point) => {
-      if (!point?.date) return;
-      repliesMap.set(point.date, toNumber(point.count) + (repliesMap.get(point.date) ?? 0));
-    });
-  }
-  const replies = Array.from(repliesMap.entries())
-    .map(([date, replies]) => ({ date, replies }))
-    .sort((a, b) => a.date.localeCompare(b.date));
-
-  const leadsCurrent = toNumber(api.kpis?.leads?.current, toNumber(api.newLeads24));
-  const leadsPrevious = toNumber(api.kpis?.leads?.previous);
+const buildKpis = (data: any): Kpis => {
+  const leadsCurrent = toNumber(data?.kpis?.leadsCurrent, toNumber(data?.kpis?.leads?.current, data?.leadsCurrent ?? data?.newLeads24));
+  const leadsPrev = toNumber(data?.kpis?.leadsPrevious, toNumber(data?.kpis?.leads?.previous));
+  const leadsDeltaSource = normalisePct(data?.kpis?.deltaLeadsPct ?? data?.kpis?.leads?.deltaPct);
 
   const messagesCurrent = toNumber(
-    api.kpis?.messages?.current,
-    toNumber(api.out24 ?? 0, outSeries.reduce((sum, p) => sum + toNumber(p.count), 0)),
+    data?.kpis?.messagesSentCurrent,
+    toNumber(data?.kpis?.messages?.current, data?.messagesSentCurrent ?? data?.out24),
   );
-  const messagesPrevious = toNumber(api.kpis?.messages?.previous);
+  const messagesPrev = toNumber(data?.kpis?.messagesSentPrevious, toNumber(data?.kpis?.messages?.previous));
+  const messagesDeltaSource = normalisePct(data?.kpis?.deltaMessagesSentPct ?? data?.kpis?.messages?.deltaPct);
 
-  const repliesCurrent = toNumber(
-    api.kpis?.replies?.current,
-    toNumber(api.in24 ?? 0, inSeries.reduce((sum, p) => sum + toNumber(p.count), 0)),
-  );
-  const repliesPrevious = toNumber(api.kpis?.replies?.previous);
+  const deliveredRateCurrent = normalisePct(data?.kpis?.deliveredRateCurrent ?? data?.kpis?.delivered?.pct) ?? 0;
+  const deliveredRatePrev = normalisePct(data?.kpis?.deliveredRatePrevious ?? data?.kpis?.delivered?.prevPct) ?? 0;
+  const deliveredDeltaSource = normalisePct(data?.kpis?.deltaDeliveredRatePct ?? data?.kpis?.delivered?.deltaPct);
 
-  const deliveredPctRaw = toNumber(api.kpis?.delivered?.pct, toNumber(api.deliveredPct24));
-  const deliveredPrevPctRaw = toNumber(api.kpis?.delivered?.prevPct);
-  const deliveredRate = deliveredPctRaw > 1 ? deliveredPctRaw / 100 : deliveredPctRaw;
-  const deliveredPrevRate = deliveredPrevPctRaw > 1 ? deliveredPrevPctRaw / 100 : deliveredPrevPctRaw;
-
-  const normaliseDelta = (raw?: number) => {
-    if (!Number.isFinite(raw)) return undefined;
-    const value = raw as number;
-    return Math.abs(value) > 1 ? value / 100 : value;
-  };
+  const repliesCurrent = toNumber(data?.kpis?.repliesCurrent, toNumber(data?.kpis?.replies?.current, data?.repliesCurrent ?? data?.in24));
+  const repliesPrev = toNumber(data?.kpis?.repliesPrevious, toNumber(data?.kpis?.replies?.previous));
+  const repliesDeltaSource = normalisePct(data?.kpis?.deltaRepliesPct ?? data?.kpis?.replies?.deltaPct);
 
   const calcDelta = (current: number, prev: number, explicit?: number) => {
-    const normalised = normaliseDelta(explicit);
-    if (Number.isFinite(normalised)) return normalised!;
+    if (typeof explicit === 'number' && Number.isFinite(explicit)) return explicit;
     if (!Number.isFinite(prev) || prev === 0) return current > 0 ? 1 : 0;
     return (current - prev) / prev;
   };
 
-  const kpis: Kpis = {
+  return {
     leadsNew: leadsCurrent,
     sent: messagesCurrent,
     delivered: 0,
-    deliveredRate: Number.isFinite(deliveredRate) ? deliveredRate : 0,
+    deliveredRate: deliveredRateCurrent,
     replies: repliesCurrent,
     deltas: {
-      leadsNew: calcDelta(leadsCurrent, leadsPrevious, api.kpis?.leads?.deltaPct),
-      sent: calcDelta(messagesCurrent, messagesPrevious, api.kpis?.messages?.deltaPct),
-      deliveredRate: calcDelta(deliveredRate, deliveredPrevRate, api.kpis?.delivered?.deltaPct),
-      replies: calcDelta(repliesCurrent, repliesPrevious, api.kpis?.replies?.deltaPct),
+      leadsNew: calcDelta(leadsCurrent, leadsPrev, leadsDeltaSource),
+      sent: calcDelta(messagesCurrent, messagesPrev, messagesDeltaSource),
+      deliveredRate: calcDelta(deliveredRateCurrent, deliveredRatePrev, deliveredDeltaSource),
+      replies: calcDelta(repliesCurrent, repliesPrev, repliesDeltaSource),
     },
   };
+};
 
-  const funnel = {
-    leads: toNumber(api.funnel?.leads, leadsCurrent),
-    sent: toNumber(api.funnel?.contacted, messagesCurrent),
-    delivered: toNumber(api.funnel?.delivered, Math.round(kpis.deliveredRate * messagesCurrent)),
-    replied: toNumber(api.funnel?.replied, repliesCurrent),
-  };
+const buildDeliverySeries = (data: any) => {
+  const provided = Array.isArray(data?.charts?.deliveryOverTime) ? data.charts.deliveryOverTime : [];
+  if (provided.length) {
+    return provided.map((row: any) => ({
+      date: row.date,
+      sent: toNumber(row.sent),
+      delivered: toNumber(row.delivered),
+      failed: toNumber(row.failed),
+    }));
+  }
+  const series = data?.series?.out ?? [];
+  return series.map((row: any) => ({
+    date: row.date,
+    sent: toNumber(row.count),
+    delivered: 0,
+    failed: 0,
+  }));
+};
 
-  return { kpis, delivery, replies, funnel };
-}
+const buildRepliesSeries = (data: any) => {
+  const provided = Array.isArray(data?.charts?.repliesPerDay) ? data.charts.repliesPerDay : [];
+  if (provided.length) return provided.map((row: any) => ({ date: row.date, replies: toNumber(row.replies ?? row.count) }));
+  const series = data?.series?.in ?? [];
+  return series.map((row: any) => ({ date: row.date, replies: toNumber(row.count) }));
+};
+
+const buildFunnel = (data: any, kpis: Kpis) => ({
+  leads: toNumber(data?.funnel?.leads, kpis.leadsNew),
+  sent: toNumber(data?.funnel?.contacted ?? data?.funnel?.sent, kpis.sent),
+  delivered: toNumber(data?.funnel?.delivered, Math.round(kpis.deliveredRate * kpis.sent)),
+  replied: toNumber(data?.funnel?.replied, kpis.replies),
+});
 
 export default function MetricsPanel() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
 
-  const searchRange = (searchParams?.get('range') ?? searchParams?.get('window') ?? '7d').toLowerCase();
-  const initialRange: WindowKey = WINDOWS.includes(searchRange as WindowKey)
-    ? (searchRange as WindowKey)
-    : '7d';
+  const initialRange = (() => {
+    const fromQuery = (searchParams?.get('range') ?? searchParams?.get('window') ?? '7d').toLowerCase();
+    return WINDOWS.includes(fromQuery as WindowKey) ? (fromQuery as WindowKey) : '7d';
+  })();
 
   const [range, setRange] = useState<WindowKey>(initialRange);
 
-  useEffect(() => {
-    if (WINDOWS.includes(searchRange as WindowKey) && searchRange !== range) {
-      setRange(searchRange as WindowKey);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchRange]);
-
-  const { data, error, isLoading, mutate } = useSWR(`/api/metrics?range=${range}`, fetchJson, {
-    refreshInterval: 15_000,
+  const { data, error, isLoading, mutate } = useSWR(`/api/metrics?range=${range}`, fetcher, {
+    refreshInterval: 30000,
     revalidateOnFocus: true,
+    shouldRetryOnError: (err) => err?.status !== 401,
   });
+
+  const handleSetRange = (value: WindowKey) => {
+    if (value === range) return;
+    setRange(value);
+    const params = new URLSearchParams(searchParams?.toString() ?? '');
+    params.set('range', value);
+    params.set('window', value);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  };
 
   if (error) {
     console.warn('[METRICS_PANEL] error', error);
   }
 
-  const isUnavailable = !!error || data?.ok === false;
-  const model = adaptToUiModel(data);
+  const isUnauthorized = (error as any)?.status === 401;
+  const isHardFailure = !!error && !isUnauthorized;
+  const kpis = data ? buildKpis(data) : buildKpis({});
+  const deliverySeries = data ? buildDeliverySeries(data) : [];
+  const repliesSeries = data ? buildRepliesSeries(data) : [];
+  const funnel = data ? buildFunnel(data, kpis) : buildFunnel({}, kpis);
 
-  const handleRangeChange = (next: WindowKey) => {
-    if (next === range) return;
-    setRange(next);
-    const params = new URLSearchParams(searchParams?.toString() ?? '');
-    params.set('range', next);
-    params.set('window', next);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-  };
-
-  const repliesMap = useMemo(() => {
-    const map = new Map<string, number>();
-    model.replies.forEach((row) => map.set(row.date, row.replies));
-    return map;
-  }, [model.replies]);
-
-  const dayPoints: DayPoint[] = useMemo(() => {
+  const chartDays: DayPoint[] = useMemo(() => {
     const keys = new Set<string>();
-    model.delivery.forEach((row) => keys.add(row.date));
-    repliesMap.forEach((_, key) => keys.add(key));
+    deliverySeries.forEach((row: any) => keys.add(row.date));
+    repliesSeries.forEach((row: any) => keys.add(row.date));
     return Array.from(keys)
       .sort((a, b) => a.localeCompare(b))
       .map((date) => {
-        const deliveryRow = model.delivery.find((row) => row.date === date);
+        const deliveryRow = deliverySeries.find((row: any) => row.date === date);
+        const repliesRow = repliesSeries.find((row: any) => row.date === date);
         return {
           d: date,
           sent: deliveryRow?.sent ?? 0,
           delivered: deliveryRow?.delivered ?? 0,
           failed: deliveryRow?.failed ?? 0,
-          inbound: repliesMap.get(date) ?? 0,
+          inbound: repliesRow?.replies ?? 0,
         };
       });
-  }, [model.delivery, repliesMap]);
+  }, [deliverySeries, repliesSeries]);
 
   return (
     <section className="space-y-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink-1">Dashboard</h1>
-          <p className="text-sm text-ink-3">Track outreach performance in real time.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="inline-flex rounded-xl border border-surface-line bg-white p-1">
-            {WINDOWS.map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => handleRangeChange(option)}
-                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                  range === option ? 'bg-ink-1 text-white' : 'text-ink-1 hover:bg-surface-bg'
-                }`}
-                aria-pressed={range === option}
-              >
-                {option === '24h' ? '24H' : option.toUpperCase()}
-              </button>
-            ))}
-          </div>
-          <ConnectCrmButton />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="inline-flex rounded-xl border border-surface-line bg-white p-1">
+          {WINDOWS.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => handleSetRange(option)}
+              className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                range === option ? 'bg-ink-1 text-white' : 'text-ink-1 hover:bg-surface-bg'
+              }`}
+              aria-pressed={range === option}
+            >
+              {option === '24h' ? '24H' : option.toUpperCase()}
+            </button>
+          ))}
         </div>
       </div>
 
-      {isUnavailable && (
-        <div className="flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      {isUnauthorized && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Metrics temporarily unavailable. If you’re not signed in, please sign in and refresh.
           <button
             type="button"
-            className="rounded-lg border border-amber-400 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+            className="ml-3 rounded-lg border border-amber-400 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+            onClick={() => mutate()}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {isHardFailure && !isUnauthorized && (
+        <div className="flex items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          Couldn’t load metrics.
+          <button
+            type="button"
+            className="rounded-lg border border-rose-300 px-3 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100"
             onClick={() => mutate()}
           >
             Retry
@@ -303,17 +225,17 @@ export default function MetricsPanel() {
           ))}
         </div>
       ) : (
-        <KpiCards data={model.kpis} className="mt-4" />
+        <KpiCards data={kpis} className="mt-4" />
       )}
 
       <div className="grid gap-6 md:grid-cols-2">
-        <DeliveryChart days={dayPoints} />
-        <RepliesChart days={dayPoints} />
+        <DeliveryChart days={chartDays} />
+        <RepliesChart days={chartDays} />
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
         <div className="md:col-span-2">
-          <Funnel data={model.funnel} />
+          <Funnel data={funnel} />
         </div>
       </div>
     </section>
