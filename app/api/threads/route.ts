@@ -23,6 +23,7 @@ export async function GET(req: Request) {
   const timeout = setTimeout(() => ctrl.abort(), 5000);
 
   try {
+    console.log('THREADS_START', { limit });
     // 1) latest inbound messages (enough to dedupe phones)
     const msgsRes = await fetch(
       `${BASE}/rest/v1/messages_in?select=from_phone,body,created_at&order=created_at.desc&limit=200`,
@@ -67,8 +68,10 @@ export async function GET(req: Request) {
 
     return Response.json({ ok: true, threads });
   } catch (e: any) {
+    console.error('THREADS_ERR', e?.message || e);
     return Response.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   } finally {
+    console.log('THREADS_DONE');
     clearTimeout(timeout);
   }
 }

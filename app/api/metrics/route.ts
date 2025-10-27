@@ -43,6 +43,7 @@ export async function GET(req: Request) {
   const timeout = setTimeout(() => ctrl.abort(), 5000);
 
   try {
+    console.log('METRICS_START', { range, since });
     // KPIs (using leads columns you already have)
     const sent = await count('leads', `last_sent_at=gte.${encSince}`, ctrl.signal);
     const delivered = await count('leads', `last_sent_at=gte.${encSince}&delivery_status=eq.delivered`, ctrl.signal);
@@ -76,8 +77,10 @@ export async function GET(req: Request) {
       }
     });
   } catch (e: any) {
+    console.error('METRICS_ERR', e?.message || e);
     return Response.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   } finally {
+    console.log('METRICS_DONE', { range, since });
     clearTimeout(timeout);
   }
 }
