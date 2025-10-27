@@ -1,139 +1,144 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
 
-const WINDOWS: Record<string, number> = {
-  '24h': 24 * 60 * 60 * 1000,
-  '7d': 7 * 24 * 60 * 60 * 1000,
-  '30d': 30 * 24 * 60 * 60 * 1000,
+const BASE = process.env.SUPABASE_URL;
+const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!BASE || !KEY) {
+  throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+}
+
+const headers: Record<string, string> = {
+  apikey: KEY,
+  Authorization: `Bearer ${KEY}`,
+  Accept: 'application/json',
+  Prefer: 'count=exact',
 };
 
-const clampRange = (value: string | null) => {
-  const normalized = (value ?? '').toLowerCase();
-  if (normalized === '24h') return '24h';
-  if (normalized === '30d') return '30d';
-  return '7d';
+async function pgrest(path: string, signal?: AbortSignal) {
+  const url = `${BASE}/rest/v1/${path}`;
+  const res = await fetch(url, { headers, signal, cache: 'no-store' });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`REST ${res.status}: ${text}`);
+  }
+  return res.json().catch(() => ([]));
+}
+
+function withTimeout<T>(promise: Promise<T>, ms = 5000, label = 'op'): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label}_TIMEOUT_${ms}ms`)), ms);
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
+const clampLimit = (value: string | null) => {
+  const n = Number(value ?? '20');
+  if (!Number.isFinite(n) || n <= 0) return 20;
+  return Math.min(Math.max(Math.floor(n), 1), 50);
 };
 
-const withTimeout = async <T>(promise: Promise<T>, ms: number, label: string) =>
-  Promise.race([
-    promise,
-    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`timeout:${label}`)), ms)),
-  ]);
-
-const formatPhone = (phone: string | null | undefined) => (phone ? phone : null);
+const formatPhone = (phone: string | null | undefined) => phone ?? null;
 
 export async function GET(req: Request) {
   const controller = new AbortController();
-  const totalTimeout = setTimeout(() => controller.abort(), 10_000);
+  const totalTimer = setTimeout(() => controller.abort(), 10_000);
 
   try {
-    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      return NextResponse.json(
-        { ok: false, error: 'missing Supabase env' },
-        { headers: { 'cache-control': 'no-store, no-cache, must-revalidate' } },
-      );
-    }
-
-    const supabase = createClient(
-      process.env.SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY,
-      {
-        auth: { persistSession: false },
-        global: {
-          fetch: (input, init) => fetch(input, { ...init, signal: controller.signal }),
-        },
-      },
-    );
-
     const { searchParams } = new URL(req.url);
+
     if (searchParams.get('ping') === '1') {
       console.log('THREADS_PING');
       return NextResponse.json({ ok: true, pong: true });
     }
 
-    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') ?? '10', 10), 1), 50);
-    const rangeKey = clampRange(searchParams.get('range'));
+    const limit = clampLimit(searchParams.get('limit'));
+    console.log('THREADS_START', { limit });
 
-    const windowMs = WINDOWS[rangeKey];
-    const now = new Date();
-    const from = new Date(now.getTime() - windowMs);
+    const callWithTimeout = async (path: string, label: string) => {
+      const ac = new AbortController();
+      const onAbort = () => ac.abort();
+      controller.signal.addEventListener('abort', onAbort, { once: true });
+      try {
+        return await withTimeout(pgrest(path, ac.signal), 5000, label);
+      } catch (err) {
+        ac.abort();
+        throw err;
+      } finally {
+        controller.signal.removeEventListener('abort', onAbort);
+      }
+    };
 
-    const nowIso = now.toISOString();
-    const fromIso = from.toISOString();
-
-    console.log('THREADS_START', { limit, range: rangeKey });
-
-    const [outboundRes, inboundRes] = await Promise.all([
-      withTimeout(
-        supabase
-          .from('messages_out')
-          .select('created_at, body, to_phone')
-          .gte('created_at', fromIso)
-          .lt('created_at', nowIso)
-          .order('created_at', { ascending: false })
-          .limit(5000),
-        9_000,
-        'messages_out',
-      ),
-      withTimeout(
-        supabase
-          .from('messages_in')
-          .select('created_at, body, from_phone')
-          .gte('created_at', fromIso)
-          .lt('created_at', nowIso)
-          .order('created_at', { ascending: false })
-          .limit(5000),
-        9_000,
-        'messages_in',
-      ),
+    const [inbound, outbound] = await Promise.all([
+      callWithTimeout('messages_in?select=lead_id,from_phone,body,created_at&order=created_at.desc&limit=500', 'THREADS_IN'),
+      callWithTimeout('messages_out?select=lead_id,to_phone,body,created_at&order=created_at.desc&limit=500', 'THREADS_OUT'),
     ]);
 
-    if (outboundRes.error) throw outboundRes.error;
-    if (inboundRes.error) throw inboundRes.error;
+    const threadsMap = new Map<string, { lead_id: string | null; last_message: string; last_at: string }>();
 
-    const threadsMap = new Map<string, { last_message: string; last_at: string }>();
-
-    (outboundRes.data ?? []).forEach((row) => {
-      const phone = formatPhone(row.to_phone);
+    (outbound as any[]).forEach((row) => {
+      const phone = formatPhone(row?.to_phone);
       if (!phone) return;
       const existing = threadsMap.get(phone);
       if (!existing || new Date(row.created_at) > new Date(existing.last_at)) {
-        threadsMap.set(phone, { last_message: row.body ?? '', last_at: row.created_at });
+        threadsMap.set(phone, {
+          lead_id: row?.lead_id ?? null,
+          last_message: row?.body ?? '',
+          last_at: row?.created_at ?? new Date().toISOString(),
+        });
       }
     });
 
-    (inboundRes.data ?? []).forEach((row) => {
-      const phone = formatPhone(row.from_phone);
+    (inbound as any[]).forEach((row) => {
+      const phone = formatPhone(row?.from_phone);
       if (!phone) return;
       const existing = threadsMap.get(phone);
       if (!existing || new Date(row.created_at) > new Date(existing.last_at)) {
-        threadsMap.set(phone, { last_message: row.body ?? '', last_at: row.created_at });
+        threadsMap.set(phone, {
+          lead_id: row?.lead_id ?? null,
+          last_message: row?.body ?? '',
+          last_at: row?.created_at ?? new Date().toISOString(),
+        });
       }
     });
 
     const phones = Array.from(threadsMap.keys());
-    let nameMap = new Map<string, string | null>();
+    let leadNames = new Map<string, string | null>();
+
     if (phones.length) {
-      const { data: leadRows, error: leadError } = await withTimeout(
-        supabase
-          .from('leads')
-          .select('phone, name')
-          .in('phone', phones),
-        9_000,
-        'leads',
-      );
-      if (leadError) throw leadError;
-      nameMap = new Map((leadRows ?? []).map((row) => [row.phone, row.name ?? null]));
+      const chunkSize = 100;
+      const nameEntries: [string, string | null][] = [];
+      for (let i = 0; i < phones.length; i += chunkSize) {
+        const slice = phones.slice(i, i + chunkSize).map((p) => encodeURIComponent(p)).join(',');
+        const path = `leads?select=phone,name&phone=in.(${slice})`;
+        try {
+          const rows = await callWithTimeout(path, 'THREADS_LEADS');
+          (rows as any[]).forEach((row) => {
+            if (row?.phone) nameEntries.push([row.phone, row?.name ?? null]);
+          });
+        } catch (error) {
+          console.error('THREADS_NAME_ERR', error instanceof Error ? error.message : error);
+          break;
+        }
+      }
+      leadNames = new Map(nameEntries);
     }
 
     const threads = Array.from(threadsMap.entries())
       .map(([phone, payload]) => ({
         lead_phone: phone,
-        lead_name: nameMap.get(phone) ?? null,
+        lead_name: leadNames.get(phone) ?? null,
         last_message: payload.last_message,
         last_at: payload.last_at,
       }))
@@ -147,13 +152,12 @@ export async function GET(req: Request) {
       { headers: { 'cache-control': 'no-store, no-cache, must-revalidate' } },
     );
   } catch (error) {
-    console.error('THREADS_ERR', error);
-    const message = error instanceof Error ? error.message : 'unknown';
+    console.error('THREADS_ERR', error instanceof Error ? error.message : error);
     return NextResponse.json(
-      { ok: false, error: message },
+      { ok: false, error: error instanceof Error ? error.message : 'unknown' },
       { headers: { 'cache-control': 'no-store, no-cache, must-revalidate' } },
     );
   } finally {
-    clearTimeout(totalTimeout);
+    clearTimeout(totalTimer);
   }
 }
