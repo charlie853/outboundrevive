@@ -192,10 +192,10 @@ export async function GET(req: NextRequest) {
     const prevDeliveredCount = prevOutsData.filter((row) => safeStatus(row) === 'delivered').length;
     const prevDeliveredRate = prevMessagesSent > 0 ? prevDeliveredCount / prevMessagesSent : 0;
     const prevReplies = prevInsData.length;
-    const prevLeads = prevLeadsData.length;
+    const prevLeadsCount = prevLeadsData.length;
 
     const leadsCurrent = leadsData.length;
-    const deltaLeads = calcDelta(leadsCurrent, prevLeads);
+    const deltaLeads = calcDelta(leadsCurrent, prevLeadsCount);
     const deltaSent = calcDelta(messagesSent, prevMessagesSent);
     const deltaDeliveredRate = calcDelta(deliveredRate, prevDeliveredRate);
     const deltaReplies = calcDelta(repliesCount, prevReplies);
