@@ -3,6 +3,10 @@ import { NextResponse, type NextRequest } from 'next/server'
 export async function middleware(request: NextRequest) {
   const p = request.nextUrl.pathname;
 
+  if (p.startsWith('/api/metrics') || p.startsWith('/api/threads')) {
+    return NextResponse.next();
+  }
+
   // Handle existing API protection first
   if (p.startsWith('/api/')) {
     // Public webhooks & dev simulators must stay open
