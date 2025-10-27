@@ -3,23 +3,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 
-const fetcher = async (url: string) => {
-  const res = await fetch(url, { credentials: 'include', cache: 'no-store' });
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 401) {
-    const error: any = new Error('unauthorized');
-    error.status = 401;
-    error.data = data;
-    throw error;
-  }
-  if (!res.ok) {
-    const error: any = new Error(`http ${res.status}`);
-    error.status = res.status;
-    error.data = data;
-    throw error;
-  }
-  return data;
-};
+const fetcher = (url: string) =>
+  fetch(url, { credentials: 'include', cache: 'no-store' }).then(async (res) => {
+    if (res.status === 401) {
+      const err: any = new Error('unauthorized');
+      err.status = 401;
+      throw err;
+    }
+    if (!res.ok) {
+      const err: any = new Error(`http ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    return res.json();
+  });
 
 type ThreadRow = {
   lead_phone: string | null;
