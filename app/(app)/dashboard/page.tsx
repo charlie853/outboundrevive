@@ -8,6 +8,8 @@ import RepliesChart from './components/RepliesChart';
 import Funnel from './components/Funnel';
 import UserInfo from './components/UserInfo';
 import { headers, cookies } from 'next/headers';
+import ThreadsPanel from '@/app/components/ThreadsPanel';
+import MetricsPanel from '@/app/components/MetricsPanel';
 
 export const metadata: Metadata = pageMeta('Dashboard — OutboundRevive', 'Metrics for your SMS outreach', '/dashboard') as any;
 
@@ -62,6 +64,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
       <div className="mt-8 grid gap-6 md:grid-cols-2">
         <Funnel data={data.funnel} />
         <RecentActivity hours={range === '7d' ? 168 : range === '30d' ? 720 : 2160} />
+      </div>
+
+      <div className="mt-8 grid gap-6 lg:grid-cols-2">
+        <MetricsPanel />
+        <ThreadsPanel />
       </div>
     </main>
   );
