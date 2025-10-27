@@ -3,11 +3,12 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 const URL = process.env.SUPABASE_URL!;
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-type ThreadRow = {
-  lead_phone: string | null;
-  lead_name: string | null;
-  last_message: string | null;
-  last_at: string | null;
+type LeadRow = {
+  phone: string | null;
+  name: string | null;
+  last_reply_body: string | null;
+  last_reply_at: string | null;
+  last_sent_at: string | null;
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -20,56 +21,74 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit ?? '20'), 10)));
 
-  // We use just the leads table to build a threads list:
-  // last_at = greatest(last_reply_at, last_sent_at)
-  // last_message = last_reply_body if present
-  // ordered by last_at desc, limit N
-  const sql = `
-    with t as (
-      select
-        phone as lead_phone,
-        name  as lead_name,
-        coalesce(last_reply_body, '') as last_message,
-        greatest(
-          coalesce(last_reply_at, 'epoch'::timestamptz),
-          coalesce(last_sent_at,  'epoch'::timestamptz)
-        ) as last_at
-      from leads
-    )
-    select lead_phone, lead_name,
-           nullif(last_message, '') as last_message,
-           nullif(to_char(last_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '1970-01-01T00:00:00Z') as last_at
-    from t
-    where last_at is not null and last_at > 'epoch'
-    order by last_at desc
-    limit ${limit};
-  `.trim();
-
+  // Pull rows that have either a reply or a send timestamp.
+  // Order by reply desc then send desc; we’ll compute a final lastAt in code.
   const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), 5000);
+  const timer = setTimeout(() => ac.abort(), 5000);
   try {
-    const resSQL = await fetch(`${URL}/rest/v1/rpc/exec_sql`, {
+    const qs = new URLSearchParams({
+      select: 'phone,name,last_reply_body,last_reply_at,last_sent_at',
+      or: '(last_reply_at.not.is.null,last_sent_at.not.is.null)',
+      order: 'last_reply_at.desc.nullslast,last_sent_at.desc.nullslast',
+      limit: String(limit * 3), // fetch a few extra, we’ll de-dup in code
+    });
+
+    const r = await fetch(`${URL}/rest/v1/leads?${qs.toString()}`, {
       signal: ac.signal,
-      method: 'POST',
       headers: {
         apikey: KEY,
         Authorization: `Bearer ${KEY}`,
-        'content-type': 'application/json',
+        Prefer: 'count=exact',
       },
-      body: JSON.stringify({ sql }),
     });
 
-    if (!resSQL.ok) {
-      const err = await resSQL.text().catch(() => '');
-      res.status(200).json({ ok: true, threads: [] as ThreadRow[], note: `sql_error: ${err.slice(0,200)}` });
+    if (!r.ok) {
+      const text = await r.text().catch(() => '');
+      res.status(200).json({ ok: true, threads: [], note: `rest_error: ${text.slice(0,200)}` });
       return;
     }
 
-    const rows: ThreadRow[] = await resSQL.json().catch(() => []);
-    res.status(200).json({ ok: true, threads: rows ?? [] });
+    const rows: LeadRow[] = await r.json().catch(() => []);
+    // Map to thread objects; keep both snakeCase and camelCase to satisfy any UI shape.
+    const byPhone = new Map<string, any>();
+    for (const row of rows) {
+      const phone = row.phone ?? '';
+      if (!phone) continue;
+
+      const lastReplyAt = row.last_reply_at ? Date.parse(row.last_reply_at) : 0;
+      const lastSentAt  = row.last_sent_at  ? Date.parse(row.last_sent_at)  : 0;
+      const lastAtMs = Math.max(lastReplyAt, lastSentAt);
+      const lastAtISO = lastAtMs > 0 ? new Date(lastAtMs).toISOString() : null;
+
+      // Keep the newest per phone
+      const existing = byPhone.get(phone);
+      if (!existing || (existing.lastAtMs ?? 0) < lastAtMs) {
+        byPhone.set(phone, {
+          // canonical
+          phone,
+          name: row.name ?? null,
+          lastMessage: row.last_reply_body ?? null,
+          lastAt: lastAtISO,
+          // aliases (in case UI expects these)
+          lead_phone: phone,
+          lead_name: row.name ?? null,
+          last_message: row.last_reply_body ?? null,
+          last_at: lastAtISO,
+          lastAtMs,
+        });
+      }
+    }
+
+    // Sort by lastAt desc and trim to limit
+    const threads = Array.from(byPhone.values())
+      .sort((a, b) => (b.lastAtMs ?? 0) - (a.lastAtMs ?? 0))
+      .slice(0, limit)
+      .map(({ lastAtMs, ...t }) => t);
+
+    res.status(200).json({ ok: true, threads });
   } catch {
-    res.status(200).json({ ok: true, threads: [] as ThreadRow[] });
+    res.status(200).json({ ok: true, threads: [] });
   } finally {
-    clearTimeout(t);
+    clearTimeout(timer);
   }
 }
