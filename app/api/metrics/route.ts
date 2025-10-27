@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
 export const revalidate = 0;
@@ -20,9 +20,13 @@ const clampRange = (raw: string | null): WindowKey => {
   return '7d';
 };
 
-const statusOf = (row: any) => {
-  const gate = row?.gate_log ?? {};
-  return String(row?.delivery_status ?? row?.status ?? gate.status ?? '').toLowerCase();
+const withTimeout = async <T>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`timeout:${label}`)), ms),
+    ),
+  ]);
 };
 
 const calcDeltaPct = (current: number, previous: number) => {
@@ -30,26 +34,43 @@ const calcDeltaPct = (current: number, previous: number) => {
   return ((current - previous) / previous) * 100;
 };
 
+const statusOf = (row: any) => {
+  const gate = row?.gate_log ?? {};
+  return String(row?.delivery_status ?? row?.status ?? gate.status ?? '').toLowerCase();
+};
+
+const bucketDays = (start: Date, end: Date) => {
+  const days: string[] = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    days.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return days;
+};
+
+const ensureSupabase = () => {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error('missing Supabase env');
+  return createClient(url, key, { auth: { persistSession: false } });
+};
+
 export async function GET(req: Request) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10_000);
+  const totalTimeout = setTimeout(() => controller.abort(), 10_000);
 
   try {
-    const url = process.env.SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !key) {
-      return NextResponse.json(
-        { ok: false, error: 'missing Supabase env' },
-        { status: 500, headers: { 'cache-control': 'no-store, no-cache, must-revalidate' } },
-      );
-    }
-
-    const supabase = createClient(url, key, {
-      auth: { persistSession: false },
-      global: {
-        fetch: (input, init) => fetch(input, { ...init, signal: controller.signal }),
+    const supabase = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: { persistSession: false },
+        global: {
+          fetch: (input, init) => fetch(input, { ...init, signal: controller.signal }),
+        },
       },
-    });
+    );
 
     const { searchParams } = new URL(req.url);
     if (searchParams.get('ping') === '1') {
@@ -61,138 +82,115 @@ export async function GET(req: Request) {
     const windowMs = WINDOW_MS[rangeKey];
 
     const now = new Date();
-    const from = new Date(now.getTime() - windowMs);
-    const prevFrom = new Date(from.getTime() - windowMs);
+    const start = new Date(now.getTime() - windowMs);
+    const prevStart = new Date(start.getTime() - windowMs);
 
     const nowIso = now.toISOString();
-    const fromIso = from.toISOString();
-    const prevFromIso = prevFrom.toISOString();
-    const prevToIso = fromIso;
+    const startIso = start.toISOString();
+    const prevStartIso = prevStart.toISOString();
 
     console.log('METRICS_START', { range: rangeKey });
 
-    const [sentCurRes, sentPrevRes, deliveredCurRes, deliveredPrevRes, repliesCurRes, repliesPrevRes, leadsCurRes, leadsPrevRes] = await Promise.all([
-      supabase
-        .from('messages_out')
-        .select('id', { count: 'exact', head: true })
-        .gte('created_at', fromIso)
-        .lt('created_at', nowIso),
-      supabase
-        .from('messages_out')
-        .select('id', { count: 'exact', head: true })
-        .gte('created_at', prevFromIso)
-        .lt('created_at', prevToIso),
-      supabase
-        .from('messages_out')
-        .select('id', { count: 'exact', head: true })
-        .or('delivery_status.eq.delivered,status.eq.delivered')
-        .gte('created_at', fromIso)
-        .lt('created_at', nowIso),
-      supabase
-        .from('messages_out')
-        .select('id', { count: 'exact', head: true })
-        .or('delivery_status.eq.delivered,status.eq.delivered')
-        .gte('created_at', prevFromIso)
-        .lt('created_at', prevToIso),
-      supabase
-        .from('messages_in')
-        .select('id', { count: 'exact', head: true })
-        .gte('created_at', fromIso)
-        .lt('created_at', nowIso),
-      supabase
-        .from('messages_in')
-        .select('id', { count: 'exact', head: true })
-        .gte('created_at', prevFromIso)
-        .lt('created_at', prevToIso),
-      supabase
-        .from('leads')
-        .select('id', { count: 'exact', head: true })
-        .gte('created_at', fromIso)
-        .lt('created_at', nowIso),
-      supabase
-        .from('leads')
-        .select('id', { count: 'exact', head: true })
-        .gte('created_at', prevFromIso)
-        .lt('created_at', prevToIso),
-    ]);
+    const countInRange = async (client: SupabaseClient, table: string, filters: (query: any) => any) => {
+      const query = filters(client.from(table).select('id', { head: true, count: 'exact' }));
+      const result = await withTimeout(query, 9_000, `${table}-count`);
+      if (result.error) throw result.error;
+      return result.count ?? 0;
+    };
 
-    const errors = [
-      sentCurRes.error,
-      sentPrevRes.error,
-      deliveredCurRes.error,
-      deliveredPrevRes.error,
-      repliesCurRes.error,
-      repliesPrevRes.error,
-      leadsCurRes.error,
-      leadsPrevRes.error,
-    ].filter(Boolean);
+    const sentCurrent = await countInRange(supabase, 'messages_out', (q) =>
+      q.gte('created_at', startIso).lt('created_at', nowIso),
+    );
+    const sentPrev = await countInRange(supabase, 'messages_out', (q) =>
+      q.gte('created_at', prevStartIso).lt('created_at', startIso),
+    );
 
-    if (errors.length) throw errors[0];
+    const deliveredCurrent = await countInRange(supabase, 'messages_out', (q) =>
+      q.or('delivery_status.eq.delivered,status.eq.delivered')
+        .gte('created_at', startIso)
+        .lt('created_at', nowIso),
+    );
+    const deliveredPrev = await countInRange(supabase, 'messages_out', (q) =>
+      q.or('delivery_status.eq.delivered,status.eq.delivered')
+        .gte('created_at', prevStartIso)
+        .lt('created_at', startIso),
+    );
 
-    const sentCurrent = sentCurRes.count ?? 0;
-    const sentPrevious = sentPrevRes.count ?? 0;
-    const deliveredCurrent = deliveredCurRes.count ?? 0;
-    const deliveredPrevious = deliveredPrevRes.count ?? 0;
-    const repliesCurrent = repliesCurRes.count ?? 0;
-    const repliesPrevious = repliesPrevRes.count ?? 0;
-    const leadsCurrent = leadsCurRes.count ?? 0;
-    const leadsPrevious = leadsPrevRes.count ?? 0;
+    const repliesCurrent = await countInRange(supabase, 'messages_in', (q) =>
+      q.gte('created_at', startIso).lt('created_at', nowIso),
+    );
+    const repliesPrev = await countInRange(supabase, 'messages_in', (q) =>
+      q.gte('created_at', prevStartIso).lt('created_at', startIso),
+    );
+
+    const leadsCurrent = await countInRange(supabase, 'leads', (q) =>
+      q.gte('created_at', startIso).lt('created_at', nowIso),
+    );
+    const leadsPrev = await countInRange(supabase, 'leads', (q) =>
+      q.gte('created_at', prevStartIso).lt('created_at', startIso),
+    );
 
     const deliveredPctCurrent = sentCurrent > 0 ? (deliveredCurrent / sentCurrent) * 100 : 0;
-    const deliveredPctPrevious = sentPrevious > 0 ? (deliveredPrevious / sentPrevious) * 100 : 0;
+    const deliveredPctPrev = sentPrev > 0 ? (deliveredPrev / sentPrev) * 100 : 0;
 
     const [messagesOutRes, messagesInRes] = await Promise.all([
-      supabase
-        .from('messages_out')
-        .select('created_at, delivery_status, status, gate_log')
-        .gte('created_at', fromIso)
-        .lt('created_at', nowIso)
-        .order('created_at', { ascending: true })
-        .limit(5000),
-      supabase
-        .from('messages_in')
-        .select('created_at')
-        .gte('created_at', fromIso)
-        .lt('created_at', nowIso)
-        .order('created_at', { ascending: true })
-        .limit(5000),
+      withTimeout(
+        supabase
+          .from('messages_out')
+          .select('created_at, delivery_status, status, gate_log')
+          .gte('created_at', startIso)
+          .lt('created_at', nowIso)
+          .order('created_at', { ascending: true })
+          .limit(5000),
+        9_000,
+        'messages_out-series',
+      ),
+      withTimeout(
+        supabase
+          .from('messages_in')
+          .select('created_at')
+          .gte('created_at', startIso)
+          .lt('created_at', nowIso)
+          .order('created_at', { ascending: true })
+          .limit(5000),
+        9_000,
+        'messages_in-series',
+      ),
     ]);
 
     if (messagesOutRes.error) throw messagesOutRes.error;
     if (messagesInRes.error) throw messagesInRes.error;
 
-    const deliveryMap = new Map<string, { sent: number; delivered: number; failed: number }>();
+    const deliveryBuckets = new Map<string, { sent: number; delivered: number; failed: number }>();
     (messagesOutRes.data ?? []).forEach((row) => {
-      const date = row.created_at.slice(0, 10);
-      const bucket = deliveryMap.get(date) ?? { sent: 0, delivered: 0, failed: 0 };
+      const day = row.created_at.slice(0, 10);
+      const bucket = deliveryBuckets.get(day) ?? { sent: 0, delivered: 0, failed: 0 };
       bucket.sent += 1;
       const status = statusOf(row);
       if (status === 'delivered') bucket.delivered += 1;
       if (status === 'failed' || status === 'undelivered') bucket.failed += 1;
-      deliveryMap.set(date, bucket);
+      deliveryBuckets.set(day, bucket);
     });
 
-    let deliveryOverTime = Array.from(deliveryMap.entries())
-      .map(([date, bucket]) => ({ date, ...bucket }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-
-    if (deliveryOverTime.length === 0) {
-      deliveryOverTime = [{ date: fromIso.slice(0, 10), sent: 0, delivered: 0, failed: 0 }];
-    }
-
-    const repliesMap = new Map<string, number>();
+    const repliesBuckets = new Map<string, number>();
     (messagesInRes.data ?? []).forEach((row) => {
-      const date = row.created_at.slice(0, 10);
-      repliesMap.set(date, (repliesMap.get(date) ?? 0) + 1);
+      const day = row.created_at.slice(0, 10);
+      repliesBuckets.set(day, (repliesBuckets.get(day) ?? 0) + 1);
     });
 
-    let repliesPerDay = Array.from(repliesMap.entries())
-      .map(([date, count]) => ({ date, count }))
-      .sort((a, b) => a.date.localeCompare(b.date));
+    const dayList = bucketDays(start, now);
 
-    if (repliesPerDay.length === 0) {
-      repliesPerDay = [{ date: fromIso.slice(0, 10), count: 0 }];
-    }
+    const deliveryOverTime = dayList.map((day) => ({
+      date: day,
+      sent: deliveryBuckets.get(day)?.sent ?? 0,
+      delivered: deliveryBuckets.get(day)?.delivered ?? 0,
+      failed: deliveryBuckets.get(day)?.failed ?? 0,
+    }));
+
+    const repliesPerDay = dayList.map((day) => ({
+      date: day,
+      count: repliesBuckets.get(day) ?? 0,
+    }));
 
     console.log('METRICS_DONE', {
       range: rangeKey,
@@ -206,45 +204,24 @@ export async function GET(req: Request) {
       {
         ok: true,
         kpis: {
-          newLeads: {
-            value: leadsCurrent,
-            deltaPct: calcDeltaPct(leadsCurrent, leadsPrevious),
-          },
-          messagesSent: {
-            value: sentCurrent,
-            deltaPct: calcDeltaPct(sentCurrent, sentPrevious),
-          },
-          deliveredPct: {
-            value: deliveredPctCurrent,
-            deltaPct: calcDeltaPct(deliveredPctCurrent, deliveredPctPrevious),
-          },
-          replies: {
-            value: repliesCurrent,
-            deltaPct: calcDeltaPct(repliesCurrent, repliesPrevious),
-          },
+          newLeads: { value: leadsCurrent, deltaPct: calcDeltaPct(leadsCurrent, leadsPrev) },
+          messagesSent: { value: sentCurrent, deltaPct: calcDeltaPct(sentCurrent, sentPrev) },
+          deliveredPct: { value: deliveredPctCurrent, deltaPct: calcDeltaPct(deliveredPctCurrent, deliveredPctPrev) },
+          replies: { value: repliesCurrent, deltaPct: calcDeltaPct(repliesCurrent, repliesPrev) },
         },
         charts: {
           deliveryOverTime,
           repliesPerDay,
         },
       },
-      {
-        headers: {
-          'cache-control': 'no-store, no-cache, must-revalidate',
-        },
-      },
+      { headers: { 'cache-control': 'no-store, no-cache, must-revalidate' } },
     );
   } catch (error) {
     console.error('METRICS_ERR', error);
     const message = error instanceof Error ? error.message : 'unknown';
     return NextResponse.json(
       { ok: false, error: message },
-      {
-        status: 500,
-        headers: {
-          'cache-control': 'no-store, no-cache, must-revalidate',
-        },
-      },
+      { headers: { 'cache-control': 'no-store, no-cache, must-revalidate' } },
     );
   } finally {
     clearTimeout(timeoutId);
