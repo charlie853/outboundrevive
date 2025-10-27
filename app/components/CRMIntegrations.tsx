@@ -12,6 +12,7 @@ interface CRMIntegrationsProps {
   onConnect?: (connectionId: string, providerConfigKey: string) => void;
   onSync?: (results: SyncResult) => void;
   onError?: (error: string) => void;
+  variant?: 'full' | 'button';
 }
 
 interface CRMStatus {
@@ -25,7 +26,8 @@ export default function CRMIntegrations({
   organizationId,
   onConnect,
   onSync,
-  onError
+  onError,
+  variant = 'full'
 }: CRMIntegrationsProps) {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -198,6 +200,43 @@ export default function CRMIntegrations({
       setIsDisconnecting(false);
     }
   };
+
+  if (variant === 'button') {
+    return (
+      <div className="flex items-center gap-2 text-gray-600">
+        {!crmStatus.connected ? (
+          <button
+            onClick={handleConnectCRM}
+            disabled={isConnecting}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              isConnecting
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-blue-600 text-white hover:bg-blue-700'
+            }`}
+          >
+            {isConnecting ? 'Connecting…' : 'Connect CRM'}
+          </button>
+        ) : (
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-emerald-600">
+              Connected to {crmStatus.provider ?? 'CRM'}
+            </span>
+            <button
+              onClick={handleDisconnectCRM}
+              disabled={isDisconnecting}
+              className={`px-3 py-2 rounded-lg border transition-colors ${
+                isDisconnecting
+                  ? 'border-gray-200 text-gray-400 cursor-not-allowed'
+                  : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              {isDisconnecting ? 'Disconnecting…' : 'Disconnect'}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 text-gray-600">

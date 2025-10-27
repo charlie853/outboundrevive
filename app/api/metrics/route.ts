@@ -1,123 +1,251 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin as db } from '@/lib/supabaseServer';
+import { requireAccountAccess } from '@/lib/account';
 
-const SB_URL = process.env.SUPABASE_URL!;
-const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const H = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-function toISOStart(d: Date) {
-  const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0));
-  return x.toISOString();
-}
-function toISOEnd(d: Date) {
-  const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 23, 59, 59, 999));
-  return x.toISOString();
-}
-function rangeStart(range: string) {
-  const now = new Date();
-  const start = new Date(now);
-  if (range === '90d') start.setUTCDate(start.getUTCDate() - 90);
-  else if (range === '30d') start.setUTCDate(start.getUTCDate() - 30);
-  else start.setUTCDate(start.getUTCDate() - 7);
-  return { start: toISOStart(start), end: toISOEnd(now) };
-}
+type WindowKey = '24h' | '7d' | '30d';
 
-type MsgOut = { created_at: string; status?: string|null; delivery_status?: string|null; to_phone?: string|null };
-type MsgIn  = { created_at: string; from_phone?: string|null };
+const WINDOW_MS: Record<WindowKey, number> = {
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+};
+
+const VALID_WINDOWS = new Set<WindowKey>(['24h', '7d', '30d']);
+
+function resolveWindow(value: string | null): WindowKey {
+  const lower = (value ?? '').toLowerCase() as WindowKey;
+  return VALID_WINDOWS.has(lower) ? lower : '7d';
+}
 
 function dayKey(iso: string) {
-  const d = new Date(iso);
-  return d.toISOString().slice(0,10);
+  return new Date(iso).toISOString().slice(0, 10);
 }
 
-export const revalidate = 0;
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
+function calcDelta(current: number, previous: number) {
+  if (!Number.isFinite(previous) || previous === 0) return current > 0 ? 1 : 0;
+  return (current - previous) / previous;
+}
 
-export async function GET(req: Request) {
+function safeStatus(row: any): string {
+  const gate = (row?.gate_log ?? {}) as Record<string, any>;
+  return String(row?.delivery_status ?? row?.status ?? gate?.status ?? '').toLowerCase();
+}
+
+function safeCategory(row: any): string {
+  const gate = (row?.gate_log ?? {}) as Record<string, any>;
+  return String(gate?.category ?? '').toLowerCase();
+}
+
+export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-    const range = (searchParams.get('range') || '7d').toLowerCase();
-    const { start, end } = rangeStart(range);
+    const url = new URL(req.url);
+    const windowKey = resolveWindow(url.searchParams.get('window'));
+    const now = new Date();
+    const endIso = now.toISOString();
+    const start = new Date(now.getTime() - WINDOW_MS[windowKey]);
+    const startIso = start.toISOString();
+    const prevEndIso = startIso;
+    const prevStartIso = new Date(start.getTime() - WINDOW_MS[windowKey]).toISOString();
 
-    const leadsRes = await fetch(
-      `${SB_URL}/rest/v1/leads?select=id&created_at=gte.${start}&created_at=lt.${end}`,
-      { headers: { ...H, Prefer: 'count=exact' } }
-    );
-    const leadsCtr = leadsRes.headers.get('content-range') || '0/0';
-    const newLeads = Number(leadsCtr.split('/')[1] || 0);
+    const accountId = await requireAccountAccess();
+    if (!accountId) {
+      return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
+    }
 
-    const outRes = await fetch(
-      `${SB_URL}/rest/v1/messages_out?select=created_at,delivery_status,status,to_phone&created_at=gte.${start}&created_at=lt.${end}&order=created_at.asc`,
-      { headers: H }
-    );
-    const outRows = (await outRes.json()) as MsgOut[];
+    const [outs, ins, leads, prevOuts, prevIns, prevLeads, remindersRes, pausedRes] = await Promise.all([
+      db
+        .from('messages_out')
+        .select('created_at, gate_log, to_phone, delivery_status, status')
+        .eq('account_id', accountId)
+        .gte('created_at', startIso)
+        .lt('created_at', endIso)
+        .order('created_at', { ascending: true })
+        .limit(10000),
+      db
+        .from('messages_in')
+        .select('created_at, from_phone')
+        .eq('account_id', accountId)
+        .gte('created_at', startIso)
+        .lt('created_at', endIso)
+        .order('created_at', { ascending: true })
+        .limit(10000),
+      db
+        .from('leads')
+        .select('created_at')
+        .eq('account_id', accountId)
+        .gte('created_at', startIso)
+        .lt('created_at', endIso)
+        .order('created_at', { ascending: true })
+        .limit(10000),
+      db
+        .from('messages_out')
+        .select('created_at, gate_log, to_phone, delivery_status, status')
+        .eq('account_id', accountId)
+        .gte('created_at', prevStartIso)
+        .lt('created_at', prevEndIso)
+        .order('created_at', { ascending: true })
+        .limit(10000),
+      db
+        .from('messages_in')
+        .select('created_at, from_phone')
+        .eq('account_id', accountId)
+        .gte('created_at', prevStartIso)
+        .lt('created_at', prevEndIso)
+        .order('created_at', { ascending: true })
+        .limit(10000),
+      db
+        .from('leads')
+        .select('created_at')
+        .eq('account_id', accountId)
+        .gte('created_at', prevStartIso)
+        .lt('created_at', prevEndIso)
+        .order('created_at', { ascending: true })
+        .limit(10000),
+      db
+        .from('messages_out')
+        .select('id', { count: 'exact', head: true })
+        .eq('account_id', accountId)
+        .gte('created_at', startIso)
+        .lt('created_at', endIso)
+        .contains('gate_log', { category: 'reminder' }),
+      db
+        .from('leads')
+        .select('id', { count: 'exact', head: true })
+        .eq('account_id', accountId)
+        .gt('reminder_pause_until', endIso),
+    ]);
 
-    const inRes = await fetch(
-      `${SB_URL}/rest/v1/messages_in?select=created_at,from_phone&created_at=gte.${start}&created_at=lt.${end}&order=created_at.asc`,
-      { headers: H }
-    );
-    const inRows = (await inRes.json()) as MsgIn[];
+    if (outs.error || ins.error || leads.error || prevOuts.error || prevIns.error || prevLeads.error || remindersRes.error || pausedRes.error) {
+      console.error('[metrics] query errors', outs.error, ins.error, leads.error, prevOuts.error, prevIns.error, prevLeads.error, remindersRes.error, pausedRes.error);
+      return NextResponse.json({ ok: false, error: 'metrics_failed' }, { status: 500 });
+    }
 
-    const messagesSent = outRows.length;
-    const deliveredCount = outRows.filter(r => (r.delivery_status ?? r.status)?.toLowerCase() === 'delivered').length;
-    const failedCount = outRows.filter(r => {
-      const s = (r.delivery_status ?? r.status)?.toLowerCase();
-      return s === 'failed' || s === 'undelivered';
+    const outsData = outs.data ?? [];
+    const insData = ins.data ?? [];
+    const leadsData = leads.data ?? [];
+    const prevOutsData = prevOuts.data ?? [];
+    const prevInsData = prevIns.data ?? [];
+    const prevLeadsData = prevLeads.data ?? [];
+
+    const messagesSent = outsData.length;
+    const deliveredCount = outsData.filter((row) => safeStatus(row) === 'delivered').length;
+    const failedCount = outsData.filter((row) => {
+      const status = safeStatus(row);
+      return status === 'failed' || status === 'undelivered';
     }).length;
-    const replies = inRows.length;
-    const deliveredPct = messagesSent ? Math.round((deliveredCount / messagesSent) * 100) : 0;
+    const repliesCount = insData.length;
+    const deliveredRate = messagesSent > 0 ? deliveredCount / messagesSent : 0;
 
-    const tsMap: Record<string, { sent: number; delivered: number; failed: number }> = {};
-    for (const r of outRows) {
-      const k = dayKey(r.created_at);
-      if (!tsMap[k]) tsMap[k] = { sent: 0, delivered: 0, failed: 0 };
-      tsMap[k].sent += 1;
-      const s = (r.delivery_status ?? r.status)?.toLowerCase();
-      if (s === 'delivered') tsMap[k].delivered += 1;
-      if (s === 'failed' || s === 'undelivered') tsMap[k].failed += 1;
-    }
-    const deliveryOverTime = Object.keys(tsMap).sort().map(k => ({
-      date: k,
-      sent: tsMap[k].sent,
-      delivered: tsMap[k].delivered,
-      failed: tsMap[k].failed,
-    }));
+    const contactedSet = new Set<string>();
+    const deliveredSet = new Set<string>();
+    const remindersInWindow = remindersRes.count ?? outsData.filter((row) => safeCategory(row) === 'reminder').length;
 
-    const rpMap: Record<string, number> = {};
-    for (const r of inRows) {
-      const k = dayKey(r.created_at);
-      rpMap[k] = (rpMap[k] || 0) + 1;
-    }
-    const repliesPerDay = Object.keys(rpMap).sort().map(k => ({ date: k, replies: rpMap[k] }));
+    const deliveryMap = new Map<string, { sent: number; delivered: number; failed: number; inbound: number }>();
 
-    const contacted = new Set(outRows.map(r => r.to_phone).filter(Boolean)).size;
-    const deliveredLeads = new Set(
-      outRows.filter(r => (r.delivery_status ?? r.status)?.toLowerCase() === 'delivered')
-             .map(r => r.to_phone).filter(Boolean)
-    ).size;
-    const repliedLeads = new Set(inRows.map(r => r.from_phone).filter(Boolean)).size;
-
-    return NextResponse.json({
-      ok: true,
-      range,
-      kpis: {
-        newLeads,
-        messagesSent,
-        deliveredPct,
-        replies
-      },
-      charts: {
-        deliveryOverTime,
-        repliesPerDay
-      },
-      funnel: {
-        leads: newLeads,
-        contacted,
-        delivered: deliveredLeads,
-        replied: repliedLeads
+    const ensureDay = (date: string) => {
+      if (!deliveryMap.has(date)) {
+        deliveryMap.set(date, { sent: 0, delivered: 0, failed: 0, inbound: 0 });
       }
-    }, { headers: { 'cache-control': 'no-store' } });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? 'metrics_failed' }, { status: 500 });
+      return deliveryMap.get(date)!;
+    };
+
+    outsData.forEach((row) => {
+      const date = dayKey(row.created_at);
+      const bucket = ensureDay(date);
+      bucket.sent += 1;
+      const status = safeStatus(row);
+      if (status === 'delivered') {
+        bucket.delivered += 1;
+        if (row.to_phone) deliveredSet.add(row.to_phone);
+      }
+      if (status === 'failed' || status === 'undelivered') {
+        bucket.failed += 1;
+      }
+      if (row.to_phone) contactedSet.add(row.to_phone);
+    });
+
+    const repliesMap = new Map<string, number>();
+    const repliedSet = new Set<string>();
+    insData.forEach((row) => {
+      const date = dayKey(row.created_at);
+      repliesMap.set(date, (repliesMap.get(date) ?? 0) + 1);
+      ensureDay(date).inbound += 1;
+      if (row.from_phone) repliedSet.add(row.from_phone);
+    });
+
+    const deliveryOverTime = Array.from(deliveryMap.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, counts]) => ({ date, ...counts }));
+
+    const repliesPerDay = Array.from(repliesMap.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, replies]) => ({ date, replies }));
+
+    const seriesOut = deliveryOverTime.map(({ date, sent }) => ({ date, count: sent }));
+    const seriesIn = repliesPerDay.map(({ date, replies }) => ({ date, count: replies }));
+
+    const prevMessagesSent = prevOutsData.length;
+    const prevDeliveredCount = prevOutsData.filter((row) => safeStatus(row) === 'delivered').length;
+    const prevDeliveredRate = prevMessagesSent > 0 ? prevDeliveredCount / prevMessagesSent : 0;
+    const prevReplies = prevInsData.length;
+    const prevLeads = prevLeadsData.length;
+
+    const leadsCurrent = leadsData.length;
+    const deltaLeads = calcDelta(leadsCurrent, prevLeads);
+    const deltaSent = calcDelta(messagesSent, prevMessagesSent);
+    const deltaDeliveredRate = calcDelta(deliveredRate, prevDeliveredRate);
+    const deltaReplies = calcDelta(repliesCount, prevReplies);
+
+    const funnel = {
+      leads: leadsData.length,
+      contacted: contactedSet.size,
+      delivered: deliveredSet.size,
+      replied: repliedSet.size,
+    };
+
+    const pausedTotal = pausedRes.count ?? 0;
+
+    return NextResponse.json(
+      {
+        ok: true,
+        window: windowKey,
+        out24: messagesSent,
+        in24: repliesCount,
+        reminders24: remindersInWindow,
+        paused: pausedTotal,
+        newLeads24: leadsData.length,
+        deliveredPct24: Math.round(deliveredRate * 100),
+        series: {
+          out: seriesOut,
+          in: seriesIn,
+        },
+       kpis: {
+          leadsNew: leadsCurrent,
+          sent: messagesSent,
+          delivered: deliveredCount,
+          deliveredRate,
+          replies: repliesCount,
+          deltas: {
+            leadsNew: deltaLeads,
+            sent: deltaSent,
+            deliveredRate: deltaDeliveredRate,
+            replies: deltaReplies,
+          },
+        },
+        charts: {
+          deliveryOverTime,
+          repliesPerDay,
+        },
+        funnel,
+      },
+      { headers: { 'cache-control': 'no-store' } },
+    );
+  } catch (error) {
+    console.error('[metrics] unexpected error', error);
+    return NextResponse.json({ ok: false, error: 'metrics_failed' }, { status: 500 });
   }
 }
