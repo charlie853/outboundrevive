@@ -1,114 +1,123 @@
 import { NextResponse } from 'next/server';
-export const runtime = 'edge';
+
+const SB_URL = process.env.SUPABASE_URL!;
+const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const H = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
+
+function toISOStart(d: Date) {
+  const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0));
+  return x.toISOString();
+}
+function toISOEnd(d: Date) {
+  const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 23, 59, 59, 999));
+  return x.toISOString();
+}
+function rangeStart(range: string) {
+  const now = new Date();
+  const start = new Date(now);
+  if (range === '90d') start.setUTCDate(start.getUTCDate() - 90);
+  else if (range === '30d') start.setUTCDate(start.getUTCDate() - 30);
+  else start.setUTCDate(start.getUTCDate() - 7);
+  return { start: toISOStart(start), end: toISOEnd(now) };
+}
+
+type MsgOut = { created_at: string; status?: string|null; delivery_status?: string|null; to_phone?: string|null };
+type MsgIn  = { created_at: string; from_phone?: string|null };
+
+function dayKey(iso: string) {
+  const d = new Date(iso);
+  return d.toISOString().slice(0,10);
+}
+
+export const revalidate = 0;
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
-const SURL = process.env.SUPABASE_URL!;
-const SRK  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-const json = (obj: any, init?: ResponseInit) =>
-  new NextResponse(JSON.stringify(obj), {
-    status: init?.status ?? 200,
-    headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
-  });
-
-const q = (path: string, init?: RequestInit) =>
-  fetch(`${SURL}${path}`, {
-    ...init,
-    headers: {
-      apikey: SRK,
-      Authorization: `Bearer ${SRK}`,
-      ...(init?.headers ?? {}),
-    },
-    cache: 'no-store',
-  });
-
-function isoMinus(days = 0, minutes = 0) {
-  const d = new Date(Date.now() - (days*86400000 + minutes*60000));
-  return d.toISOString();
-}
-
-async function headCount(path: string) {
-  const res = await q(path, { method: 'HEAD', headers: { Prefer: 'count=exact' } });
-  const cr = res.headers.get('content-range') || res.headers.get('Content-Range');
-  if (!cr) return 0;
-  const total = Number(cr.split('/').pop());
-  return Number.isFinite(total) ? total : 0;
-}
-
-async function seriesByDay(table: string, filters: string) {
-  const select = encodeURIComponent(`date:date_trunc('day',created_at),count:count()`);
-  const url = `/rest/v1/${table}?select=${select}&group=date&order=date.asc${filters}`;
-  const res = await q(url);
-  if (!res.ok) return [];
-  const rows = await res.json();
-  return rows.map((r: any) => ({ date: new Date(r.date).toISOString().slice(0,10), count: Number(r.count)||0 }));
-}
-
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const since30d = `&created_at=gte.${isoMinus(30)}`;
-    const since24h = `&created_at=gte.${isoMinus(1)}`;
+    const { searchParams } = new URL(req.url);
+    const range = (searchParams.get('range') || '7d').toLowerCase();
+    const { start, end } = rangeStart(range);
 
-    // Card metrics
-    const [out24, in24, reminders24, paused, newLeads24] = await Promise.all([
-      headCount(`/rest/v1/messages_out?select=id${since24h}`),
-      headCount(`/rest/v1/messages_in?select=id${since24h}`),
-      headCount(`/rest/v1/messages_out?select=id&gate_log->>category=eq.reminder${since24h}`),
-      headCount(`/rest/v1/leads?select=id&reminder_pause_until=gt.${new Date().toISOString()}`),
-      headCount(`/rest/v1/leads?select=id${since24h}`),
-    ]);
+    const leadsRes = await fetch(
+      `${SB_URL}/rest/v1/leads?select=id&created_at=gte.${start}&created_at=lt.${end}`,
+      { headers: { ...H, Prefer: 'count=exact' } }
+    );
+    const leadsCtr = leadsRes.headers.get('content-range') || '0/0';
+    const newLeads = Number(leadsCtr.split('/')[1] || 0);
 
-    // Series
-    const sent30      = await seriesByDay('messages_out', since30d);
-    const replies30   = await seriesByDay('messages_in',  since30d);
-    const delivered30 = await seriesByDay('messages_out', `${since30d}&gate_log->>status=eq.delivered`);
-    const failed30    = await seriesByDay('messages_out', `${since30d}&gate_log->>status=eq.failed`);
+    const outRes = await fetch(
+      `${SB_URL}/rest/v1/messages_out?select=created_at,delivery_status,status,to_phone&created_at=gte.${start}&created_at=lt.${end}&order=created_at.asc`,
+      { headers: H }
+    );
+    const outRows = (await outRes.json()) as MsgOut[];
 
-    // 24h delivery %
-    const delivered24 = await headCount(`/rest/v1/messages_out?select=id&gate_log->>status=eq.delivered${since24h}`);
-    const failed24    = await headCount(`/rest/v1/messages_out?select=id&gate_log->>status=eq.failed${since24h}`);
-    const denom24     = delivered24 + failed24 || out24 || 1;
-    const deliveredPct24 = Math.round((delivered24 / denom24) * 100);
+    const inRes = await fetch(
+      `${SB_URL}/rest/v1/messages_in?select=created_at,from_phone&created_at=gte.${start}&created_at=lt.${end}&order=created_at.asc`,
+      { headers: H }
+    );
+    const inRows = (await inRes.json()) as MsgIn[];
 
-    // Funnel 30d
-    const [fLeads, fContacted, fDelivered, fReplied] = await Promise.all([
-      headCount(`/rest/v1/leads?select=id${since30d}`),
-      headCount(`/rest/v1/messages_out?select=id${since30d}`),
-      headCount(`/rest/v1/messages_out?select=id&gate_log->>status=eq.delivered${since30d}`),
-      headCount(`/rest/v1/messages_in?select=id${since30d}`),
-    ]);
+    const messagesSent = outRows.length;
+    const deliveredCount = outRows.filter(r => (r.delivery_status ?? r.status)?.toLowerCase() === 'delivered').length;
+    const failedCount = outRows.filter(r => {
+      const s = (r.delivery_status ?? r.status)?.toLowerCase();
+      return s === 'failed' || s === 'undelivered';
+    }).length;
+    const replies = inRows.length;
+    const deliveredPct = messagesSent ? Math.round((deliveredCount / messagesSent) * 100) : 0;
 
-    // Return **old keys** (for any old UI) AND **new keys** (for the new dashboard)
-    return json({
+    const tsMap: Record<string, { sent: number; delivered: number; failed: number }> = {};
+    for (const r of outRows) {
+      const k = dayKey(r.created_at);
+      if (!tsMap[k]) tsMap[k] = { sent: 0, delivered: 0, failed: 0 };
+      tsMap[k].sent += 1;
+      const s = (r.delivery_status ?? r.status)?.toLowerCase();
+      if (s === 'delivered') tsMap[k].delivered += 1;
+      if (s === 'failed' || s === 'undelivered') tsMap[k].failed += 1;
+    }
+    const deliveryOverTime = Object.keys(tsMap).sort().map(k => ({
+      date: k,
+      sent: tsMap[k].sent,
+      delivered: tsMap[k].delivered,
+      failed: tsMap[k].failed,
+    }));
+
+    const rpMap: Record<string, number> = {};
+    for (const r of inRows) {
+      const k = dayKey(r.created_at);
+      rpMap[k] = (rpMap[k] || 0) + 1;
+    }
+    const repliesPerDay = Object.keys(rpMap).sort().map(k => ({ date: k, replies: rpMap[k] }));
+
+    const contacted = new Set(outRows.map(r => r.to_phone).filter(Boolean)).size;
+    const deliveredLeads = new Set(
+      outRows.filter(r => (r.delivery_status ?? r.status)?.toLowerCase() === 'delivered')
+             .map(r => r.to_phone).filter(Boolean)
+    ).size;
+    const repliedLeads = new Set(inRows.map(r => r.from_phone).filter(Boolean)).size;
+
+    return NextResponse.json({
       ok: true,
-
-      // old shape (your curl currently shows these)
-      out24, in24, reminders24, paused,
-      series: { out: sent30, in: replies30 },
-
-      // new cards
-      newLeads24,
-      deliveredPct24,
-
-      // new charts
+      range,
+      kpis: {
+        newLeads,
+        messagesSent,
+        deliveredPct,
+        replies
+      },
       charts: {
-        deliveryOverTime: {
-          sent: sent30,
-          delivered: delivered30,
-          failed: failed30,
-        },
-        repliesPerDay: replies30,
+        deliveryOverTime,
+        repliesPerDay
       },
-
-      // new funnel
       funnel: {
-        leads: fLeads,
-        contacted: fContacted,
-        delivered: fDelivered,
-        replied: fReplied,
-      },
-    });
+        leads: newLeads,
+        contacted,
+        delivered: deliveredLeads,
+        replied: repliedLeads
+      }
+    }, { headers: { 'cache-control': 'no-store' } });
   } catch (e: any) {
-    return json({ ok: false, error: e?.message || 'metrics_error' }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message ?? 'metrics_failed' }, { status: 500 });
   }
 }

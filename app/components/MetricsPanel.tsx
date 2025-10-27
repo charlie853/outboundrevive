@@ -1,95 +1,174 @@
-'use client'
-"use client";
-import useSWR from 'swr';
+'use client';
 
-const fetcher = (u: string) =>
-  fetch(u, { cache: 'no-store', credentials: 'include' }).then((r) => r.json());
+import useSWR from 'swr';
+import { useState } from 'react';
+
+const fetcher = (url: string) => fetch(url, { credentials: 'same-origin' }).then(r => r.json());
+
+type DeliveryRow = { date: string; sent: number; delivered: number; failed: number };
+type ReplyRow = { date: string; replies: number };
+
+type Funnel = { leads: number; contacted: number; delivered: number; replied: number };
+
+type MetricsResponse = {
+  ok: boolean;
+  kpis?: {
+    newLeads: number;
+    messagesSent: number;
+    deliveredPct: number;
+    replies: number;
+  };
+  charts?: {
+    deliveryOverTime: DeliveryRow[];
+    repliesPerDay: ReplyRow[];
+  };
+  funnel?: Funnel;
+};
 
 export default function MetricsPanel() {
-  const { data, error, isLoading } = useSWR('/api/metrics', fetcher, {
-    refreshInterval: 10_000,
+  const [range, setRange] = useState<'7d' | '30d' | '90d'>('7d');
+  const { data, error, isLoading } = useSWR<MetricsResponse>(`/api/metrics?range=${range}`, fetcher, {
+    refreshInterval: 15_000,
   });
 
-  if (error) return <div className="rounded-lg border p-4">Metrics error.</div>;
-  if (isLoading || !data?.ok) return <div className="rounded-lg border p-4">Loading metrics…</div>;
+  const unavailable = !!error || !data?.ok;
 
-  const newLeads24 = data.newLeads24 ?? 0;
-  const out24 = data.out24 ?? 0;
-  const in24 = data.in24 ?? 0;
-  const deliveredPct24 = data.deliveredPct24 ?? 0;
-  const reminders24 = data.reminders24 ?? 0;
-  const paused = data.paused ?? 0;
-
-  const delivery = data.charts?.deliveryOverTime ?? {
-    sent: data.series?.out ?? [],
-    delivered: [],
-    failed: [],
+  const kpis = {
+    newLeads: data?.kpis?.newLeads ?? 0,
+    messagesSent: data?.kpis?.messagesSent ?? 0,
+    deliveredPct: data?.kpis?.deliveredPct ?? 0,
+    replies: data?.kpis?.replies ?? 0,
   };
-  const repliesPerDay = data.charts?.repliesPerDay ?? data.series?.in ?? [];
-  const funnel = data.funnel ?? { leads: 0, contacted: 0, delivered: 0, replied: 0 };
+
+  const delivery = data?.charts?.deliveryOverTime ?? [];
+  const repliesPerDay = data?.charts?.repliesPerDay ?? [];
+  const funnel: Funnel = data?.funnel ?? { leads: 0, contacted: 0, delivered: 0, replied: 0 };
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 sm:grid-cols-6 gap-4">
-        <Stat k="New Leads" v={newLeads24} />
-        <Stat k="Messages Sent" v={out24} />
-        <Stat k="Delivered %" v={`${deliveredPct24}%`} />
-        <Stat k="Replies" v={in24} />
-        <Stat k="Reminders" v={reminders24} />
-        <Stat k="Paused" v={paused} />
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        {(['7d', '30d', '90d'] as const).map((r) => (
+          <button
+            key={r}
+            onClick={() => setRange(r)}
+            className={`px-3 py-1 rounded border ${range === r ? 'bg-black text-white' : 'bg-white'}`}
+          >
+            {r.toUpperCase()}
+          </button>
+        ))}
       </div>
 
-      <ChartBlock
-        title="Delivery over time"
-        series={[
-          { name: 'sent', data: delivery.sent },
-          { name: 'delivered', data: delivery.delivered },
-          { name: 'failed', data: delivery.failed },
-        ]}
-      />
+      {unavailable && (
+        <div className="p-3 text-sm rounded border bg-yellow-50 text-yellow-700">
+          Metrics temporarily unavailable. If you’re not signed in, please sign in and refresh.
+        </div>
+      )}
 
-      <ChartBlock
-        title="Replies per day"
-        series={[{ name: 'replies', data: repliesPerDay }]}
-      />
-
-      <FunnelBlock data={funnel} />
-    </div>
-  );
-}
-
-function Stat({ k, v }: { k: string; v: any }) {
-  return (
-    <div className="rounded-md border p-3">
-      <div className="text-sm text-gray-500">{k}</div>
-      <div className="text-2xl font-semibold">{v}</div>
-    </div>
-  );
-}
-
-function ChartBlock({ title, series }: { title: string; series: any[] }) {
-  return (
-    <div className="rounded-lg border p-4">
-      <div className="text-lg font-semibold mb-3">{title}</div>
-      <pre className="text-xs text-gray-500 overflow-auto">{JSON.stringify(series, null, 2)}</pre>
-    </div>
-  );
-}
-
-function FunnelBlock({
-  data,
-}: {
-  data: { leads: number; contacted: number; delivered: number; replied: number };
-}) {
-  return (
-    <div className="rounded-lg border p-4">
-      <div className="text-lg font-semibold mb-3">Funnel</div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <Stat k="Leads" v={data.leads} />
-        <Stat k="Contacted" v={data.contacted} />
-        <Stat k="Delivered" v={data.delivered} />
-        <Stat k="Replied" v={data.replied} />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Kpi title="New Leads" value={kpis.newLeads} delta="+0%" />
+        <Kpi title="Messages Sent" value={kpis.messagesSent} delta="+0%" />
+        <Kpi title="Delivered %" value={`${kpis.deliveredPct}%`} delta="+0%" />
+        <Kpi title="Replies" value={kpis.replies} delta="+0%" />
       </div>
+
+      <Section title="Delivery over time">
+        {isLoading ? (
+          <Empty label="Loading…" />
+        ) : delivery.length === 0 ? (
+          <Empty label="No data yet" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left border-b">
+                  <th className="py-1 pr-4">Date</th>
+                  <th className="py-1 pr-4">delivered</th>
+                  <th className="py-1 pr-4">failed</th>
+                  <th className="py-1">sent</th>
+                </tr>
+              </thead>
+              <tbody>
+                {delivery.map((row) => (
+                  <tr key={row.date} className="border-b last:border-0">
+                    <td className="py-1 pr-4">{row.date}</td>
+                    <td className="py-1 pr-4">{row.delivered}</td>
+                    <td className="py-1 pr-4">{row.failed}</td>
+                    <td className="py-1">{row.sent}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+
+      <Section title="Replies per day">
+        {isLoading ? (
+          <Empty label="Loading…" />
+        ) : repliesPerDay.length === 0 ? (
+          <Empty label="No replies yet" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left border-b">
+                  <th className="py-1 pr-4">Date</th>
+                  <th className="py-1">replies</th>
+                </tr>
+              </thead>
+              <tbody>
+                {repliesPerDay.map((row) => (
+                  <tr key={row.date} className="border-b last:border-0">
+                    <td className="py-1 pr-4">{row.date}</td>
+                    <td className="py-1">{row.replies}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+
+      <Section title="Funnel">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Tile label="Leads" value={funnel.leads} />
+          <Tile label="Contacted" value={funnel.contacted} />
+          <Tile label="Delivered" value={funnel.delivered} />
+          <Tile label="Replied" value={funnel.replied} />
+        </div>
+      </Section>
     </div>
   );
+}
+
+function Kpi({ title, value, delta }: { title: string; value: string | number; delta: string }) {
+  return (
+    <div className="rounded border p-3 bg-white">
+      <div className="text-sm text-gray-600">{title}</div>
+      <div className="mt-1 text-2xl font-semibold">{value}</div>
+      <div className="text-xs text-green-600">▲ {delta}</div>
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded border bg-white p-3">
+      <div className="font-medium mb-2">{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function Tile({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded border p-3 bg-white">
+      <div className="text-sm text-gray-600">{label}</div>
+      <div className="mt-1 text-xl font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function Empty({ label }: { label: string }) {
+  return <div className="text-sm text-gray-500">{label}</div>;
 }
