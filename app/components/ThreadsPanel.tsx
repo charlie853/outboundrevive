@@ -1,40 +1,31 @@
 "use client";
 import useSWR from "swr";
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+const fetcher = (url: string) =>
+  fetch(url, { cache: 'no-store', credentials: 'include' }).then((r) => r.json());
 
 export default function ThreadsPanel() {
-  const { data, error, isLoading } = useSWR("/api/threads?limit=50", fetcher, {
-    refreshInterval: 10_000,
-  });
-
-  if (isLoading) return <div className="p-4 rounded border">Loading threads…</div>;
-  if (error || !data?.ok) {
-    return (
-      <div className="p-4 rounded border border-red-300 text-red-700">
-        Couldn’t load threads.
-      </div>
-    );
-  }
-
-  const threads: any[] = data.threads || [];
-  if (!threads.length) return <div className="p-4 rounded border">No conversations yet.</div>;
+  const { data, error, isLoading } = useSWR('/api/threads?limit=20', fetcher, { refreshInterval: 10_000 });
+  if (error) return <div className="rounded-lg border p-4">Threads error.</div>;
+  if (isLoading || !data?.ok) return <div className="rounded-lg border p-4">Loading threads…</div>;
 
   return (
-    <div className="p-4 rounded border bg-white">
-      <div className="text-lg font-semibold mb-2">Recent Conversations</div>
-      <ul className="divide-y">
-        {threads.map((t) => (
-          <li key={`${t.lead_phone}-${t.last_at}`} className="py-3">
-            <div className="flex items-start gap-3">
-              <div className="font-medium">{t.lead_name || t.lead_phone}</div>
-              <div className="ml-auto text-xs text-gray-500">{new Date(t.last_at).toLocaleString()}</div>
+    <div className="rounded-lg border p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <h2 className="text-lg font-semibold">Recent Conversations</h2>
+        <a className="ml-auto underline text-sm" href="/leads">View all</a>
+      </div>
+      <ul className="space-y-3">
+        {data.threads.map((t: any, i: number) => (
+          <li key={i} className="rounded-md border p-3">
+            <div className="text-sm text-gray-600">
+              {t.lead_name ?? 'Unknown'} <span className="text-gray-400">({t.lead_phone ?? '—'})</span>
             </div>
-            <div className="text-gray-700 text-sm line-clamp-2">{t.last_message}</div>
+            <div className="mt-1 line-clamp-2">{t.last_message}</div>
+            <div className="mt-1 text-xs text-gray-400">{new Date(t.last_at).toLocaleString()}</div>
           </li>
         ))}
       </ul>
     </div>
   );
 }
-
