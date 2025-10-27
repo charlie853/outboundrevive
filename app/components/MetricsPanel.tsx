@@ -9,16 +9,15 @@ import RepliesChart from '@/app/(app)/dashboard/components/RepliesChart';
 import Funnel from '@/app/(app)/dashboard/components/Funnel';
 import type { DayPoint, Kpis } from '@/lib/types/metrics';
 
-const WINDOWS = ['24h', '7d', '30d'] as const;
-type WindowKey = typeof WINDOWS[number];
+const WINDOW_OPTIONS = [
+  { label: '7D', value: '7d' as const },
+  { label: '24H', value: '24h' as const },
+  { label: '1M', value: '30d' as const },
+];
+type WindowKey = (typeof WINDOW_OPTIONS)[number]['value'];
 
 const fetcher = (url: string) =>
-  fetch(url, { credentials: 'include', cache: 'no-store' }).then(async (res) => {
-    if (res.status === 401) {
-      const err: any = new Error('unauthorized');
-      err.status = 401;
-      throw err;
-    }
+  fetch(url, { cache: 'no-store' }).then(async (res) => {
     if (!res.ok) {
       const err: any = new Error(`http ${res.status}`);
       err.status = res.status;
@@ -38,79 +37,21 @@ const normalisePct = (value: unknown) => {
   return Math.abs(num) > 1 ? num / 100 : num;
 };
 
-const buildKpis = (data: any): Kpis => {
-  const leadsCurrent = toNumber(data?.kpis?.leadsCurrent, toNumber(data?.kpis?.leads?.current, data?.leadsCurrent ?? data?.newLeads24));
-  const leadsPrev = toNumber(data?.kpis?.leadsPrevious, toNumber(data?.kpis?.leads?.previous));
-  const leadsDeltaSource = normalisePct(data?.kpis?.deltaLeadsPct ?? data?.kpis?.leads?.deltaPct);
-
-  const messagesCurrent = toNumber(
-    data?.kpis?.messagesSentCurrent,
-    toNumber(data?.kpis?.messages?.current, data?.messagesSentCurrent ?? data?.out24),
-  );
-  const messagesPrev = toNumber(data?.kpis?.messagesSentPrevious, toNumber(data?.kpis?.messages?.previous));
-  const messagesDeltaSource = normalisePct(data?.kpis?.deltaMessagesSentPct ?? data?.kpis?.messages?.deltaPct);
-
-  const deliveredRateCurrent = normalisePct(data?.kpis?.deliveredRateCurrent ?? data?.kpis?.delivered?.pct) ?? 0;
-  const deliveredRatePrev = normalisePct(data?.kpis?.deliveredRatePrevious ?? data?.kpis?.delivered?.prevPct) ?? 0;
-  const deliveredDeltaSource = normalisePct(data?.kpis?.deltaDeliveredRatePct ?? data?.kpis?.delivered?.deltaPct);
-
-  const repliesCurrent = toNumber(data?.kpis?.repliesCurrent, toNumber(data?.kpis?.replies?.current, data?.repliesCurrent ?? data?.in24));
-  const repliesPrev = toNumber(data?.kpis?.repliesPrevious, toNumber(data?.kpis?.replies?.previous));
-  const repliesDeltaSource = normalisePct(data?.kpis?.deltaRepliesPct ?? data?.kpis?.replies?.deltaPct);
-
-  const calcDelta = (current: number, prev: number, explicit?: number) => {
-    if (typeof explicit === 'number' && Number.isFinite(explicit)) return explicit;
-    if (!Number.isFinite(prev) || prev === 0) return current > 0 ? 1 : 0;
-    return (current - prev) / prev;
-  };
+const buildKpis = (k: any): Kpis => {
+  const newLeads = toNumber(k?.newLeads);
+  const messagesSent = toNumber(k?.messagesSent);
+  const deliveredPct = normalisePct(k?.deliveredPct) ?? 0;
+  const replies = toNumber(k?.replies);
 
   return {
-    leadsNew: leadsCurrent,
-    sent: messagesCurrent,
+    leadsNew: newLeads,
+    sent: messagesSent,
     delivered: 0,
-    deliveredRate: deliveredRateCurrent,
-    replies: repliesCurrent,
-    deltas: {
-      leadsNew: calcDelta(leadsCurrent, leadsPrev, leadsDeltaSource),
-      sent: calcDelta(messagesCurrent, messagesPrev, messagesDeltaSource),
-      deliveredRate: calcDelta(deliveredRateCurrent, deliveredRatePrev, deliveredDeltaSource),
-      replies: calcDelta(repliesCurrent, repliesPrev, repliesDeltaSource),
-    },
+    deliveredRate: deliveredPct,
+    replies,
+    deltas: { leadsNew: 0, sent: 0, deliveredRate: 0, replies: 0 },
   };
 };
-
-const buildDeliverySeries = (data: any) => {
-  const provided = Array.isArray(data?.charts?.deliveryOverTime) ? data.charts.deliveryOverTime : [];
-  if (provided.length) {
-    return provided.map((row: any) => ({
-      date: row.date,
-      sent: toNumber(row.sent),
-      delivered: toNumber(row.delivered),
-      failed: toNumber(row.failed),
-    }));
-  }
-  const series = data?.series?.out ?? [];
-  return series.map((row: any) => ({
-    date: row.date,
-    sent: toNumber(row.count),
-    delivered: 0,
-    failed: 0,
-  }));
-};
-
-const buildRepliesSeries = (data: any) => {
-  const provided = Array.isArray(data?.charts?.repliesPerDay) ? data.charts.repliesPerDay : [];
-  if (provided.length) return provided.map((row: any) => ({ date: row.date, replies: toNumber(row.replies ?? row.count) }));
-  const series = data?.series?.in ?? [];
-  return series.map((row: any) => ({ date: row.date, replies: toNumber(row.count) }));
-};
-
-const buildFunnel = (data: any, kpis: Kpis) => ({
-  leads: toNumber(data?.funnel?.leads, kpis.leadsNew),
-  sent: toNumber(data?.funnel?.contacted ?? data?.funnel?.sent, kpis.sent),
-  delivered: toNumber(data?.funnel?.delivered, Math.round(kpis.deliveredRate * kpis.sent)),
-  replied: toNumber(data?.funnel?.replied, kpis.replies),
-});
 
 export default function MetricsPanel() {
   const searchParams = useSearchParams();
@@ -119,7 +60,8 @@ export default function MetricsPanel() {
 
   const initialRange = (() => {
     const fromQuery = (searchParams?.get('range') ?? searchParams?.get('window') ?? '7d').toLowerCase();
-    return WINDOWS.includes(fromQuery as WindowKey) ? (fromQuery as WindowKey) : '7d';
+    const values = WINDOW_OPTIONS.map((o) => o.value);
+    return values.includes(fromQuery as WindowKey) ? (fromQuery as WindowKey) : '7d';
   })();
 
   const [range, setRange] = useState<WindowKey>(initialRange);
@@ -130,6 +72,8 @@ export default function MetricsPanel() {
     shouldRetryOnError: (err) => err?.status !== 401,
   });
 
+  console.debug('METRICS payload', data);
+
   const handleSetRange = (value: WindowKey) => {
     if (value === range) return;
     setRange(value);
@@ -137,6 +81,7 @@ export default function MetricsPanel() {
     params.set('range', value);
     params.set('window', value);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    mutate();
   };
 
   if (error) {
@@ -144,52 +89,61 @@ export default function MetricsPanel() {
   }
 
   const isUnauthorized = (error as any)?.status === 401;
-  const isHardFailure = !!error && !isUnauthorized;
-  const kpis = data ? buildKpis(data) : buildKpis({});
-  const deliverySeries = data ? buildDeliverySeries(data) : [];
-  const repliesSeries = data ? buildRepliesSeries(data) : [];
-  const funnel = data ? buildFunnel(data, kpis) : buildFunnel({}, kpis);
+  const kpiPayload = data?.kpis ?? { newLeads: 0, messagesSent: 0, deliveredPct: 0, replies: 0 };
+  const charts = data?.charts ?? { deliveryOverTime: [], repliesPerDay: [] };
+
+  const kpis = buildKpis(kpiPayload);
 
   const chartDays: DayPoint[] = useMemo(() => {
-    const keys = new Set<string>();
-    deliverySeries.forEach((row: any) => keys.add(row.date));
-    repliesSeries.forEach((row: any) => keys.add(row.date));
-    return Array.from(keys)
-      .sort((a, b) => a.localeCompare(b))
-      .map((date) => {
-        const deliveryRow = deliverySeries.find((row: any) => row.date === date);
-        const repliesRow = repliesSeries.find((row: any) => row.date === date);
-        return {
-          d: date,
-          sent: deliveryRow?.sent ?? 0,
-          delivered: deliveryRow?.delivered ?? 0,
-          failed: deliveryRow?.failed ?? 0,
-          inbound: repliesRow?.replies ?? 0,
-        };
+    const map = new Map<string, DayPoint>();
+    (charts.deliveryOverTime ?? []).forEach((row: any) => {
+      if (!row?.date) return;
+      map.set(row.date.slice(0, 10), {
+        d: row.date.slice(0, 10),
+        sent: toNumber(row.sent),
+        delivered: toNumber(row.delivered),
+        failed: toNumber(row.failed),
+        inbound: 0,
       });
-  }, [deliverySeries, repliesSeries]);
+    });
+    (charts.repliesPerDay ?? []).forEach((row: any) => {
+      if (!row?.date) return;
+      const key = row.date.slice(0, 10);
+      const existing = map.get(key) ?? { d: key, sent: 0, delivered: 0, failed: 0, inbound: 0 };
+      existing.inbound = toNumber(row.replies);
+      map.set(key, existing);
+    });
+    return Array.from(map.values()).sort((a, b) => a.d.localeCompare(b.d));
+  }, [charts]);
+
+  const funnel = {
+    leads: kpiPayload.newLeads ?? 0,
+    sent: kpiPayload.messagesSent ?? 0,
+    delivered: Math.round((toNumber(kpiPayload.deliveredPct) / 100) * toNumber(kpiPayload.messagesSent)),
+    replied: kpiPayload.replies ?? 0,
+  };
 
   return (
     <section className="space-y-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="inline-flex rounded-xl border border-surface-line bg-white p-1">
-          {WINDOWS.map((option) => (
+          {WINDOW_OPTIONS.map(({ label, value }) => (
             <button
-              key={option}
+              key={value}
               type="button"
-              onClick={() => handleSetRange(option)}
+              onClick={() => handleSetRange(value)}
               className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                range === option ? 'bg-ink-1 text-white' : 'text-ink-1 hover:bg-surface-bg'
+                range === value ? 'bg-ink-1 text-white' : 'text-ink-1 hover:bg-surface-bg'
               }`}
-              aria-pressed={range === option}
+              aria-pressed={range === value}
             >
-              {option === '24h' ? '24H' : option.toUpperCase()}
+              {label}
             </button>
           ))}
         </div>
       </div>
 
-      {isUnauthorized && (
+      {(!data?.ok && !error) && (
         <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Metrics temporarily unavailable. If you’re not signed in, please sign in and refresh.
           <button
@@ -202,7 +156,7 @@ export default function MetricsPanel() {
         </div>
       )}
 
-      {isHardFailure && !isUnauthorized && (
+      {error && (
         <div className="flex items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           Couldn’t load metrics.
           <button
@@ -226,8 +180,16 @@ export default function MetricsPanel() {
       )}
 
       <div className="grid gap-6 md:grid-cols-2">
-        <DeliveryChart days={chartDays} />
-        <RepliesChart days={chartDays} />
+        {chartDays.length ? (
+          <DeliveryChart days={chartDays} />
+        ) : (
+          <div className="rounded-2xl border border-surface-line bg-surface-card p-4 shadow-soft text-sm text-ink-2">No delivery data yet.</div>
+        )}
+        {chartDays.length ? (
+          <RepliesChart days={chartDays} />
+        ) : (
+          <div className="rounded-2xl border border-surface-line bg-surface-card p-4 shadow-soft text-sm text-ink-2">No replies yet.</div>
+        )}
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">

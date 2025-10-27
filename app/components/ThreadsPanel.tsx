@@ -4,12 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 
 const fetcher = (url: string) =>
-  fetch(url, { credentials: 'include', cache: 'no-store' }).then(async (res) => {
-    if (res.status === 401) {
-      const err: any = new Error('unauthorized');
-      err.status = 401;
-      throw err;
-    }
+  fetch(url, { cache: 'no-store' }).then(async (res) => {
     if (!res.ok) {
       const err: any = new Error(`http ${res.status}`);
       err.status = res.status;
@@ -21,8 +16,8 @@ const fetcher = (url: string) =>
 type ThreadRow = {
   lead_phone: string | null;
   lead_name: string | null;
-  last_message: string;
-  last_at: string;
+  last_message: string | null;
+  last_at: string | null;
 };
 
 type Message = { direction: 'in' | 'out'; body: string; created_at: string };
@@ -36,31 +31,40 @@ const formatPhone = (phone: string | null | undefined) => {
 };
 
 export default function ThreadsPanel() {
-  const {
-    data,
-    error,
-    isLoading,
-    mutate,
-  } = useSWR<{ ok: boolean; threads?: ThreadRow[] }>(`/api/threads?limit=20`, fetcher, {
-    refreshInterval: 30000,
-    revalidateOnFocus: true,
-    shouldRetryOnError: (err) => err?.status !== 401,
-  });
-
-  if (error) {
-    console.warn('[THREADS_PANEL] error', error);
-  }
-
-  const threads = useMemo(
-    () =>
-      (data?.threads ?? [])
-        .map((row) => ({
-          ...row,
-          lead_phone: row.lead_phone,
-        }))
-        .sort((a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime()),
-    [data?.threads],
+  const { data, error, isLoading, mutate } = useSWR<{ ok: boolean; threads?: ThreadRow[] }>(
+    `/api/threads?limit=20`,
+    fetcher,
+    {
+      refreshInterval: 30000,
+      revalidateOnFocus: true,
+      shouldRetryOnError: (err) => err?.status !== 401,
+    },
   );
+
+  console.debug('THREADS payload', data);
+
+  const threads = useMemo(() => {
+    const raw = data?.threads ?? [];
+    const mapped = raw
+      .map((row: any) => {
+        const phone = row?.phone ?? row?.lead_phone ?? '';
+        const name = row?.name ?? row?.lead_name ?? phone;
+        const lastMessage = row?.lastMessage ?? row?.last_message ?? '';
+        const lastAt = row?.lastAt ?? row?.last_at ?? null;
+        return {
+          lead_phone: phone,
+          lead_name: name,
+          last_message: lastMessage,
+          last_at: lastAt,
+        };
+      })
+      .filter((row) => row.lead_phone);
+    return mapped.sort((a, b) => {
+      const aTime = a.last_at ? new Date(a.last_at).getTime() : 0;
+      const bTime = b.last_at ? new Date(b.last_at).getTime() : 0;
+      return bTime - aTime;
+    });
+  }, [data?.threads]);
 
   const [activePhone, setActivePhone] = useState<string | null>(null);
   const [activeName, setActiveName] = useState<string>('');
@@ -76,6 +80,9 @@ export default function ThreadsPanel() {
     { shouldRetryOnError: (err) => err?.status !== 401 },
   );
 
+  if (error) {
+    console.warn('[THREADS_PANEL] error', error);
+  }
   if (convoError) {
     console.warn('[THREADS_PANEL] error', convoError);
   }
@@ -99,7 +106,8 @@ export default function ThreadsPanel() {
 
   const closeModal = () => setShowModal(false);
 
-  const unauthorised = (error as any)?.status === 401;
+  const isUnauthorized = (error as any)?.status === 401;
+  const showBanner = data?.ok === false && !error;
 
   return (
     <section className="space-y-4">
@@ -114,12 +122,12 @@ export default function ThreadsPanel() {
             Refresh
           </button>
         </div>
-        {unauthorised && (
+        {showBanner && (
           <div className="text-sm text-amber-700">
             Threads temporarily unavailable. If you’re not signed in, please sign in and refresh.
           </div>
         )}
-        {!unauthorised && error && (
+        {error && !isUnauthorized && (
           <div className="flex items-center gap-3 text-sm text-rose-700">
             Couldn’t load threads.
             <button
@@ -133,7 +141,7 @@ export default function ThreadsPanel() {
         )}
         {!error && isLoading && <div className="h-24 animate-pulse rounded-xl bg-surface-bg" />}
         {!error && !isLoading && threads.length === 0 && (
-          <div className="text-sm text-ink-2">No recent threads yet.</div>
+          <div className="text-sm text-ink-2">No recent conversations.</div>
         )}
         {!error && !isLoading && threads.length > 0 && (
           <ul className="divide-y divide-surface-line">
