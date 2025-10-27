@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || '50'), 1), 200);
-    const windowKey = resolveWindow(url.searchParams.get('window'));
+    const windowKey = resolveWindow(url.searchParams.get('range') ?? url.searchParams.get('window'));
 
     const accountId = await requireAccountAccess();
     if (!accountId) {
@@ -126,9 +126,15 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime())
       .slice(0, limit);
 
-    return NextResponse.json({ ok: true, threads }, { headers: { 'cache-control': 'no-store' } });
+    return NextResponse.json(
+      { ok: true, threads },
+      { headers: { 'cache-control': 'no-store, no-cache, must-revalidate' } },
+    );
   } catch (error) {
     console.error('[threads] unexpected error', error);
-    return NextResponse.json({ ok: false, error: 'threads_failed' }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: 'threads_failed' },
+      { status: 500, headers: { 'cache-control': 'no-store, no-cache, must-revalidate' } },
+    );
   }
 }

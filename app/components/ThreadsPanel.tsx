@@ -4,11 +4,17 @@ import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { useSearchParams } from 'next/navigation';
 
-const fetcher = (url: string) =>
-  fetch(url, { credentials: 'include', cache: 'no-store' }).then((r) => {
-    if (!r.ok) throw new Error(`threads_${r.status}`);
-    return r.json();
-  });
+const fetchJson = async (url: string) => {
+  const res = await fetch(url, { credentials: 'include', cache: 'no-store' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err: any = new Error('Fetch failed');
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+};
 
 type ThreadRow = {
   lead_phone: string | null;
@@ -23,27 +29,57 @@ const WINDOWS = new Set(['24h', '7d', '30d']);
 
 export default function ThreadsPanel() {
   const searchParams = useSearchParams();
-  const windowParam = (searchParams?.get('window') ?? '7d').toLowerCase();
+  const windowParam = (searchParams?.get('range') ?? searchParams?.get('window') ?? '7d').toLowerCase();
   const windowKey = WINDOWS.has(windowParam) ? windowParam : '7d';
 
-  const { data, error, isLoading } = useSWR<{ ok: boolean; threads?: ThreadRow[] }>(
-    `/api/threads?limit=50&window=${windowKey}`,
-    fetcher,
-    { refreshInterval: 15_000 }
-  );
+  const {
+    data,
+    error,
+    isLoading,
+  } = useSWR<{ ok: boolean; threads?: ThreadRow[] }>(`/api/threads?limit=20&range=${windowKey}`, fetchJson, {
+    refreshInterval: 15_000,
+  });
 
-  const threads = useMemo(() => (data?.threads ?? []).sort((a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime()), [data]);
+  if (error) {
+    console.warn('[THREADS_PANEL] error', error);
+  }
+
+  const threads = useMemo(
+    () =>
+      (data?.threads ?? [])
+        .map((row) => ({
+          ...row,
+          last_at: row.last_at,
+        }))
+        .sort((a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime()),
+    [data?.threads],
+  );
 
   const [activePhone, setActivePhone] = useState<string | null>(null);
   const [activeName, setActiveName] = useState<string>('');
   const [showModal, setShowModal] = useState(false);
 
-  const { data: conversation, error: convoError, isLoading: convoLoading } = useSWR<
-    { ok: boolean; messages?: Message[] }
-  >(
+  const {
+    data: conversation,
+    error: convoError,
+    isLoading: convoLoading,
+  } = useSWR<{ ok: boolean; messages?: Message[] }>(
     activePhone ? `/api/threads/${encodeURIComponent(activePhone)}` : null,
-    fetcher,
+    fetchJson,
   );
+
+  if (convoError) {
+    console.warn('[THREADS_PANEL] error', convoError);
+  }
+
+  useEffect(() => {
+    if (!showModal) return;
+    const onKey = (evt: KeyboardEvent) => {
+      if (evt.key === 'Escape') setShowModal(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showModal]);
 
   const openThread = (thread: ThreadRow) => {
     const phone = thread.lead_phone || '';
@@ -53,26 +89,13 @@ export default function ThreadsPanel() {
     setShowModal(true);
   };
 
-  const closeModal = () => {
-    setShowModal(false);
-  };
-
-  useEffect(() => {
-    if (!showModal) return;
-    const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === 'Escape') {
-        closeModal();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [showModal]);
+  const closeModal = () => setShowModal(false);
 
   return (
     <section className="space-y-4">
       <div className="rounded-2xl border border-surface-line bg-surface-card p-4 shadow-soft">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="text-sm text-ink-2">Threads</h2>
+          <h2 className="text-sm text-ink-2">Recent Threads</h2>
           <span className="text-xs text-ink-3">Last {windowKey.toUpperCase()}</span>
         </div>
         {error && (
@@ -82,19 +105,17 @@ export default function ThreadsPanel() {
         )}
         {!error && isLoading && <div className="h-24 animate-pulse rounded-xl bg-surface-bg" />}
         {!error && !isLoading && threads.length === 0 && (
-          <div className="text-sm text-ink-2">No recent messages yet.</div>
+          <div className="text-sm text-ink-2">No recent threads yet.</div>
         )}
         {!error && !isLoading && threads.length > 0 && (
           <ul className="divide-y divide-surface-line">
             {threads.map((thread) => {
               const title = thread.lead_name || thread.lead_phone || 'Unknown contact';
               return (
-                <li key={`${thread.lead_phone}-${thread.last_at}`} className="flex items-center justify-between gap-4 py-3">
+                <li key={`${thread.lead_phone ?? 'unknown'}-${thread.last_at}`} className="flex items-center justify-between gap-4 py-3">
                   <div>
                     <div className="text-sm font-medium text-ink-1">{title}</div>
-                    <div className="text-xs text-ink-3">
-                      {new Date(thread.last_at).toLocaleString()}
-                    </div>
+                    <div className="text-xs text-ink-3">{new Date(thread.last_at).toLocaleString()}</div>
                     <div className="text-sm text-ink-2 line-clamp-2">{thread.last_message}</div>
                   </div>
                   <button
@@ -114,13 +135,13 @@ export default function ThreadsPanel() {
       {showModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
-          onClick={closeModal}
           aria-modal="true"
           role="dialog"
+          onClick={closeModal}
         >
           <div
             className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
@@ -137,30 +158,27 @@ export default function ThreadsPanel() {
             </div>
             <div className="max-h-96 overflow-y-auto space-y-3">
               {convoLoading && <div className="h-24 animate-pulse rounded-xl bg-surface-bg" />}
-              {convoError && (
-                <div className="text-sm text-rose-600">
-                  Failed to load conversation. Please try again later.
-                </div>
-              )}
               {!convoLoading && !convoError && (conversation?.messages ?? []).length === 0 && (
                 <div className="text-sm text-ink-2">No messages yet.</div>
               )}
-              {!convoLoading && !convoError && (conversation?.messages ?? []).map((msg, idx) => (
-                <div key={`${msg.created_at}-${idx}`} className={`flex ${msg.direction === 'out' ? 'justify-end' : 'justify-start'}`}>
-                  <div
-                    className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm shadow-soft ${
-                      msg.direction === 'out'
-                        ? 'bg-brand-600 text-white rounded-br-sm'
-                        : 'bg-surface-bg text-ink-1 rounded-bl-sm'
-                    }`}
-                  >
-                    <div className="whitespace-pre-line">{msg.body}</div>
-                    <div className="mt-1 text-xs opacity-75">
-                      {new Date(msg.created_at).toLocaleString()}
+              {!convoLoading && !convoError &&
+                (conversation?.messages ?? []).map((msg, idx) => (
+                  <div key={`${msg.created_at}-${idx}`} className={`flex ${msg.direction === 'out' ? 'justify-end' : 'justify-start'}`}>
+                    <div
+                      className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm shadow-soft ${
+                        msg.direction === 'out'
+                          ? 'bg-brand-600 text-white rounded-br-sm'
+                          : 'bg-surface-bg text-ink-1 rounded-bl-sm'
+                      }`}
+                    >
+                      <div className="whitespace-pre-line">{msg.body}</div>
+                      <div className="mt-1 text-xs opacity-75">{new Date(msg.created_at).toLocaleString()}</div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              {convoError && (
+                <div className="text-sm text-rose-600">Failed to load conversation. Please try again later.</div>
+              )}
             </div>
           </div>
         </div>

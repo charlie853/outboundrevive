@@ -43,7 +43,8 @@ function safeCategory(row: any): string {
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
-    const windowKey = resolveWindow(url.searchParams.get('window'));
+    const rangeParam = url.searchParams.get('range');
+    const windowKey = resolveWindow(rangeParam ?? url.searchParams.get('window'));
     const now = new Date();
     const endIso = now.toISOString();
     const start = new Date(now.getTime() - WINDOW_MS[windowKey]);
@@ -242,10 +243,13 @@ export async function GET(req: NextRequest) {
         },
         funnel,
       },
-      { headers: { 'cache-control': 'no-store' } },
+      { headers: { 'cache-control': 'no-store, no-cache, must-revalidate' } },
     );
   } catch (error) {
     console.error('[metrics] unexpected error', error);
-    return NextResponse.json({ ok: false, error: 'metrics_failed' }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: 'metrics_failed' },
+      { status: 500, headers: { 'cache-control': 'no-store, no-cache, must-revalidate' } },
+    );
   }
 }

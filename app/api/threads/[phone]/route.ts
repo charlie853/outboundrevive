@@ -44,9 +44,15 @@ export async function GET(_req: NextRequest, { params }: { params: { phone: stri
       ...(ins.data ?? []).map((row) => ({ direction: 'in' as const, body: row.body ?? '', created_at: row.created_at })),
     ].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
-    return NextResponse.json({ ok: true, messages }, { headers: { 'cache-control': 'no-store' } });
+    return NextResponse.json(
+      { ok: true, messages },
+      { headers: { 'cache-control': 'no-store, no-cache, must-revalidate' } },
+    );
   } catch (error) {
     console.error('[threads:detail] unexpected error', error);
-    return NextResponse.json({ ok: false, error: 'threads_failed' }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: 'threads_failed' },
+      { status: 500, headers: { 'cache-control': 'no-store, no-cache, must-revalidate' } },
+    );
   }
 }
