@@ -1,140 +1,120 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin as db } from '@/lib/supabaseServer';
-import { requireAccountAccess } from '@/lib/account';
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+export const dynamic = 'force-dynamic';
 
-type WindowKey = '24h' | '7d' | '30d';
+const SUPABASE_URL = process.env.SUPABASE_URL!;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-const WINDOW_MS: Record<WindowKey, number> = {
-  '24h': 24 * 60 * 60 * 1000,
-  '7d': 7 * 24 * 60 * 60 * 1000,
-  '30d': 30 * 24 * 60 * 60 * 1000,
-};
+export async function GET(req: Request) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10_000);
 
-const VALID_WINDOWS = new Set<WindowKey>(['24h', '7d', '30d']);
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false },
+    global: {
+      fetch: (input, init) => fetch(input, { ...init, signal: controller.signal }),
+    },
+  });
 
-function resolveWindow(value: string | null): WindowKey {
-  const lower = (value ?? '').toLowerCase() as WindowKey;
-  return VALID_WINDOWS.has(lower) ? lower : '7d';
-}
-
-function dayKey(iso: string) {
-  return new Date(iso).toISOString();
-}
-
-export async function GET(req: NextRequest) {
   try {
-    const url = new URL(req.url);
-    const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || '50'), 1), 200);
-    const windowKey = resolveWindow(url.searchParams.get('range') ?? url.searchParams.get('window'));
-
-    const accountId = await requireAccountAccess();
-    if (!accountId) {
-      return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
-    }
-
+    const { searchParams } = new URL(req.url);
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') ?? '10', 10), 1), 50);
+    const rangeParam = (searchParams.get('range') ?? '7d').toLowerCase();
     const now = new Date();
-    const endIso = now.toISOString();
-    const startIso = new Date(now.getTime() - WINDOW_MS[windowKey]).toISOString();
+    const windowMs = rangeParam === '24h' ? 24 * 60 * 60 * 1000 : rangeParam === '30d' ? 30 * 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+    const start = new Date(now.getTime() - windowMs);
 
-    const [outs, ins] = await Promise.all([
-      db
+    const nowIso = now.toISOString();
+    const startIso = start.toISOString();
+
+    console.log('THREADS_START', { limit, range: rangeParam });
+
+    const [outbound, inbound] = await Promise.all([
+      supabase
         .from('messages_out')
         .select('created_at, body, to_phone')
-        .eq('account_id', accountId)
         .gte('created_at', startIso)
-        .lt('created_at', endIso)
+        .lt('created_at', nowIso)
         .order('created_at', { ascending: false })
         .limit(1000),
-      db
+      supabase
         .from('messages_in')
         .select('created_at, body, from_phone')
-        .eq('account_id', accountId)
         .gte('created_at', startIso)
-        .lt('created_at', endIso)
+        .lt('created_at', nowIso)
         .order('created_at', { ascending: false })
         .limit(1000),
     ]);
 
-    if (outs.error || ins.error) {
-      console.error('[threads] query error', outs.error, ins.error);
-      return NextResponse.json({ ok: false, error: 'threads_failed' }, { status: 500 });
-    }
+    if (outbound.error) throw outbound.error;
+    if (inbound.error) throw inbound.error;
 
-    const threadsMap = new Map<
-      string,
-      { lead_phone: string; last_message: string; last_at: string; direction: 'in' | 'out' }
-    >();
+    const threadsMap = new Map<string, { lead_phone: string; last_message: string; last_at: string }>();
 
-    const phoneSet = new Set<string>();
-
-    (outs.data ?? []).forEach((row) => {
+    (outbound.data ?? []).forEach((row) => {
       const phone = row.to_phone;
       if (!phone) return;
-      phoneSet.add(phone);
       const existing = threadsMap.get(phone);
       if (!existing || new Date(row.created_at) > new Date(existing.last_at)) {
         threadsMap.set(phone, {
           lead_phone: phone,
           last_message: row.body ?? '',
           last_at: row.created_at,
-          direction: 'out',
         });
       }
     });
 
-    (ins.data ?? []).forEach((row) => {
+    (inbound.data ?? []).forEach((row) => {
       const phone = row.from_phone;
       if (!phone) return;
-      phoneSet.add(phone);
       const existing = threadsMap.get(phone);
       if (!existing || new Date(row.created_at) > new Date(existing.last_at)) {
         threadsMap.set(phone, {
           lead_phone: phone,
           last_message: row.body ?? '',
           last_at: row.created_at,
-          direction: 'in',
         });
       }
     });
 
-    const phones = Array.from(phoneSet).slice(0, 500);
-    let leadMap = new Map<string, string | null>();
-    if (phones.length > 0) {
-      const leadsRes = await db
+    const phones = Array.from(threadsMap.keys()).slice(0, 200);
+    let nameMap = new Map<string, string | null>();
+    if (phones.length) {
+      const { data: leadRows, error: leadError } = await supabase
         .from('leads')
         .select('phone, name')
-        .eq('account_id', accountId)
         .in('phone', phones);
-      if (leadsRes.error) {
-        console.error('[threads] lead lookup error', leadsRes.error);
-      } else {
-        leadMap = new Map((leadsRes.data ?? []).map((row) => [row.phone, row.name]));
-      }
+      if (leadError) throw leadError;
+      nameMap = new Map((leadRows ?? []).map((row) => [row.phone, row.name ?? null]));
     }
 
     const threads = Array.from(threadsMap.values())
       .map((thread) => ({
         lead_phone: thread.lead_phone,
-        lead_name: leadMap.get(thread.lead_phone) ?? null,
+        lead_name: nameMap.get(thread.lead_phone) ?? null,
         last_message: thread.last_message,
         last_at: thread.last_at,
       }))
       .sort((a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime())
       .slice(0, limit);
 
+    console.log('THREADS_DONE', { count: threads.length });
+
     return NextResponse.json(
       { ok: true, threads },
       { headers: { 'cache-control': 'no-store, no-cache, must-revalidate' } },
     );
   } catch (error) {
-    console.error('[threads] unexpected error', error);
+    console.error('[threads] error', error);
+    const message = error instanceof Error ? error.message : 'unknown';
     return NextResponse.json(
-      { ok: false, error: 'threads_failed' },
+      { ok: false, error: message },
       { status: 500, headers: { 'cache-control': 'no-store, no-cache, must-revalidate' } },
     );
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

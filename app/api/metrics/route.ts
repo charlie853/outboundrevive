@@ -1,255 +1,234 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin as db } from '@/lib/supabaseServer';
-import { requireAccountAccess } from '@/lib/account';
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+export const dynamic = 'force-dynamic';
 
-type WindowKey = '24h' | '7d' | '30d';
+const SUPABASE_URL = process.env.SUPABASE_URL!;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-const WINDOW_MS: Record<WindowKey, number> = {
+const WINDOW_MS: Record<'24h' | '7d' | '30d', number> = {
   '24h': 24 * 60 * 60 * 1000,
   '7d': 7 * 24 * 60 * 60 * 1000,
   '30d': 30 * 24 * 60 * 60 * 1000,
 };
 
-const VALID_WINDOWS = new Set<WindowKey>(['24h', '7d', '30d']);
+const clampRange = (range: string | null): '24h' | '7d' | '30d' => {
+  const normalized = (range ?? '').toLowerCase();
+  if (normalized === '24h') return '24h';
+  if (normalized === '30d') return '30d';
+  return '7d';
+};
 
-function resolveWindow(value: string | null): WindowKey {
-  const lower = (value ?? '').toLowerCase() as WindowKey;
-  return VALID_WINDOWS.has(lower) ? lower : '7d';
-}
+const toIso = (date: Date) => date.toISOString();
 
-function dayKey(iso: string) {
-  return new Date(iso).toISOString().slice(0, 10);
-}
+const statusOf = (row: any) => {
+  if (!row) return '';
+  const gate = row.gate_log ?? {};
+  const status = row.delivery_status ?? row.status ?? gate.status ?? '';
+  return String(status).toLowerCase();
+};
 
-function calcDelta(current: number, previous: number) {
+const categoryOf = (row: any) => {
+  if (!row) return '';
+  const gate = row.gate_log ?? {};
+  return String(gate.category ?? '').toLowerCase();
+};
+
+const deltaPct = (current: number, previous: number) => {
   if (!Number.isFinite(previous) || previous === 0) return current > 0 ? 1 : 0;
   return (current - previous) / previous;
-}
+};
 
-function safeStatus(row: any): string {
-  const gate = (row?.gate_log ?? {}) as Record<string, any>;
-  return String(row?.delivery_status ?? row?.status ?? gate?.status ?? '').toLowerCase();
-}
+export async function GET(req: Request) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10_000);
 
-function safeCategory(row: any): string {
-  const gate = (row?.gate_log ?? {}) as Record<string, any>;
-  return String(gate?.category ?? '').toLowerCase();
-}
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false },
+    global: {
+      fetch: (input, init) => fetch(input, { ...init, signal: controller.signal }),
+    },
+  });
 
-export async function GET(req: NextRequest) {
   try {
-    const url = new URL(req.url);
-    const rangeParam = url.searchParams.get('range');
-    const windowKey = resolveWindow(rangeParam ?? url.searchParams.get('window'));
+    const { searchParams } = new URL(req.url);
+    const rangeKey = clampRange(searchParams.get('range'));
+
     const now = new Date();
-    const endIso = now.toISOString();
-    const start = new Date(now.getTime() - WINDOW_MS[windowKey]);
-    const startIso = start.toISOString();
+    const windowMs = WINDOW_MS[rangeKey];
+    const start = new Date(now.getTime() - windowMs);
+    const prevStart = new Date(start.getTime() - windowMs);
+
+    const nowIso = toIso(now);
+    const startIso = toIso(start);
+    const prevStartIso = toIso(prevStart);
     const prevEndIso = startIso;
-    const prevStartIso = new Date(start.getTime() - WINDOW_MS[windowKey]).toISOString();
 
-    const accountId = await requireAccountAccess();
-    if (!accountId) {
-      return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
-    }
+    console.log('METRICS_START', { range: rangeKey });
 
-    const [outs, ins, leads, prevOuts, prevIns, prevLeads, remindersRes, pausedRes] = await Promise.all([
-      db
+    const [messagesCurrent, messagesPrev, repliesCurrent, repliesPrev, leadsCurrentRows, leadsPrevRows] = await Promise.all([
+      supabase
         .from('messages_out')
-        .select('created_at, gate_log, to_phone, delivery_status, status')
-        .eq('account_id', accountId)
+        .select('created_at, gate_log, delivery_status, status', { count: 'exact' })
         .gte('created_at', startIso)
-        .lt('created_at', endIso)
-        .order('created_at', { ascending: true })
-        .limit(10000),
-      db
+        .lt('created_at', nowIso)
+        .limit(5000),
+      supabase
+        .from('messages_out')
+        .select('created_at, gate_log, delivery_status, status', { count: 'exact' })
+        .gte('created_at', prevStartIso)
+        .lt('created_at', prevEndIso)
+        .limit(5000),
+      supabase
         .from('messages_in')
-        .select('created_at, from_phone')
-        .eq('account_id', accountId)
+        .select('created_at', { count: 'exact' })
         .gte('created_at', startIso)
-        .lt('created_at', endIso)
-        .order('created_at', { ascending: true })
-        .limit(10000),
-      db
+        .lt('created_at', nowIso)
+        .limit(5000),
+      supabase
+        .from('messages_in')
+        .select('created_at', { count: 'exact' })
+        .gte('created_at', prevStartIso)
+        .lt('created_at', prevEndIso)
+        .limit(5000),
+      supabase
         .from('leads')
         .select('created_at')
-        .eq('account_id', accountId)
         .gte('created_at', startIso)
-        .lt('created_at', endIso)
-        .order('created_at', { ascending: true })
-        .limit(10000),
-      db
-        .from('messages_out')
-        .select('created_at, gate_log, to_phone, delivery_status, status')
-        .eq('account_id', accountId)
-        .gte('created_at', prevStartIso)
-        .lt('created_at', prevEndIso)
-        .order('created_at', { ascending: true })
-        .limit(10000),
-      db
-        .from('messages_in')
-        .select('created_at, from_phone')
-        .eq('account_id', accountId)
-        .gte('created_at', prevStartIso)
-        .lt('created_at', prevEndIso)
-        .order('created_at', { ascending: true })
-        .limit(10000),
-      db
+        .lt('created_at', nowIso)
+        .limit(1000),
+      supabase
         .from('leads')
         .select('created_at')
-        .eq('account_id', accountId)
         .gte('created_at', prevStartIso)
         .lt('created_at', prevEndIso)
-        .order('created_at', { ascending: true })
-        .limit(10000),
-      db
-        .from('messages_out')
-        .select('id', { count: 'exact', head: true })
-        .eq('account_id', accountId)
-        .gte('created_at', startIso)
-        .lt('created_at', endIso)
-        .contains('gate_log', { category: 'reminder' }),
-      db
-        .from('leads')
-        .select('id', { count: 'exact', head: true })
-        .eq('account_id', accountId)
-        .gt('reminder_pause_until', endIso),
+        .limit(1000),
     ]);
 
-    if (outs.error || ins.error || leads.error || prevOuts.error || prevIns.error || prevLeads.error || remindersRes.error || pausedRes.error) {
-      console.error('[metrics] query errors', outs.error, ins.error, leads.error, prevOuts.error, prevIns.error, prevLeads.error, remindersRes.error, pausedRes.error);
-      return NextResponse.json({ ok: false, error: 'metrics_failed' }, { status: 500 });
+    const errors = [
+      messagesCurrent.error,
+      messagesPrev.error,
+      repliesCurrent.error,
+      repliesPrev.error,
+      leadsCurrentRows.error,
+      leadsPrevRows.error,
+    ].filter(Boolean);
+
+    if (errors.length) {
+      throw errors[0];
     }
 
-    const outsData = outs.data ?? [];
-    const insData = ins.data ?? [];
-    const leadsData = leads.data ?? [];
-    const prevOutsData = prevOuts.data ?? [];
-    const prevInsData = prevIns.data ?? [];
-    const prevLeadsData = prevLeads.data ?? [];
+    const currentOutRows = messagesCurrent.data ?? [];
+    const prevOutRows = messagesPrev.data ?? [];
+    const currentInRows = repliesCurrent.data ?? [];
+    const prevInRows = repliesPrev.data ?? [];
+    const currentLeadRows = leadsCurrentRows.data ?? [];
+    const prevLeadRows = leadsPrevRows.data ?? [];
 
-    const messagesSent = outsData.length;
-    const deliveredCount = outsData.filter((row) => safeStatus(row) === 'delivered').length;
-    const failedCount = outsData.filter((row) => {
-      const status = safeStatus(row);
-      return status === 'failed' || status === 'undelivered';
-    }).length;
-    const repliesCount = insData.length;
-    const deliveredRate = messagesSent > 0 ? deliveredCount / messagesSent : 0;
+    const messagesSentCurrent = currentOutRows.length;
+    const messagesSentPrev = prevOutRows.length;
 
-    const contactedSet = new Set<string>();
-    const deliveredSet = new Set<string>();
-    const remindersInWindow = remindersRes.count ?? outsData.filter((row) => safeCategory(row) === 'reminder').length;
+    const repliesCountCurrent = currentInRows.length;
+    const repliesCountPrev = prevInRows.length;
 
-    const deliveryMap = new Map<string, { sent: number; delivered: number; failed: number; inbound: number }>();
+    const leadsCountCurrent = currentLeadRows.length;
+    const leadsCountPrev = prevLeadRows.length;
 
-    const ensureDay = (date: string) => {
-      if (!deliveryMap.has(date)) {
-        deliveryMap.set(date, { sent: 0, delivered: 0, failed: 0, inbound: 0 });
-      }
-      return deliveryMap.get(date)!;
-    };
+    const deliveredCurrent = currentOutRows.filter((row) => statusOf(row) === 'delivered').length;
+    const deliveredPrev = prevOutRows.filter((row) => statusOf(row) === 'delivered').length;
 
-    outsData.forEach((row) => {
-      const date = dayKey(row.created_at);
-      const bucket = ensureDay(date);
+    const remindersCurrent = currentOutRows.filter((row) => categoryOf(row) === 'reminder').length;
+
+    const deliveredRateCurrent = messagesSentCurrent > 0 ? deliveredCurrent / messagesSentCurrent : 0;
+    const deliveredRatePrev = messagesSentPrev > 0 ? deliveredPrev / messagesSentPrev : 0;
+
+    const deliveryBuckets = new Map<string, { sent: number; delivered: number; failed: number }>();
+    const repliesBuckets = new Map<string, number>();
+
+    currentOutRows.forEach((row) => {
+      const day = row.created_at.slice(0, 10);
+      const bucket = deliveryBuckets.get(day) ?? { sent: 0, delivered: 0, failed: 0 };
       bucket.sent += 1;
-      const status = safeStatus(row);
-      if (status === 'delivered') {
-        bucket.delivered += 1;
-        if (row.to_phone) deliveredSet.add(row.to_phone);
-      }
-      if (status === 'failed' || status === 'undelivered') {
-        bucket.failed += 1;
-      }
-      if (row.to_phone) contactedSet.add(row.to_phone);
+      const status = statusOf(row);
+      if (status === 'delivered') bucket.delivered += 1;
+      if (status === 'failed' || status === 'undelivered') bucket.failed += 1;
+      deliveryBuckets.set(day, bucket);
     });
 
-    const repliesMap = new Map<string, number>();
-    const repliedSet = new Set<string>();
-    insData.forEach((row) => {
-      const date = dayKey(row.created_at);
-      repliesMap.set(date, (repliesMap.get(date) ?? 0) + 1);
-      ensureDay(date).inbound += 1;
-      if (row.from_phone) repliedSet.add(row.from_phone);
+    currentInRows.forEach((row) => {
+      const day = row.created_at.slice(0, 10);
+      repliesBuckets.set(day, (repliesBuckets.get(day) ?? 0) + 1);
     });
 
-    const deliveryOverTime = Array.from(deliveryMap.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([date, counts]) => ({ date, ...counts }));
+    const deliveryOverTime = Array.from(deliveryBuckets.entries())
+      .map(([date, bucket]) => ({ date, ...bucket }))
+      .sort((a, b) => a.date.localeCompare(b.date));
 
-    const repliesPerDay = Array.from(repliesMap.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([date, replies]) => ({ date, replies }));
+    const repliesPerDay = Array.from(repliesBuckets.entries())
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => a.date.localeCompare(b.date));
 
-    const seriesOut = deliveryOverTime.map(({ date, sent }) => ({ date, count: sent }));
-    const seriesIn = repliesPerDay.map(({ date, replies }) => ({ date, count: replies }));
-
-    const prevMessagesSent = prevOutsData.length;
-    const prevDeliveredCount = prevOutsData.filter((row) => safeStatus(row) === 'delivered').length;
-    const prevDeliveredRate = prevMessagesSent > 0 ? prevDeliveredCount / prevMessagesSent : 0;
-    const prevReplies = prevInsData.length;
-    const prevLeadsCount = prevLeadsData.length;
-
-    const leadsCurrent = leadsData.length;
-    const deltaLeads = calcDelta(leadsCurrent, prevLeadsCount);
-    const deltaSent = calcDelta(messagesSent, prevMessagesSent);
-    const deltaDeliveredRate = calcDelta(deliveredRate, prevDeliveredRate);
-    const deltaReplies = calcDelta(repliesCount, prevReplies);
-
-    const funnel = {
-      leads: leadsData.length,
-      contacted: contactedSet.size,
-      delivered: deliveredSet.size,
-      replied: repliedSet.size,
+    const response = {
+      ok: true,
+      range: rangeKey,
+      out24: messagesSentCurrent,
+      in24: repliesCountCurrent,
+      reminders24: remindersCurrent,
+      paused: 0,
+      kpis: {
+        leadsCurrent: leadsCountCurrent,
+        leadsPrevious: leadsCountPrev,
+        deltaLeadsPct: deltaPct(leadsCountCurrent, leadsCountPrev),
+        messagesSentCurrent,
+        messagesSentPrevious: messagesSentPrev,
+        deltaMessagesSentPct: deltaPct(messagesSentCurrent, messagesSentPrev),
+        deliveredRateCurrent,
+        deliveredRatePrevious: deliveredRatePrev,
+        deltaDeliveredRatePct: deltaPct(deliveredRateCurrent, deliveredRatePrev),
+        repliesCurrent: repliesCountCurrent,
+        repliesPrevious: repliesCountPrev,
+        deltaRepliesPct: deltaPct(repliesCountCurrent, repliesCountPrev),
+      },
+      charts: {
+        deliveryOverTime,
+        repliesPerDay,
+      },
+      series: {
+        out: deliveryOverTime.map((row) => ({ date: row.date, count: row.sent })),
+        in: repliesPerDay.map((row) => ({ date: row.date, count: row.count })),
+      },
+      funnel: {
+        leads: leadsCountCurrent,
+        contacted: messagesSentCurrent,
+        delivered: deliveredCurrent,
+        replied: repliesCountCurrent,
+      },
     };
 
-    const pausedTotal = pausedRes.count ?? 0;
+    console.log('METRICS_DONE', {
+      range: rangeKey,
+      out24: messagesSentCurrent,
+      in24: repliesCountCurrent,
+      reminders24: remindersCurrent,
+    });
 
-    return NextResponse.json(
-      {
-        ok: true,
-        window: windowKey,
-        out24: messagesSent,
-        in24: repliesCount,
-        reminders24: remindersInWindow,
-        paused: pausedTotal,
-        newLeads24: leadsData.length,
-        deliveredPct24: Math.round(deliveredRate * 100),
-        series: {
-          out: seriesOut,
-          in: seriesIn,
-        },
-       kpis: {
-          leadsNew: leadsCurrent,
-          sent: messagesSent,
-          delivered: deliveredCount,
-          deliveredRate,
-          replies: repliesCount,
-          deltas: {
-            leadsNew: deltaLeads,
-            sent: deltaSent,
-            deliveredRate: deltaDeliveredRate,
-            replies: deltaReplies,
-          },
-        },
-        charts: {
-          deliveryOverTime,
-          repliesPerDay,
-        },
-        funnel,
+    return NextResponse.json(response, {
+      headers: {
+        'cache-control': 'no-store, no-cache, must-revalidate',
       },
-      { headers: { 'cache-control': 'no-store, no-cache, must-revalidate' } },
-    );
+    });
   } catch (error) {
-    console.error('[metrics] unexpected error', error);
-    return NextResponse.json(
-      { ok: false, error: 'metrics_failed' },
-      { status: 500, headers: { 'cache-control': 'no-store, no-cache, must-revalidate' } },
-    );
+    console.error('[metrics] error', error);
+    const message = error instanceof Error ? error.message : 'unknown';
+    return NextResponse.json({ ok: false, error: message }, {
+      status: 500,
+      headers: {
+        'cache-control': 'no-store, no-cache, must-revalidate',
+      },
+    });
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
