@@ -2,10 +2,6 @@ export const runtime = 'nodejs';
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
 
-
-const MetricsPanel = dynamic(() => import('@/app/components/MetricsPanel'), { ssr: false });
-const ThreadsPanel = dynamic(() => import('@/app/components/ThreadsPanel'), { ssr: false });
-
 import MetricsPanel from '@/app/components/MetricsPanel';
 import ThreadsPanel from '@/app/components/ThreadsPanel';
 
