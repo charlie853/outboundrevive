@@ -9,19 +9,23 @@ export default function MetricsPanel() {
     refreshInterval: 10_000,
   });
 
-  if (error) return <Box>Metrics error.</Box>;
-  if (isLoading || !data?.ok) return <Box>Metrics temporarily unavailable.</Box>;
+  if (error) return <div className="rounded-lg border p-4">Metrics error.</div>;
+  if (isLoading || !data?.ok) return <div className="rounded-lg border p-4">Loading metrics…</div>;
 
-  const {
-    newLeads24,
-    out24,
-    in24,
-    reminders24,
-    paused,
-    deliveredPct24,
-    charts,
-    funnel,
-  } = data;
+  const newLeads24 = data.newLeads24 ?? 0;
+  const out24 = data.out24 ?? 0;
+  const in24 = data.in24 ?? 0;
+  const deliveredPct24 = data.deliveredPct24 ?? 0;
+  const reminders24 = data.reminders24 ?? 0;
+  const paused = data.paused ?? 0;
+
+  const delivery = data.charts?.deliveryOverTime ?? {
+    sent: data.series?.out ?? [],
+    delivered: [],
+    failed: [],
+  };
+  const repliesPerDay = data.charts?.repliesPerDay ?? data.series?.in ?? [];
+  const funnel = data.funnel ?? { leads: 0, contacted: 0, delivered: 0, replied: 0 };
 
   return (
     <div className="space-y-6">
@@ -37,24 +41,20 @@ export default function MetricsPanel() {
       <ChartBlock
         title="Delivery over time"
         series={[
-          { name: 'sent', data: charts.deliveryOverTime.sent },
-          { name: 'delivered', data: charts.deliveryOverTime.delivered },
-          { name: 'failed', data: charts.deliveryOverTime.failed },
+          { name: 'sent', data: delivery.sent },
+          { name: 'delivered', data: delivery.delivered },
+          { name: 'failed', data: delivery.failed },
         ]}
       />
 
       <ChartBlock
         title="Replies per day"
-        series={[{ name: 'replies', data: charts.repliesPerDay }]}
+        series={[{ name: 'replies', data: repliesPerDay }]}
       />
 
       <FunnelBlock data={funnel} />
     </div>
   );
-}
-
-function Box({ children }: { children: any }) {
-  return <div className="rounded-lg border p-4">{children}</div>;
 }
 
 function Stat({ k, v }: { k: string; v: any }) {
@@ -92,4 +92,3 @@ function FunnelBlock({
     </div>
   );
 }
-

@@ -7,13 +7,13 @@ const fetcher = (url: string) =>
 export default function ThreadsPanel() {
   const { data, error, isLoading } = useSWR('/api/threads?limit=20', fetcher, { refreshInterval: 10_000 });
   if (error) return <div className="rounded-lg border p-4">Threads error.</div>;
-  if (isLoading || !data?.ok) return <div className="rounded-lg border p-4">Loading threads…</div>;
+  if (isLoading || !data?.ok) return <div className="rounded-lg border p-4">Loading…</div>;
 
   return (
     <div className="rounded-lg border p-4">
       <div className="flex items-center gap-2 mb-3">
-        <h2 className="text-lg font-semibold">Recent Conversations</h2>
-        <a className="ml-auto underline text-sm" href="/leads">View all</a>
+        <h2 className="text-lg font-semibold">Recent activity</h2>
+        <a className="ml-auto underline text-sm" href="/leads">Open leads</a>
       </div>
       <ul className="space-y-3">
         {data.threads.map((t: any, i: number) => (
