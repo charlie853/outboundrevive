@@ -3,8 +3,8 @@ export const dynamic = 'force-dynamic';
 
 import dynamic from 'next/dynamic';
 
-const MetricsPanel = dynamic(() => import('@/components/MetricsPanel'), { ssr: false });
-const ThreadsPanel = dynamic(() => import('@/components/ThreadsPanel'), { ssr: false });
+const MetricsPanel = dynamic(() => import('@/app/components/MetricsPanel'), { ssr: false });
+const ThreadsPanel = dynamic(() => import('@/app/components/ThreadsPanel'), { ssr: false });
 
 export default function DashboardPage() {
   return (
