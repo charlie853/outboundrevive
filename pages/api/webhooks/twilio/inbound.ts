@@ -20,7 +20,9 @@ function normPhone(s: string) {
   return `+${withCountry}`;
 }
 
-const clean = (p: string) => (p || '').replace(/\s+/g, '').replace(/\r/g, '');
+function cleanE164(s?: string | null) {
+  return (s || '').replace(/[^\d+]/g, '');
+}
 
 function isSchedulingIntent(message: string): boolean {
   const msg = (message || '').toLowerCase();
@@ -92,13 +94,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const payload = (req.body || {}) as Record<string, unknown>;
-    const fromInput = clean(String((payload.From ?? payload.from ?? '') || ''));
-    const toInput = clean(String((payload.To ?? payload.to ?? '') || ''));
+    const rawFrom = String((payload.From ?? payload.from ?? '') || '');
+    const rawTo = String((payload.To ?? payload.to ?? '') || '');
     const bodyText = String(payload.Body ?? payload.body ?? '').trim();
     const profileName = typeof payload.ProfileName === 'string' ? String(payload.ProfileName).trim() : null;
 
-    const from = normPhone(fromInput);
-    const to = normPhone(toInput);
+    const from = normPhone(cleanE164(rawFrom));
+    const to = normPhone(cleanE164(rawTo));
 
     if (!from || !to || !DEFAULT_ACCOUNT_ID) {
       console.error('WEBHOOK_BAD_INPUT', { from, to });
@@ -148,42 +150,70 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         ? bodyText.slice(0, 80)
         : 'New Lead';
 
-    const { data: leadRows, error: leadUpsertErr } = await supabase
+    let leadId: string | null = null;
+
+    const { data: existingLead, error: findErr } = await supabase
       .from('leads')
-      .upsert(
-        {
+      .select('id')
+      .eq('account_id', accountId)
+      .eq('phone', from)
+      .limit(1)
+      .maybeSingle();
+
+    if (findErr) console.error('INBOUND_FIND_LEAD_ERR', findErr);
+
+    if (existingLead?.id) {
+      leadId = existingLead.id;
+    } else {
+      const { data: insertedLead, error: insertErr } = await supabase
+        .from('leads')
+        .insert({
           account_id: accountId,
           phone: from,
           name: leadName,
           status: 'active',
-        },
-        { onConflict: 'account_id,phone' },
-      )
-      .select('id')
-      .single();
+        })
+        .select('id')
+        .single();
 
-    if (leadUpsertErr) console.error('INBOUND_LEAD_UPSERT_ERR', leadUpsertErr);
-
-    const leadId = leadRows?.id ?? null;
+      if (insertErr) {
+        console.error('INBOUND_INSERT_LEAD_ERR', insertErr);
+        if (insertErr.code === '23505') {
+          const { data: retryLead, error: retryErr } = await supabase
+            .from('leads')
+            .select('id')
+            .eq('account_id', accountId)
+            .eq('phone', from)
+            .limit(1)
+            .maybeSingle();
+          if (retryErr) console.error('INBOUND_FIND_LEAD_RETRY_ERR', retryErr);
+          leadId = retryLead?.id ?? null;
+        }
+      } else {
+        leadId = insertedLead?.id ?? null;
+      }
+    }
 
     const { error: inErr } = await supabase.from('messages_in').insert({
       account_id: accountId,
       lead_id: leadId,
       from_phone: from,
       to_phone: to,
-      body: bodyText ?? '',
+      body: bodyText,
       processed: false,
     });
 
     if (inErr) console.error('INBOUND_DB_INSERT_ERR', inErr);
 
-    const { error: bumpErr } = await supabase
-      .from('leads')
-      .update({ last_inbound_at: new Date().toISOString(), last_reply_body: bodyText ?? '' })
-      .eq('id', leadId ?? '__no_lead__')
-      .eq('account_id', accountId);
+    if (leadId) {
+      const { error: bumpErr } = await supabase
+        .from('leads')
+        .update({ last_inbound_at: new Date().toISOString(), last_reply_body: bodyText })
+        .eq('account_id', accountId)
+        .eq('id', leadId);
 
-    if (bumpErr) console.error('INBOUND_LEAD_ACTIVITY_ERR', bumpErr);
+      if (bumpErr) console.error('INBOUND_LEAD_ACTIVITY_ERR', bumpErr);
+    }
 
     const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
