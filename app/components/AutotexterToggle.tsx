@@ -12,9 +12,9 @@ export default function AutotexterToggle({ defaultOn = false }: { defaultOn?: bo
 
     async function hydrate() {
       try {
-        const r = await fetch('/api/account/settings');
-        const j = await r.json().catch(() => ({}));
-        if (!cancelled && typeof j.autotexter_enabled === 'boolean') {
+        const r = await fetch('/api/account/settings', { cache: 'no-store' });
+        const j = await r.json().catch(() => ({} as any));
+        if (!cancelled && j?.ok && typeof j.autotexter_enabled === 'boolean') {
           setOn(j.autotexter_enabled);
         }
       } catch (error: any) {
