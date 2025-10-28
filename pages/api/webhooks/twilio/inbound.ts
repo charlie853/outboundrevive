@@ -6,6 +6,7 @@ const DEFAULT_ACCOUNT_ID = (process.env.DEFAULT_ACCOUNT_ID || '').trim();
 const SAFE_FALLBACK = "Got it. Can you share a bit more detail on what you're looking for? I'll tailor the next steps.";
 const BOOKING_LINK = (process.env.CAL_BOOKING_URL || process.env.CAL_PUBLIC_URL || '').trim();
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').trim();
+const INTERNAL_SECRET = (process.env.INTERNAL_API_SECRET || '').trim();
 
 export const config = {
   api: { bodyParser: true },
@@ -251,7 +252,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const asksPricing = /\b(price|pricing|cost|rates?)\b/.test(msg);
 
     const bookingUrl = (BOOKING_LINK || accountBookingLink || '').trim();
-    let replyText = '';
+    let replyText: string | null = null;
 
     if (wantsSchedule) {
       let canLink = false;
@@ -269,14 +270,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } else if (asksPricing) {
       replyText = 'Our pricing depends on volume and channels (SMS only vs. hybrid). Most clients fall into three tiers (Starter, Growth, Scale). I can map you to the right tier - would you prefer a quick 10-min call or a brief summary here?';
     } else {
-      replyText = SAFE_FALLBACK;
+      if (PUBLIC_BASE_URL && INTERNAL_SECRET) {
+        try {
+          const draftResp = await fetch(`${PUBLIC_BASE_URL}/api/internal/knowledge/draft`, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-internal-secret': INTERNAL_SECRET,
+            },
+            body: JSON.stringify({
+              account_id: accountId,
+              q: bodyText,
+              history: [...inboundHistory, ...outboundHistory]
+                .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+                .slice(-12)
+                .map((entry) => ({ role: entry.role, content: entry.content })),
+              hints: { brand, should_introduce: shouldIntroduce },
+            }),
+          });
+
+          if (draftResp.ok) {
+            const draftJson = (await draftResp.json().catch(() => ({}))) as { reply?: string };
+            replyText = String(draftJson?.reply || '').trim() || null;
+          } else {
+            console.warn('DRAFT_CALL_BAD_STATUS', draftResp.status);
+          }
+        } catch (draftErr) {
+          console.error('DRAFT_CALL_ERR', draftErr);
+        }
+      }
+
+      if (!replyText) {
+        replyText = SAFE_FALLBACK;
+      }
     }
 
-    if (shouldIntroduce && !/\bOutboundRevive\b/i.test(replyText) && !/\bCharlie\b/i.test(replyText)) {
+    if (shouldIntroduce && replyText && !/\bOutboundRevive\b/i.test(replyText) && !/\bCharlie\b/i.test(replyText)) {
       replyText = `Hi, it's Charlie from OutboundRevive with ${brand}. ${replyText}`;
     }
 
-    const aiText = replyText.slice(0, 320).trim();
+    const aiText = (replyText || SAFE_FALLBACK).slice(0, 320).trim();
 
     const admin = supabase;
     const persistAiOutbound = async () => {
@@ -298,7 +331,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           from_phone: to,
           to_phone: from,
           body: aiText,
-          status: 'sent',
+          status: 'queued',
+          provider_status: 'queued',
           sent_by: 'ai',
           provider: 'twilio',
           channel: 'sms',
@@ -318,7 +352,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     };
 
-    void persistAiOutbound();
+    await persistAiOutbound();
 
     const statusUrl = PUBLIC_BASE_URL ? `${PUBLIC_BASE_URL}/api/webhooks/twilio/status` : undefined;
 
