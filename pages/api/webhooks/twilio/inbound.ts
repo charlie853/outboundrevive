@@ -1,5 +1,4 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { MessagingResponse } from 'twilio/lib/twiml/MessagingResponse';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 
@@ -12,6 +11,10 @@ const DEFAULT_ACCOUNT_ID = process.env.DEFAULT_ACCOUNT_ID!;
 const SYSTEM_PROMPT = process.env.SMS_SYSTEM_PROMPT || 'You are Charlie from OutboundRevive...';
 const SAFE_FALLBACK = "Happy to help and share details. Would you like a quick 10-min call, or should I text a brief summary?";
 const BOOKING_LINK = (process.env.CAL_BOOKING_URL || process.env.CAL_PUBLIC_URL || '').trim();
+
+export const config = {
+  api: { bodyParser: true },
+};
 
 function normPhone(s: string) {
   const d = (s || '').replace(/[^\d+]/g, '');
@@ -32,33 +35,6 @@ function nearDuplicate(a: string, b: string) {
   const intersection = [...tokensA].filter((token) => tokensB.has(token)).length;
   const union = new Set([...tokensA, ...tokensB]).size || 1;
   return intersection / union > 0.9;
-}
-
-async function hasSentLinkInLast24h(
-  supabase: SupabaseClient,
-  accountId: string,
-  toPhone: string,
-  link: string,
-): Promise<boolean> {
-  try {
-    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-    const { data, error } = await supabase
-      .from('messages_out')
-      .select('body')
-      .eq('account_id', accountId)
-      .eq('to_phone', toPhone)
-      .gte('created_at', since)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('LINK_HIST_ERR', error);
-      return false;
-    }
-    return (data ?? []).some((row) => (row.body ?? '').includes(link));
-  } catch (err) {
-    console.error('LINK_HIST_EX', err);
-    return false;
-  }
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -245,38 +221,65 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!aiText) aiText = SAFE_FALLBACK;
     const intent = aiIntent.toLowerCase();
     let finalText = (aiText || SAFE_FALLBACK).trim();
-    const bookingLink = BOOKING_LINK;
-    const schedulingIntent =
-      ['book', 'availability', 'reschedule', 'confirm_booking'].includes(intent) ||
-      /book|schedule|availability|resched|time work|what time|tomorrow|today|this week/i.test(text || '');
-
-    if (bookingLink && schedulingIntent) {
-      const already = await hasSentLinkInLast24h(supabaseAdmin, acc.account_id, from, bookingLink);
-      if (!already && !finalText.includes(bookingLink)) {
-        finalText = `${finalText} ${bookingLink}`.trim();
-      }
-    }
+    const calLink = (BOOKING_LINK || acc.booking_link || '').trim();
+    let allowLink = false;
 
     try {
-      const { error } = await supabaseAdmin.from('messages_out').insert([
-        {
-          account_id: acc.account_id,
-          lead_id: lead?.id || null,
-          to_phone: from,
-          from_phone: to,
-          body: finalText,
-          status: 'queued',
-          provider: 'twilio',
-          source: 'ai',
-          channel: 'sms',
-        },
-      ]);
-      if (error) {
-        console.error('OUTBOUND_INSERT_ERR', error);
+      if (calLink) {
+        const schedulingIntent =
+          ['book', 'availability', 'reschedule', 'confirm_booking'].includes(intent) ||
+          /availability|book|schedule|call|time|tomorrow|today/i.test(`${text} ${aiText}`);
+
+        if (schedulingIntent) {
+          const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+          const encTo = encodeURIComponent(from);
+          const url =
+            `${SB_URL}/rest/v1/messages_out?account_id=eq.${acc.account_id}` +
+            `&to_phone=eq.${encTo}&created_at=gte.${since}` +
+            '&select=created_at,body&order=created_at.desc';
+
+          const r = await fetch(url, {
+            headers: {
+              apikey: SB_KEY,
+              Authorization: `Bearer ${SB_KEY}`,
+            },
+          });
+
+          const arr = await r.json().catch(() => []);
+          allowLink = Array.isArray(arr) && !arr.some((msg) => String(msg?.body || '').includes(calLink));
+        }
       }
     } catch (err) {
-      console.error('OUTBOUND_INSERT_ERR', err);
+      console.error('LINK_GATE_ERROR', err);
+      allowLink = false;
     }
+
+    if (allowLink && calLink && !finalText.includes(calLink)) {
+      finalText = `${finalText} ${calLink}`.trim();
+    }
+
+    void (async () => {
+      try {
+        const { error } = await supabaseAdmin.from('messages_out').insert([
+          {
+            account_id: acc.account_id,
+            lead_id: lead?.id || null,
+            to_phone: from,
+            from_phone: to,
+            body: finalText,
+            status: 'queued',
+            provider: 'twilio',
+            source: 'ai',
+            channel: 'sms',
+          },
+        ]);
+        if (error) {
+          console.error('OUTBOUND_INSERT_ERR', error);
+        }
+      } catch (err) {
+        console.error('OUTBOUND_INSERT_ERR', err);
+      }
+    })();
 
     if (messageSid) {
       void fetch(`${SB_URL}/rest/v1/messages_in?message_sid=eq.${encodeURIComponent(messageSid)}`, {
