@@ -11,13 +11,6 @@ export const config = {
   api: { bodyParser: true },
 };
 
-function admin(): SupabaseClient {
-  const url = process.env.SUPABASE_URL?.trim();
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  if (!url || !key) throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-}
-
 function normPhone(s: string) {
   const d = (s || '').replace(/[^\d+]/g, '');
   if (!d) return '';
@@ -113,13 +106,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return;
     }
 
-    if (!process.env.SUPABASE_SERVICE_ROLE_KEY || !process.env.SUPABASE_URL) {
+    const supabaseUrl = process.env.SUPABASE_URL?.trim();
+    const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+
+    if (!supabaseServiceRole || !supabaseUrl) {
       console.error('FATAL_NO_SERVICE_ROLE');
       sendTwiml(res, SAFE_FALLBACK);
       return;
     }
 
-    const supabase = admin();
+    const supabase = createClient(supabaseUrl, supabaseServiceRole);
 
     let accountId = DEFAULT_ACCOUNT_ID;
     let brand = 'OutboundRevive';
@@ -145,32 +141,49 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       console.error('ACCOUNT_LOOKUP_EX', lookupErr);
     }
 
-    let leadId: string | null = null;
-    try {
-      const { data: leadRows, error: leadErr } = await supabase
-        .from('leads')
-        .upsert(
-          {
-            account_id: accountId,
-            phone: from,
-            name: profileName && profileName.length ? profileName : null,
-            status: 'active',
-          },
-          { onConflict: 'phone' },
-        )
-        .select('id')
-        .limit(1);
+    const leadName =
+      profileName && profileName.length
+        ? profileName
+        : bodyText
+        ? bodyText.slice(0, 80)
+        : 'New Lead';
 
-      if (leadErr) {
-        console.error('LEAD_UPSERT_ERR', leadErr);
-      }
+    const { data: leadRows, error: leadUpsertErr } = await supabase
+      .from('leads')
+      .upsert(
+        {
+          account_id: accountId,
+          phone: from,
+          name: leadName,
+          status: 'active',
+        },
+        { onConflict: 'account_id,phone' },
+      )
+      .select('id')
+      .single();
 
-      if (Array.isArray(leadRows) && leadRows.length) {
-        leadId = leadRows[0]?.id ? String(leadRows[0].id) : null;
-      }
-    } catch (leadEx) {
-      console.error('LEAD_UPSERT_EX', leadEx);
-    }
+    if (leadUpsertErr) console.error('INBOUND_LEAD_UPSERT_ERR', leadUpsertErr);
+
+    const leadId = leadRows?.id ?? null;
+
+    const { error: inErr } = await supabase.from('messages_in').insert({
+      account_id: accountId,
+      lead_id: leadId,
+      from_phone: from,
+      to_phone: to,
+      body: bodyText ?? '',
+      processed: false,
+    });
+
+    if (inErr) console.error('INBOUND_DB_INSERT_ERR', inErr);
+
+    const { error: bumpErr } = await supabase
+      .from('leads')
+      .update({ last_inbound_at: new Date().toISOString(), last_reply_body: bodyText ?? '' })
+      .eq('id', leadId ?? '__no_lead__')
+      .eq('account_id', accountId);
+
+    if (bumpErr) console.error('INBOUND_LEAD_ACTIVITY_ERR', bumpErr);
 
     const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -221,32 +234,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
       .slice(-12)
       .map((entry) => ({ role: entry.role, content: entry.content }));
-
-    const nowIso = new Date().toISOString();
-
-    const { error: inErr } = await supabase.from('messages_in').insert({
-      account_id: accountId,
-      lead_id: leadId,
-      from_phone: from,
-      to_phone: to,
-      body: bodyText,
-      processed: true,
-      provider: 'twilio',
-    });
-    if (inErr) console.error('INBOUND_SAVE_ERR', inErr);
-
-    if (leadId) {
-      const { error: leadUpd1 } = await supabase
-        .from('leads')
-        .update({
-          last_inbound_at: nowIso,
-          last_reply_at: nowIso,
-          last_reply_body: bodyText,
-          replied: true,
-        })
-        .eq('id', leadId);
-      if (leadUpd1) console.error('LEAD_UPD_INBOUND_ERR', leadUpd1);
-    }
 
     let reply = '';
 
@@ -315,7 +302,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (outErr) console.error('OUTBOUND_SAVE_ERR', outErr);
 
     if (leadId) {
-      const { error: leadUpd2 } = await supabase.from('leads').update({ last_sent_at: nowIso }).eq('id', leadId);
+      const { error: leadUpd2 } = await supabase
+        .from('leads')
+        .update({ last_sent_at: new Date().toISOString() })
+        .eq('id', leadId)
+        .eq('account_id', accountId);
       if (leadUpd2) console.error('LEAD_UPD_OUTBOUND_ERR', leadUpd2);
     }
 
