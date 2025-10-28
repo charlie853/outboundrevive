@@ -41,19 +41,33 @@ function withTimeout<T>(p: Promise<T>, ms = 450): Promise<T | 'timeout'> {
   return Promise.race([p, new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), ms))]);
 }
 
-function hasSchedulingIntent(input: string, ai: string): boolean {
-  const text = `${input} ${ai}`.toLowerCase();
-  if (/(send (the )?link|booking link|calendly)/i.test(text)) return true;
-  if (/\b(book|schedule|reschedule|availability|slots?|openings?|calendar|meeting)\b/i.test(text)) return true;
+function hasSchedulingIntentFromUser(input: string): boolean {
+  const t = input.toLowerCase();
+  if (/(send (the )?link|booking link|calendly)/i.test(t)) return true;
+  if (/\b(book|schedule|reschedule|availability|slot|slots|opening|openings|calendar|meeting|appointment|appt)\b/i.test(t)) return true;
   return false;
 }
 
-function whoIsThis(input: string): boolean {
-  return /\b(who (is|’s|'s) this|who dis)\b/i.test(input);
+function askedWhoIsThis(input: string): boolean {
+  return /\b(who (is|\u2019s|'s) this|who dis)\b/i.test(input);
 }
 
-function cleanForLink(s: string) {
-  return s.replace(/I can[’']?t send links,?\s*/i, '');
+function sanitizeForLinkInjection(s: string): string {
+  let out = s;
+
+  out = out
+    .replace(
+      /(?:^|[.!?]\s*)([^.!?]*\bI can[\u2019']?t send links\b[^.!?]*)([.!?])?/gi,
+      (_match, _sentence, endPunct = '') => (endPunct ? endPunct : ''),
+    )
+    .trim();
+
+  out = out.replace(/(^|\.\s+)(?:but|however),?\s+/gi, '$1');
+
+  out = out.replace(/\bI[\u2019']?m sorry,?\s*but\s*\.(\s|$)/gi, '');
+  out = out.replace(/\s{2,}/g, ' ').trim();
+
+  return out;
 }
 
 function escapeXml(s: string) {
@@ -161,7 +175,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ? contactCandidates.sort((a, b) => b.getTime() - a.getTime())[0]
       : null;
     const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-    const introNeeded = whoIsThis(text) || !hasPriorOutbound || !lastContactAt || Date.now() - lastContactAt.getTime() > THIRTY_DAYS_MS;
+    const introNeeded = askedWhoIsThis(text) || !hasPriorOutbound || !lastContactAt || Date.now() - lastContactAt.getTime() > THIRTY_DAYS_MS;
 
     const mergedHistory = [
       ...(insResp || []).map((msg) => ({ at: msg.created_at, role: 'user' as const, content: msg.body })),
@@ -172,7 +186,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .map((msg) => ({ role: msg.role, content: msg.content }));
 
     let aiText = '';
-    let aiIntent = '';
 
     try {
       if (PUBLIC_BASE_URL) {
@@ -196,7 +209,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             intent?: string;
           };
           aiText = String(j?.reply ?? '').trim();
-          aiIntent = typeof j?.intent === 'string' ? j.intent : '';
         } else {
           console.warn('DRAFT_CALL_BAD_STATUS', draft.status);
         }
@@ -250,15 +262,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       aiText = `Hi, it's Charlie from OutboundRevive with ${brandName}. ${aiText}`;
     }
 
-    const intent = aiIntent.toLowerCase();
     let finalText = (aiText || SAFE_FALLBACK).trim();
     const calLink = (BOOKING_LINK || acc.booking_link || '').trim();
-    const schedulingIntent =
-      hasSchedulingIntent(text, aiText) || ['book', 'availability', 'reschedule', 'confirm_booking'].includes(intent);
+    const userWantsScheduling = hasSchedulingIntentFromUser(text);
     let allowLink = false;
 
     try {
-      if (schedulingIntent && calLink) {
+      if (userWantsScheduling && calLink) {
         const since = encodeURIComponent(new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
         const encTo = encodeURIComponent(from);
         const url =
@@ -284,7 +294,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (allowLink && calLink) {
-      const cleaned = cleanForLink(aiText).trim();
+      const cleaned = sanitizeForLinkInjection(aiText).trim();
       finalText = `${cleaned} ${calLink}`.trim();
     }
 
