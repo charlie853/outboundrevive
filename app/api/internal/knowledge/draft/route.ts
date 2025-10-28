@@ -36,6 +36,7 @@ export async function POST(req: Request) {
 
   const raw = await readBody(req);
   const body = raw?.data ?? raw ?? {};
+  const hints = body?.hints ?? body?.hint ?? null;
 
   // Accept multiple shapes: { q }, { text }, { Body }, camelCase variants
   const q =
@@ -86,9 +87,20 @@ export async function POST(req: Request) {
   }
 
   const data = await resp.json().catch(() => ({}));
-  const reply =
+  const baseReply =
     data?.choices?.[0]?.message?.content?.trim() ||
     "Thanks for the note—happy to help!";
 
-  return NextResponse.json({ reply });
+  let out = baseReply;
+  const bookingUrl = hints?.booking_url;
+  if (
+    hints?.link_allowed &&
+    typeof bookingUrl === 'string' &&
+    bookingUrl.trim().length &&
+    !out.includes(bookingUrl)
+  ) {
+    out = `${out} ${bookingUrl}`.trim();
+  }
+
+  return NextResponse.json({ reply: out });
 }
