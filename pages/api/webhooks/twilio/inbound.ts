@@ -37,8 +37,23 @@ function nearDuplicate(a: string, b: string) {
   return intersection / union > 0.9;
 }
 
-function withTimeout<T>(p: Promise<T>, ms = 400): Promise<T | 'timeout'> {
+function withTimeout<T>(p: Promise<T>, ms = 450): Promise<T | 'timeout'> {
   return Promise.race([p, new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), ms))]);
+}
+
+function hasSchedulingIntent(input: string, ai: string): boolean {
+  const text = `${input} ${ai}`.toLowerCase();
+  if (/(send (the )?link|booking link|calendly)/i.test(text)) return true;
+  if (/\b(book|schedule|reschedule|availability|slots?|openings?|calendar|meeting)\b/i.test(text)) return true;
+  return false;
+}
+
+function whoIsThis(input: string): boolean {
+  return /\b(who (is|’s|'s) this|who dis)\b/i.test(input);
+}
+
+function cleanForLink(s: string) {
+  return s.replace(/I can[’']?t send links,?\s*/i, '');
 }
 
 function escapeXml(s: string) {
@@ -95,6 +110,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       phone_from: to,
       booking_link: undefined,
     };
+    const brandName = typeof acc.brand === 'string' && acc.brand.trim() ? acc.brand.trim() : 'OutboundRevive';
 
     if (messageSid) {
       const inUpsert = await fetch(`${sbUrl}/rest/v1/messages_in`, {
@@ -137,6 +153,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ),
     ]);
 
+    const lastInboundAt = Array.isArray(insResp) && insResp.length ? new Date(insResp[insResp.length - 1].created_at) : null;
+    const lastOutboundAt = Array.isArray(outsResp) && outsResp.length ? new Date(outsResp[outsResp.length - 1].created_at) : null;
+    const hasPriorOutbound = Array.isArray(outsResp) && outsResp.length > 0;
+    const contactCandidates = [lastInboundAt, lastOutboundAt].filter((d): d is Date => Boolean(d));
+    const lastContactAt = contactCandidates.length
+      ? contactCandidates.sort((a, b) => b.getTime() - a.getTime())[0]
+      : null;
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+    const introNeeded = whoIsThis(text) || !hasPriorOutbound || !lastContactAt || Date.now() - lastContactAt.getTime() > THIRTY_DAYS_MS;
+
     const mergedHistory = [
       ...(insResp || []).map((msg) => ({ at: msg.created_at, role: 'user' as const, content: msg.body })),
       ...(outsResp || []).map((msg) => ({ at: msg.created_at, role: 'assistant' as const, content: msg.body })),
@@ -160,7 +186,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             account_id: acc.account_id,
             q: text,
             history: mergedHistory,
-            vars: { brand: acc.brand, booking_link: BOOKING_LINK || acc.booking_link },
+            vars: { brand: brandName, booking_link: BOOKING_LINK || acc.booking_link },
+            hints: { brand: brandName, should_introduce: introNeeded },
           }),
         });
         if (draft.ok) {
@@ -183,7 +210,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!aiText && OPENAI_KEY) {
       try {
         const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-          { role: 'system', content: SYSTEM_PROMPT.replaceAll('{{brand}}', acc.brand || 'OutboundRevive') },
+          { role: 'system', content: SYSTEM_PROMPT.replaceAll('{{brand}}', brandName) },
           ...mergedHistory,
           { role: 'user', content: text },
         ];
@@ -218,43 +245,47 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (!aiText) aiText = SAFE_FALLBACK;
+
+    if (introNeeded && !/\bOutboundRevive\b/i.test(aiText) && !/\bCharlie\b/i.test(aiText)) {
+      aiText = `Hi, it's Charlie from OutboundRevive with ${brandName}. ${aiText}`;
+    }
+
     const intent = aiIntent.toLowerCase();
     let finalText = (aiText || SAFE_FALLBACK).trim();
     const calLink = (BOOKING_LINK || acc.booking_link || '').trim();
+    const schedulingIntent =
+      hasSchedulingIntent(text, aiText) || ['book', 'availability', 'reschedule', 'confirm_booking'].includes(intent);
     let allowLink = false;
 
     try {
-      if (calLink) {
-        const schedulingIntent =
-          ['book', 'availability', 'reschedule', 'confirm_booking'].includes(intent) ||
-          /availability|book|schedule|call|time|tomorrow|today/i.test(`${text} ${aiText}`);
+      if (schedulingIntent && calLink) {
+        const since = encodeURIComponent(new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+        const encTo = encodeURIComponent(from);
+        const url =
+          `${sbUrl}/rest/v1/messages_out?account_id=eq.${acc.account_id}` +
+          `&to_phone=eq.${encTo}&created_at=gte.${since}` +
+          '&select=created_at,body&order=created_at.desc';
 
-        if (schedulingIntent) {
-          const since = encodeURIComponent(new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
-          const encTo = encodeURIComponent(from);
-          const url =
-            `${sbUrl}/rest/v1/messages_out?account_id=eq.${acc.account_id}` +
-            `&to_phone=eq.${encTo}&created_at=gte.${since}` +
-            '&select=created_at,body&order=created_at.desc';
+        const r = await fetch(url, {
+          headers: {
+            apikey: sbKey,
+            Authorization: `Bearer ${sbKey}`,
+          },
+        });
 
-          const r = await fetch(url, {
-            headers: {
-              apikey: sbKey,
-              Authorization: `Bearer ${sbKey}`,
-            },
-          });
-
-          const arr = await r.json().catch(() => []);
-          allowLink = Array.isArray(arr) && !arr.some((msg) => String(msg?.body || '').includes(calLink));
-        }
+        const arr = await r.json().catch(() => []);
+        const alreadySent = Array.isArray(arr) && arr.some((msg) => String(msg?.body || '').includes(calLink));
+        const replyAlreadyHasLink = aiText.includes(calLink);
+        allowLink = !alreadySent && !replyAlreadyHasLink;
       }
     } catch (err) {
       console.error('LINK_GATE_ERROR', err);
       allowLink = false;
     }
 
-    if (allowLink && calLink && !finalText.includes(calLink)) {
-      finalText = `${finalText} ${calLink}`.trim();
+    if (allowLink && calLink) {
+      const cleaned = cleanForLink(aiText).trim();
+      finalText = `${cleaned} ${calLink}`.trim();
     }
 
     const persist = (async () => {
