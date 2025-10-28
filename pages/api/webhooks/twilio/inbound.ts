@@ -249,10 +249,85 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const msg = bodyText.toLowerCase();
     const wantsSchedule = /\b(schedule|book|calendar|calendly|zoom|teams|meet|call|time|availability|available|send (the )?link)\b/.test(msg);
-    const asksPricing = /\b(price|pricing|cost|rates?)\b/.test(msg);
+    const asksPricing = /\b(price|pricing|cost|rates?|quote)\b/.test(msg);
+    const asksWho = /\b(who( is|'?s)? (this|you))\b/.test(msg) || askedWhoIsThis(bodyText);
+    const asksServices = /\b(what|how)\b.*\b(do|does)\b.*\b(you|outboundrevive)\b/.test(msg) || /\bservices?\b/.test(msg);
+    const asksResults = /\b(result|conversion|booked|rebook|show rate|pipeline)\b/.test(msg);
 
     const bookingUrl = (BOOKING_LINK || accountBookingLink || '').trim();
     let replyText: string | null = null;
+
+    const persistOutbound = async (body: string): Promise<string | null> => {
+      try {
+        if (!leadId) {
+          const { data: leadLookupRow, error: leadLookupErr } = await supabase
+            .from('leads')
+            .select('id')
+            .eq('account_id', accountId)
+            .eq('phone', from)
+            .maybeSingle();
+
+          if (leadLookupErr) console.error('persist lead lookup failed', leadLookupErr);
+          if (leadLookupRow?.id) {
+            leadId = leadLookupRow.id;
+          }
+        }
+
+        const { data: outInsert, error: outErr } = await supabase
+          .from('messages_out')
+          .insert({
+            account_id: accountId,
+            lead_id: leadId,
+            from_phone: to,
+            to_phone: from,
+            body,
+            status: 'queued',
+            provider_status: 'queued',
+            sent_by: 'ai',
+            provider: 'twilio',
+            channel: 'sms',
+          })
+          .select('id')
+          .single();
+
+        if (outErr) console.error('OUTBOUND_PLACEHOLDER_ERR', outErr);
+
+        if (leadId) {
+          const { error: leadUpdErr } = await supabase
+            .from('leads')
+            .update({ last_sent_at: new Date().toISOString() })
+            .eq('account_id', accountId)
+            .eq('id', leadId);
+          if (leadUpdErr) console.error('LEAD_UPD_OUTBOUND_ERR', leadUpdErr);
+        }
+
+        return outInsert?.id ?? null;
+      } catch (persistErr) {
+        console.error('persistOutbound exception', persistErr);
+        return null;
+      }
+    };
+
+    const markInboundProcessed = async (): Promise<void> => {
+      try {
+        const processedUpdate = supabase
+          .from('messages_in')
+          .update({ processed: true })
+          .eq('account_id', accountId)
+          .eq('from_phone', from)
+          .eq('to_phone', to)
+          .is('processed', false);
+
+        if (inboundId) {
+          processedUpdate.eq('id', inboundId);
+        }
+
+        const { error: processedErr } = await processedUpdate;
+        if (processedErr) console.error('INBOUND_MARK_PROCESSED_ERR', processedErr);
+      } catch (processedEx) {
+        console.error('INBOUND_MARK_PROCESSED_EX', processedEx);
+      }
+    };
 
     if (wantsSchedule) {
       let canLink = false;
@@ -264,114 +339,100 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           console.error('LINK_DECISION_ERR', linkErr);
         }
       }
-      replyText = bookingUrl && canLink
-        ? `I can set that up. Here's my booking link: ${bookingUrl} - what time works for you?`
-        : 'I can set that up. What time works for you?';
+      replyText = canLink && bookingUrl
+        ? `Happy to schedule. Here's my booking link: ${bookingUrl}. What works for you?`
+        : 'Happy to schedule. What time windows work for you?';
     } else if (asksPricing) {
-      replyText = 'Our pricing depends on volume and channels (SMS only vs. hybrid). Most clients fall into three tiers (Starter, Growth, Scale). I can map you to the right tier - would you prefer a quick 10-min call or a brief summary here?';
-    } else {
-      if (PUBLIC_BASE_URL && INTERNAL_SECRET) {
-        try {
-          const draftResp = await fetch(`${PUBLIC_BASE_URL}/api/internal/knowledge/draft`, {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              'x-internal-secret': INTERNAL_SECRET,
-            },
-            body: JSON.stringify({
-              account_id: accountId,
-              q: bodyText,
-              history: [...inboundHistory, ...outboundHistory]
-                .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
-                .slice(-12)
-                .map((entry) => ({ role: entry.role, content: entry.content })),
-              hints: { brand, should_introduce: shouldIntroduce },
-            }),
-          });
-
-          if (draftResp.ok) {
-            const draftJson = (await draftResp.json().catch(() => ({}))) as { reply?: string };
-            replyText = String(draftJson?.reply || '').trim() || null;
-          } else {
-            console.warn('DRAFT_CALL_BAD_STATUS', draftResp.status);
-          }
-        } catch (draftErr) {
-          console.error('DRAFT_CALL_ERR', draftErr);
-        }
-      }
-
-      if (!replyText) {
-        replyText = SAFE_FALLBACK;
-      }
+      replyText = 'Pricing depends on volume and channel mix. Typical pilots start small, then ramp. Want a 10-min call, or a short summary here?';
+    } else if (asksWho) {
+      replyText = "It's Charlie from OutboundRevive. We handle managed SMS and call follow-ups so older leads become live conversations. How can I help?";
+    } else if (asksServices) {
+      replyText = `We revive stalled pipeline for ${brand}: rebooking no-shows, warming inbound trials, and following up web leads fast. Are you focused on bookings or another funnel step?`;
+    } else if (asksResults) {
+      replyText = 'Revive campaigns typically turn 10-20% of cold or no-show leads into fresh conversations within two weeks. Want a quick call to compare playbooks?';
     }
 
-    if (shouldIntroduce && replyText && !/\bOutboundRevive\b/i.test(replyText) && !/\bCharlie\b/i.test(replyText)) {
-      replyText = `Hi, it's Charlie from OutboundRevive with ${brand}. ${replyText}`;
+    if (replyText) {
+      if (shouldIntroduce && !/\bOutboundRevive\b/i.test(replyText) && !/\bCharlie\b/i.test(replyText)) {
+        replyText = `Hi, it's Charlie from OutboundRevive with ${brand}. ${replyText}`;
+      }
+
+      const textToSend = replyText.slice(0, 320).trim();
+
+      const outId = await persistOutbound(textToSend);
+
+      const statusUrl =
+        PUBLIC_BASE_URL && PUBLIC_BASE_URL.length
+          ? `${PUBLIC_BASE_URL}/api/webhooks/twilio/status?account_id=${encodeURIComponent(accountId)}${
+              outId ? `&out_id=${encodeURIComponent(String(outId))}` : ''
+            }`
+          : undefined;
+
+      sendTwiml(res, textToSend, statusUrl);
+
+      await markInboundProcessed();
+
+      return;
     }
 
-    const aiText = (replyText || SAFE_FALLBACK).slice(0, 320).trim();
+    const llmHistory = [...inboundHistory, ...outboundHistory]
+      .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+      .slice(-12)
+      .map((entry) => ({ role: entry.role, content: entry.content }));
 
-    const admin = supabase;
-    const persistAiOutbound = async () => {
+    let aiReply = '';
+
+    if (PUBLIC_BASE_URL && INTERNAL_SECRET) {
       try {
-        const { data: leadRow, error: leadLookupErr } = await admin
-          .from('leads')
-          .select('id')
-          .eq('account_id', accountId)
-          .eq('phone', from)
-          .maybeSingle();
-
-        if (leadLookupErr) console.error('persist lead lookup failed', leadLookupErr);
-
-        const lead_id = leadRow?.id ?? null;
-
-        const { error: outErr } = await admin.from('messages_out').insert({
-          account_id: accountId,
-          lead_id,
-          from_phone: to,
-          to_phone: from,
-          body: aiText,
-          status: 'queued',
-          provider_status: 'queued',
-          sent_by: 'ai',
-          provider: 'twilio',
-          channel: 'sms',
+        const draftResp = await fetch(`${PUBLIC_BASE_URL}/api/internal/knowledge/draft`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-internal-secret': INTERNAL_SECRET,
+          },
+          body: JSON.stringify({
+            account_id: accountId,
+            q: bodyText,
+            history: llmHistory,
+            hints: { brand, should_introduce: shouldIntroduce },
+          }),
         });
 
-        if (outErr) console.error('persist messages_out failed', outErr);
-
-        const { error: bumpErr } = await admin
-          .from('leads')
-          .update({ last_sent_at: new Date().toISOString() })
-          .eq('account_id', accountId)
-          .eq('phone', from);
-
-        if (bumpErr) console.error('bump lead failed', bumpErr);
-      } catch (persistErr) {
-        console.error('persistAiOutbound exception', persistErr);
+        if (draftResp.ok) {
+          const draftJson = (await draftResp.json().catch(() => ({}))) as { reply?: string };
+          aiReply = String(draftJson?.reply || '').trim();
+        } else {
+          console.warn('DRAFT_CALL_BAD_STATUS', draftResp.status);
+        }
+      } catch (draftErr) {
+        console.error('DRAFT_CALL_ERR', draftErr);
       }
-    };
+    } else {
+      console.warn('DRAFT_CALL_SKIPPED_NO_BASE');
+    }
 
-    await persistAiOutbound();
+    if (!aiReply) {
+      aiReply = SAFE_FALLBACK;
+    }
 
-    const statusUrl = PUBLIC_BASE_URL ? `${PUBLIC_BASE_URL}/api/webhooks/twilio/status` : undefined;
+    if (shouldIntroduce && !/\bOutboundRevive\b/i.test(aiReply) && !/\bCharlie\b/i.test(aiReply)) {
+      aiReply = `Hi, it's Charlie from OutboundRevive with ${brand}. ${aiReply}`;
+    }
+
+    const aiText = aiReply.slice(0, 320).trim();
+
+    const outId = await persistOutbound(aiText);
+
+    const statusUrl =
+      PUBLIC_BASE_URL && PUBLIC_BASE_URL.length
+        ? `${PUBLIC_BASE_URL}/api/webhooks/twilio/status?account_id=${encodeURIComponent(accountId)}${
+            outId ? `&out_id=${encodeURIComponent(String(outId))}` : ''
+          }`
+        : undefined;
 
     sendTwiml(res, aiText, statusUrl);
 
-    const processedUpdate = supabase
-      .from('messages_in')
-      .update({ processed: true })
-      .eq('account_id', accountId)
-      .eq('from_phone', from)
-      .eq('to_phone', to)
-      .is('processed', false);
-
-    if (inboundId) {
-      processedUpdate.eq('id', inboundId);
-    }
-
-    const { error: processedErr } = await processedUpdate;
-    if (processedErr) console.error('INBOUND_MARK_PROCESSED_ERR', processedErr);
+    await markInboundProcessed();
 
     return;
   } catch (err) {
