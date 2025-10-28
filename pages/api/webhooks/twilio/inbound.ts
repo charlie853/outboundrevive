@@ -95,6 +95,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       replyText = replyText.slice(0, 480);
     }
 
+    // --- persist the outbound AI reply so dashboard & metrics can see it ---
+    try {
+      const sbUrl = process.env.SUPABASE_URL!;
+      const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+      const body = {
+        account_id,
+        to_phone: From,
+        from_phone: To,
+        body: replyText,
+        status: 'queued',
+      };
+
+      await fetch(`${sbUrl}/rest/v1/messages_out`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          apikey: sbKey,
+          Authorization: `Bearer ${sbKey}`,
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify(body),
+      }).catch(() => {});
+    } catch {}
+
     res.setHeader('Content-Type', 'text/xml; charset=utf-8');
     res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${xmlEscape(replyText)}</Message></Response>`);
   } catch {
