@@ -1,15 +1,16 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 
-const SB_URL = process.env.SUPABASE_URL!;
-const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const OPENAI_KEY = process.env.OPENAI_API_KEY!;
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-const INTERNAL_SECRET = process.env.INTERNAL_API_SECRET || '';
-const DEFAULT_ACCOUNT_ID = process.env.DEFAULT_ACCOUNT_ID!;
-const SYSTEM_PROMPT = process.env.SMS_SYSTEM_PROMPT || 'You are Charlie from OutboundRevive...';
+const SB_URL = (process.env.SUPABASE_URL || '').trim();
+const SB_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+const OPENAI_KEY = (process.env.OPENAI_API_KEY || '').trim();
+const OPENAI_MODEL = (process.env.OPENAI_MODEL || 'gpt-4o-mini').trim();
+const INTERNAL_SECRET = (process.env.INTERNAL_API_SECRET || '').trim();
+const DEFAULT_ACCOUNT_ID = (process.env.DEFAULT_ACCOUNT_ID || '').trim();
+const SYSTEM_PROMPT = (process.env.SMS_SYSTEM_PROMPT || 'You are Charlie from OutboundRevive...').trim();
 const SAFE_FALLBACK = "Happy to help and share details. Would you like a quick 10-min call, or should I text a brief summary?";
 const BOOKING_LINK = (process.env.CAL_BOOKING_URL || process.env.CAL_PUBLIC_URL || '').trim();
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').trim();
 
 export const config = {
   api: { bodyParser: true },
@@ -36,6 +37,10 @@ function nearDuplicate(a: string, b: string) {
   return intersection / union > 0.9;
 }
 
+function withTimeout<T>(p: Promise<T>, ms = 400): Promise<T | 'timeout'> {
+  return Promise.race([p, new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), ms))]);
+}
+
 function escapeXml(s: string) {
   return s.replace(/[<>&'\"]/g, (c) =>
     ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' } as Record<string, string>)[c] || c,
@@ -54,7 +59,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
-    sendTwiml(res, '');
+    sendTwiml(res, 'OK');
     return;
   }
 
@@ -65,22 +70,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const text = String(body.Body || body.body || '').trim();
     const messageSid = String(body.MessageSid || body.SmsMessageSid || '').trim();
 
-    const from = normPhone(fromRaw);
-    const to = normPhone(toRaw);
+    const from = normPhone(fromRaw.trim());
+    const to = normPhone(toRaw.trim());
+    const accountId = DEFAULT_ACCOUNT_ID;
+    const sbUrl = SB_URL;
+    const sbKey = SB_KEY;
 
-    if (!from || !to) {
+    if (!from || !to || !accountId || !sbUrl || !sbKey) {
+      console.error('WEBHOOK_BAD_INPUT', { from, to, accountId, sbUrl, sbKeyPresent: Boolean(sbKey) });
       sendTwiml(res, SAFE_FALLBACK);
       return;
     }
 
     const accRows = await fetchJson<Array<{ account_id: string; brand?: string; autotexter_enabled?: boolean; phone_from?: string; booking_link?: string }>>(
-      `${SB_URL}/rest/v1/account_settings?select=account_id,brand,autotexter_enabled,phone_from,booking_link&phone_from=eq.${encodeURIComponent(to)}`,
+      `${sbUrl}/rest/v1/account_settings?select=account_id,brand,autotexter_enabled,phone_from,booking_link&phone_from=eq.${encodeURIComponent(to)}`,
       {
-        headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
+        headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}` },
       },
     );
     const acc = accRows?.[0] || {
-      account_id: DEFAULT_ACCOUNT_ID,
+      account_id: accountId,
       brand: 'OutboundRevive',
       autotexter_enabled: true,
       phone_from: to,
@@ -88,11 +97,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     };
 
     if (messageSid) {
-      const inUpsert = await fetch(`${SB_URL}/rest/v1/messages_in`, {
+      const inUpsert = await fetch(`${sbUrl}/rest/v1/messages_in`, {
         method: 'POST',
         headers: {
-          apikey: SB_KEY,
-          Authorization: `Bearer ${SB_KEY}`,
+          apikey: sbKey,
+          Authorization: `Bearer ${sbKey}`,
           'content-type': 'application/json',
           Prefer: 'resolution=merge-duplicates',
         },
@@ -117,34 +126,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    const leadUpsert = await fetch(`${SB_URL}/rest/v1/leads?on_conflict=phone`, {
-      method: 'POST',
-      headers: {
-        apikey: SB_KEY,
-        Authorization: `Bearer ${SB_KEY}`,
-        'content-type': 'application/json',
-        Prefer: 'resolution=merge-duplicates,return=representation',
-      },
-      body: JSON.stringify([
-        {
-          account_id: acc.account_id,
-          phone: from,
-          name: from,
-          status: 'active',
-        },
-      ]),
-    });
-    const leadRows = (await leadUpsert.json().catch(() => [])) as Array<{ id: string }>;
-    const lead = leadRows?.[0];
-
     const [insResp, outsResp] = await Promise.all([
       fetchJson<Array<{ created_at: string; body: string }>>(
-        `${SB_URL}/rest/v1/messages_in?account_id=eq.${acc.account_id}&from_phone=eq.${encodeURIComponent(from)}&select=created_at,body&order=created_at.asc&limit=12`,
-        { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } },
+        `${sbUrl}/rest/v1/messages_in?account_id=eq.${acc.account_id}&from_phone=eq.${encodeURIComponent(from)}&select=created_at,body&order=created_at.asc&limit=12`,
+        { headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}` } },
       ),
       fetchJson<Array<{ created_at: string; body: string }>>(
-        `${SB_URL}/rest/v1/messages_out?account_id=eq.${acc.account_id}&to_phone=eq.${encodeURIComponent(from)}&select=created_at,body&order=created_at.asc&limit=12`,
-        { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } },
+        `${sbUrl}/rest/v1/messages_out?account_id=eq.${acc.account_id}&to_phone=eq.${encodeURIComponent(from)}&select=created_at,body&order=created_at.asc&limit=12`,
+        { headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}` } },
       ),
     ]);
 
@@ -160,32 +149,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     let aiIntent = '';
 
     try {
-      const draft = await fetch(`${process.env.PUBLIC_BASE_URL || ''}/api/internal/knowledge/draft`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-internal-secret': INTERNAL_SECRET,
-        },
-        body: JSON.stringify({
-          account_id: acc.account_id,
-          q: text,
-          history: mergedHistory,
-          vars: { brand: acc.brand, booking_link: BOOKING_LINK || acc.booking_link },
-        }),
-      });
-      if (draft.ok) {
-        const j = (await draft.json().catch(() => ({}))) as {
-          reply?: string;
-          intent?: string;
-        };
-        aiText = String(j?.reply ?? '').trim();
-        aiIntent = typeof j?.intent === 'string' ? j.intent : '';
+      if (PUBLIC_BASE_URL) {
+        const draft = await fetch(`${PUBLIC_BASE_URL}/api/internal/knowledge/draft`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-internal-secret': INTERNAL_SECRET,
+          },
+          body: JSON.stringify({
+            account_id: acc.account_id,
+            q: text,
+            history: mergedHistory,
+            vars: { brand: acc.brand, booking_link: BOOKING_LINK || acc.booking_link },
+          }),
+        });
+        if (draft.ok) {
+          const j = (await draft.json().catch(() => ({}))) as {
+            reply?: string;
+            intent?: string;
+          };
+          aiText = String(j?.reply ?? '').trim();
+          aiIntent = typeof j?.intent === 'string' ? j.intent : '';
+        } else {
+          console.warn('DRAFT_CALL_BAD_STATUS', draft.status);
+        }
+      } else {
+        console.warn('DRAFT_CALL_SKIPPED_NO_BASE');
       }
     } catch (err) {
       console.error('DRAFT_CALL_ERR', err);
     }
 
-    if (!aiText) {
+    if (!aiText && OPENAI_KEY) {
       try {
         const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
           { role: 'system', content: SYSTEM_PROMPT.replaceAll('{{brand}}', acc.brand || 'OutboundRevive') },
@@ -210,8 +205,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     let lastOut = '';
     try {
       const lastRows = await fetchJson<Array<{ body: string }>>(
-        `${SB_URL}/rest/v1/messages_out?account_id=eq.${acc.account_id}&to_phone=eq.${encodeURIComponent(from)}&select=body&order=created_at.desc&limit=1`,
-        { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } },
+        `${sbUrl}/rest/v1/messages_out?account_id=eq.${acc.account_id}&to_phone=eq.${encodeURIComponent(from)}&select=body&order=created_at.desc&limit=1`,
+        { headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}` } },
       );
       lastOut = String(lastRows?.[0]?.body || '');
     } catch (err) {
@@ -238,14 +233,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           const since = encodeURIComponent(new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
           const encTo = encodeURIComponent(from);
           const url =
-            `${SB_URL}/rest/v1/messages_out?account_id=eq.${acc.account_id}` +
+            `${sbUrl}/rest/v1/messages_out?account_id=eq.${acc.account_id}` +
             `&to_phone=eq.${encTo}&created_at=gte.${since}` +
             '&select=created_at,body&order=created_at.desc';
 
           const r = await fetch(url, {
             headers: {
-              apikey: SB_KEY,
-              Authorization: `Bearer ${SB_KEY}`,
+              apikey: sbKey,
+              Authorization: `Bearer ${sbKey}`,
             },
           });
 
@@ -262,12 +257,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       finalText = `${finalText} ${calLink}`.trim();
     }
 
-    void (async () => {
+    const persist = (async () => {
       try {
+        let leadId: string | null = null;
+        try {
+          const up = await fetch(`${sbUrl}/rest/v1/leads?on_conflict=phone`, {
+            method: 'POST',
+            headers: {
+              apikey: sbKey,
+              Authorization: `Bearer ${sbKey}`,
+              'content-type': 'application/json',
+              Prefer: 'resolution=merge-duplicates,return=representation',
+            },
+            body: JSON.stringify([
+              {
+                account_id: acc.account_id,
+                phone: from,
+                name: from,
+                status: 'active',
+              },
+            ]),
+          });
+          if (!up.ok) {
+            console.error('LEAD_UPSERT_BAD_STATUS', up.status, await up.text());
+          } else {
+            const leadRows = (await up.json().catch(() => [])) as Array<{ id?: string }>;
+            leadId = Array.isArray(leadRows) && leadRows[0]?.id ? String(leadRows[0].id) : null;
+          }
+        } catch (leadErr) {
+          console.error('LEAD_UPSERT_ERROR', leadErr);
+        }
+
         const { error } = await supabaseAdmin.from('messages_out').insert([
           {
             account_id: acc.account_id,
-            lead_id: lead?.id || null,
+            lead_id: leadId,
             to_phone: from,
             from_phone: to,
             body: finalText,
@@ -285,12 +309,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     })();
 
+    const persistResult = await withTimeout(persist, 450);
+    if (persistResult === 'timeout') {
+      console.warn('OUTBOUND_PERSIST_TIMEOUT');
+    }
+
     if (messageSid) {
-      void fetch(`${SB_URL}/rest/v1/messages_in?message_sid=eq.${encodeURIComponent(messageSid)}`, {
+      void fetch(`${sbUrl}/rest/v1/messages_in?message_sid=eq.${encodeURIComponent(messageSid)}`, {
         method: 'PATCH',
         headers: {
-          apikey: SB_KEY,
-          Authorization: `Bearer ${SB_KEY}`,
+          apikey: sbKey,
+          Authorization: `Bearer ${sbKey}`,
           'content-type': 'application/json',
         },
         body: JSON.stringify({ processed: true }),
@@ -306,7 +335,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
 function sendTwiml(res: NextApiResponse, message: string) {
   res.setHeader('Content-Type', 'text/xml');
-  res
-    .status(200)
-    .send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(message)}</Message></Response>`);
+  const trimmed = (message || '').trim();
+  const body = trimmed
+    ? `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(trimmed)}</Message></Response>`
+    : '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
+  res.status(200).send(body);
 }
