@@ -66,12 +66,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ error: 'db_insert_failed', detail: outErr.message, twilio_sid: msg.sid });
     }
 
-    const { error: leadErr } = await supa
-      .from('leads')
-      .update({ last_sent_at: new Date().toISOString() })
-      .eq('id', lead_id ?? '__no_lead__')
-      .eq('account_id', account_id);
-    if (leadErr) console.error('LEAD_ACTIVITY_UPDATE_ERR', leadErr);
+    if (lead_id) {
+      const { error: leadErr } = await supa
+        .from('leads')
+        .update({ last_sent_at: new Date().toISOString() })
+        .eq('account_id', account_id)
+        .eq('id', lead_id);
+      if (leadErr) console.error('LEAD_ACTIVITY_UPDATE_ERR', leadErr);
+    }
 
     return res.status(200).json({
       ok: true,

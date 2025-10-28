@@ -52,7 +52,7 @@ function sanitizeForLinkInjection(s: string): string {
   return out;
 }
 
-function escapeXml(s: string) {
+function xmlEscape(s: string) {
   return s.replace(/[<>&'\"]/g, (c) =>
     ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' } as Record<string, string>)[c] || c,
   );
@@ -77,11 +77,18 @@ async function sentLinkInLast24h(supabase: SupabaseClient, accountId: string, to
   return data.some((row) => String(row?.body || '').includes(bookingUrl));
 }
 
-function sendTwiml(res: NextApiResponse, message: string) {
+function sendTwiml(res: NextApiResponse, message: string, statusCallback?: string) {
   res.setHeader('Content-Type', 'text/xml');
   const trimmed = (message || '').trim();
+  let messageTag = '';
+  if (trimmed) {
+    const escapedBody = xmlEscape(trimmed);
+    messageTag = statusCallback
+      ? `<Message statusCallback="${xmlEscape(statusCallback)}">${escapedBody}</Message>`
+      : `<Message>${escapedBody}</Message>`;
+  }
   const body = trimmed
-    ? `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(trimmed)}</Message></Response>`
+    ? `<?xml version="1.0" encoding="UTF-8"?><Response>${messageTag}</Response>`
     : '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
   res.status(200).send(body);
 }
@@ -194,16 +201,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    const { error: inErr } = await supabase.from('messages_in').insert({
-      account_id: accountId,
-      lead_id: leadId,
-      from_phone: from,
-      to_phone: to,
-      body: bodyText,
-      processed: false,
-    });
+    let inboundId: string | null = null;
 
-    if (inErr) console.error('INBOUND_DB_INSERT_ERR', inErr);
+    const { data: inboundRow, error: inErr } = await supabase
+      .from('messages_in')
+      .insert({
+        account_id: accountId,
+        lead_id: leadId,
+        from_phone: from,
+        to_phone: to,
+        body: bodyText,
+        processed: false,
+      })
+      .select('id')
+      .single();
+
+    if (inErr) {
+      console.error('INBOUND_DB_INSERT_ERR', inErr);
+    } else {
+      inboundId = inboundRow?.id ?? null;
+    }
 
     if (leadId) {
       const { error: bumpErr } = await supabase
@@ -318,29 +335,65 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       console.error('LINK_DECISION_ERR', linkErr);
     }
 
-    const { error: outErr } = await supabase.from('messages_out').insert({
-      account_id: accountId,
-      lead_id: leadId,
-      to_phone: from,
-      from_phone: to,
-      body: finalReply,
-      status: 'sent',
-      sent_by: 'ai',
-      provider: 'twilio',
-      channel: 'sms',
-    });
-    if (outErr) console.error('OUTBOUND_SAVE_ERR', outErr);
+    const aiText = finalReply.slice(0, 320);
+
+    let outId: string | null = null;
+    const { data: outInsert, error: outErr } = await supabase
+      .from('messages_out')
+      .insert({
+        account_id: accountId,
+        lead_id: leadId,
+        to_phone: from,
+        from_phone: to,
+        body: aiText,
+        sent_by: 'ai',
+        provider: 'twilio',
+        status: 'queued',
+        provider_status: 'queued',
+        channel: 'sms',
+      })
+      .select('id')
+      .single();
+
+    if (outErr) {
+      console.error('OUTBOUND_PLACEHOLDER_ERR', outErr);
+    } else {
+      outId = outInsert?.id ?? null;
+    }
+
+    let statusUrl: string | null = null;
+    if (PUBLIC_BASE_URL) {
+      const outParam = outId ? `&out_id=${encodeURIComponent(String(outId))}` : '';
+      statusUrl = `${PUBLIC_BASE_URL}/api/webhooks/twilio/status?account_id=${encodeURIComponent(accountId)}${outParam}`;
+    }
+
+    sendTwiml(res, aiText, statusUrl ?? undefined);
 
     if (leadId) {
       const { error: leadUpd2 } = await supabase
         .from('leads')
         .update({ last_sent_at: new Date().toISOString() })
-        .eq('id', leadId)
-        .eq('account_id', accountId);
+        .eq('account_id', accountId)
+        .eq('id', leadId);
       if (leadUpd2) console.error('LEAD_UPD_OUTBOUND_ERR', leadUpd2);
     }
 
-    sendTwiml(res, finalReply);
+    const processedUpdate = supabase
+      .from('messages_in')
+      .update({ processed: true })
+      .eq('account_id', accountId)
+      .eq('from_phone', from)
+      .eq('to_phone', to)
+      .is('processed', false);
+
+    if (inboundId) {
+      processedUpdate.eq('id', inboundId);
+    }
+
+    const { error: processedErr } = await processedUpdate;
+    if (processedErr) console.error('INBOUND_MARK_PROCESSED_ERR', processedErr);
+
+    return;
   } catch (err) {
     console.error('WEBHOOK_FATAL', err);
     sendTwiml(res, SAFE_FALLBACK);
