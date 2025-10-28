@@ -1,4 +1,4 @@
-import { draftSmsReply } from "@/lib/ai";
+import { DEFAULT_AI_FALLBACK_MESSAGE, generateSmsReply } from "@/lib/ai";
 
 type RunAiArgs = {
   fromPhone: string;
@@ -20,11 +20,29 @@ export async function runAi({
   bookingLink,
 }: RunAiArgs): Promise<string> {
   const leadName = fullName ?? firstName ?? null;
-  const text = await draftSmsReply({
-    brand,
-    booking: bookingLink,
-    lead: { name: leadName, phone: fromPhone },
-    lastInbound: userText,
-  });
-  return text;
+  try {
+    const ctx = {
+      brand,
+      booking_link: bookingLink || null,
+      lead_phone: fromPhone,
+      twilio_number: _toPhone,
+      first_name: leadName,
+      inbound_text: userText,
+      is_new_thread: true,
+      last_contact_30d_ago: true,
+      last_footer_within_30d: false,
+      scheduling_intent: /(book|schedule|availability|call)/i.test(userText),
+      asked_who_is_this: /who\s+is\s+this/i.test(userText),
+      quiet_hours_block: false,
+      state_cap_block: false,
+      opt_out_phrase: null,
+      help_requested: false,
+    };
+    const result = await generateSmsReply(ctx);
+    const message = typeof result?.message === 'string' ? result.message.trim() : '';
+    return message || DEFAULT_AI_FALLBACK_MESSAGE;
+  } catch (err) {
+    console.error('RUN_AI_GENERATE_ERR', err);
+    return DEFAULT_AI_FALLBACK_MESSAGE;
+  }
 }

@@ -1,6 +1,71 @@
-// lib/ai.ts
-const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
-const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+import OpenAI from 'openai';
+
+export type SmsReplyContract = {
+  intent: string;
+  confidence: number;
+  message: string;
+  needs_footer: boolean;
+  actions: Array<Record<string, unknown>>;
+  hold_until: string | null;
+  policy_flags: {
+    quiet_hours_block: boolean;
+    state_cap_block: boolean;
+    footer_appended: boolean;
+    opt_out_processed: boolean;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+};
+
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+
+const SAFE_FALLBACK: SmsReplyContract = {
+  intent: 'other',
+  confidence: 0.3,
+  message: "Happy to help and share details. Would you like a quick 10-min call, or should I text a brief summary?",
+  needs_footer: false,
+  actions: [] as Array<Record<string, unknown>>,
+  hold_until: null as string | null,
+  policy_flags: {
+    quiet_hours_block: false,
+    state_cap_block: false,
+    footer_appended: false,
+    opt_out_processed: false,
+  },
+};
+
+export const DEFAULT_AI_FALLBACK_MESSAGE = SAFE_FALLBACK.message;
+
+export async function generateSmsReply(ctx: Record<string, unknown>): Promise<SmsReplyContract> {
+  const system = process.env.SMS_SYSTEM_PROMPT;
+  if (!system) throw new Error('Missing SMS_SYSTEM_PROMPT');
+
+  try {
+    const user = JSON.stringify(ctx);
+
+    const r = await client.chat.completions.create({
+      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      temperature: 0.3,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      response_format: { type: 'json_object' },
+    });
+
+    const raw = r.choices?.[0]?.message?.content?.trim() || '{}';
+    try {
+      const parsed = JSON.parse(raw) as SmsReplyContract;
+      return parsed ?? { ...SAFE_FALLBACK };
+    } catch (e) {
+      console.error('GENERATE_SMS_REPLY_PARSE_ERR', e, raw);
+      return { ...SAFE_FALLBACK };
+    }
+  } catch (err) {
+    console.error('GENERATE_SMS_REPLY_ERR', err);
+    return { ...SAFE_FALLBACK };
+  }
+}
 
 type DraftParams = {
   brand: string;
@@ -17,52 +82,23 @@ export async function draftSmsReply({
   lastInbound,
   managedMode = true,
 }: DraftParams): Promise<string> {
-  const system = [
-    `You are the SMS assistant for ${brand}.`,
-    `Constraints:`,
-    `- Keep replies <= 160 characters.`,
-    `- Warm, concise, human tone; no emojis.`,
-    `- Do NOT include any opt-out text. The platform adds it only when required.`,
-    `- If booking link is provided, prefer sharing it: ${booking || '(none)'} .`,
-    `- If user asks to pause/stop, do not send a marketing reply (platform handles compliance keywords).`,
-    `- If unclear, ask a short clarifying question or offer a quick time window.`,
-    `- Avoid quoting prices or medical claims; suggest confirming on the call.`,
-    `Managed mode: ${managedMode ? 'enabled' : 'disabled'} (assume managed).`,
-  ].join('\n');
+  const ctx = {
+    brand,
+    booking_link: booking || null,
+    first_name: lead.name || null,
+    inbound_text: lastInbound,
+    is_new_thread: managedMode,
+    last_contact_30d_ago: true,
+    last_footer_within_30d: false,
+    scheduling_intent: false,
+    asked_who_is_this: false,
+    quiet_hours_block: false,
+    state_cap_block: false,
+    opt_out_phrase: null,
+    help_requested: false,
+  };
 
-  // !!! - Need to pass the entire message history into the 
-  // model, not just last inbound
-  const user = [
-    `Lead name: ${lead.name || 'there'} (${lead.phone})`,
-    `Last inbound message: "${lastInbound}"`,
-    booking ? `Booking link available: ${booking}` : `No booking link available.`,
-    `Reply in one SMS (<=160 chars).`,
-  ].join('\n');
-
-  const resp = await fetch(OPENAI_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-      temperature: 0.4,
-      max_tokens: 120,
-    }),
-  });
-
-  if (!resp.ok) {
-    const err = await resp.text().catch(() => '');
-    throw new Error(`OpenAI error: ${resp.status} ${err}`);
-  }
-  const json = await resp.json();
-  const text: string | undefined = json?.choices?.[0]?.message?.content?.trim();
-  if (!text) throw new Error('No draft returned from OpenAI');
-  // Hard trim in case a model goes long
-  return text.length > 160 ? text.slice(0, 160) : text;
+  const result = await generateSmsReply(ctx).catch(() => ({ ...SAFE_FALLBACK }));
+  const message = typeof result?.message === 'string' ? result.message.trim() : '';
+  return message || SAFE_FALLBACK.message;
 }
