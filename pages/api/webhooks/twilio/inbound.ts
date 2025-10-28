@@ -176,7 +176,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (!reply) {
       reply = textRaw.length <= 140
-        ? `You said: "${textRaw}". Can you clarify what you'd like me to do next?`
+        ? ``
         : "Got your note—what's the next step you'd like?";
     }
 
