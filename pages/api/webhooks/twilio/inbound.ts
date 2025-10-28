@@ -367,3 +367,51 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
 }
+
+/** Ensure booking link is present and last when inbound looks like scheduling. */
+function ensureBookingLinkAtEnd(req: any, finalReply: string): string {
+  try {
+    const inbound = (req as any)?.body?.Body;
+    const inboundText = (typeof inbound === 'string' ? inbound : '').trim();
+
+    // Leave exact whois reply untouched
+    if (/^\s*Charlie\s+from\s+Outbound\s*Revive\.\s*$/i.test(finalReply)) return finalReply;
+
+    const scheduleLike = /\b(book|schedule|resched|re\s*book|zoom|call|meet(ing)?|slot|time(s)?|availability|available|tomorrow|today|next\s+week|this\s+week|calendar|calendly)\b/i
+      .test(inboundText);
+
+    const bookingLink = (process.env.CAL_BOOKING_URL || process.env.CAL_PUBLIC_URL || process.env.CAL_URL || '').trim();
+    if (!scheduleLike || !bookingLink) return finalReply;
+
+    // Replace {{booking_link}} token if present
+    finalReply = finalReply.replace(/\{\{\s*booking_link\s*\}\}/ig, bookingLink).trim();
+
+    // If no URL is present, append the link; ensure link is last
+    if (!/https?:\/\/\S+/i.test(finalReply)) {
+      const sep = /[.!?]\s*$/.test(finalReply) || finalReply === '' ? ' ' : ': ';
+      finalReply = (finalReply + sep + bookingLink).trim();
+    } else {
+      // Dedupe and make the last token the link
+      const urls = finalReply.match(/https?:\/\/\S+/gi) || [];
+      const last = urls[urls.length - 1];
+      finalReply = finalReply.replace(/https?:\/\/\S+/gi, '').trim();
+      finalReply = (finalReply ? finalReply + ' ' : '') + last;
+    }
+
+    // Clamp ≤320 chars while preserving trailing link
+    if (finalReply.length > 320) {
+      const m = finalReply.match(/\s(https?:\/\/\S+)\s*$/);
+      if (m) {
+        const link = m[1];
+        const head = finalReply.slice(0, Math.max(0, 320 - link.length - 1)).trim();
+        finalReply = (head ? head + ' ' : '') + link;
+      } else {
+        finalReply = finalReply.slice(0, 320);
+      }
+    }
+
+    return finalReply;
+  } catch {
+    return finalReply;
+  }
+}
