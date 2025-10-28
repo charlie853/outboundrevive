@@ -291,8 +291,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const isScheduleLike = SCHED_RE.test(inboundBody) || SCHED_RE.test(aiReply);
   const gateHit = bookingLink ? await wasLinkSentInLast24h(accountId, From) : false;
 
-  let finalReply = postProcessSms({
-
+  let finalReply = postProcessSms({});
     // Special case: exact “who is this”
   if (/^\s*who\s+is\s+this\??\s*$/i.test(inboundBody)) {
     finalReply = "Charlie from OutboundRevive.";
