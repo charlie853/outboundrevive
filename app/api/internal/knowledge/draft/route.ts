@@ -12,6 +12,11 @@ function isAdmin(req: Request) {
     (process.env.ADMIN_TOKEN?.trim() || '');
   return !!want && got === want;
 }
+function hasInternalSecret(req: Request) {
+  const hdrSecret = (req.headers.get('x-internal-secret') || req.headers.get('X-Internal-Secret') || '').trim();
+  const want = (process.env.INTERNAL_API_SECRET || '').trim();
+  return !!want && hdrSecret === want;
+}
 
 // ── shared helpers (match /answer behavior)
 async function tableExists(name: string) {
@@ -282,7 +287,7 @@ function shapeSms(text: string, maxChars: number, includeFooter = false, footer 
 }
 
 export async function POST(req: NextRequest) {
-  if (!isAdmin(req)) {
+  if (!(hasInternalSecret(req) || isAdmin(req))) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
