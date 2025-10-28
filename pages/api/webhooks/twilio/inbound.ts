@@ -16,6 +16,8 @@ function publicBase(req: NextApiRequest) {
   return host.replace(/\/+$/, '');
 }
 
+const FALLBACK_REPLY = 'Thanks—message received.';
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Twilio posts application/x-www-form-urlencoded
   try {
@@ -29,7 +31,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       res
         .status(200)
         .setHeader('content-type', 'text/xml')
-        .send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>Thanks—message received.</Message></Response>`);
+        .send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(FALLBACK_REPLY)}</Message></Response>`);
       return;
     }
 
@@ -73,16 +75,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     } catch {}
 
-    let replyText = '';
+    let replyText = FALLBACK_REPLY;
 
     // (1) Call your existing internal draft route (App Router) with secret
     try {
       const draftUrl = `${publicBase(req)}/api/internal/knowledge/draft`;
+      const secret = (process.env.INTERNAL_API_SECRET || '').trim();
       const r = await fetch(draftUrl, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'x-internal-secret': process.env.INTERNAL_API_SECRET || '',
+          'x-internal-secret': secret,
         },
         body: JSON.stringify({
           account_id,
@@ -94,13 +97,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
       if (r.ok) {
         const dj = await r.json().catch(() => ({} as any));
-        const drafted = (dj?.text || dj?.draft || dj?.message || '').trim();
-        if (drafted) replyText = drafted;
+        const candidate =
+          dj?.reply ??
+          dj?.text ??
+          dj?.draft?.text ??
+          dj?.draft ??
+          dj?.message ??
+          '';
+        const drafted = typeof candidate === 'string' ? candidate.trim() : '';
+        if (drafted) replyText = drafted.slice(0, 480);
       }
     } catch {}
 
     // (2) Optional inline OpenAI fallback if internal route gave nothing
-    if (!replyText && process.env.OPENAI_API_KEY) {
+    if (enabled && replyText === FALLBACK_REPLY && process.env.OPENAI_API_KEY) {
       try {
         const model = process.env.AI_MODEL || 'gpt-4o-mini';
         const sys = `You are the SMS assistant for ${brand}. Be concise, friendly, and helpful. Keep messages under 480 characters.`;
@@ -119,12 +129,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         });
         const jj = rr.ok ? await rr.json() : null;
         const ai = jj?.choices?.[0]?.message?.content?.trim();
-        if (ai) replyText = ai;
+        if (ai) replyText = ai.slice(0, 480);
       } catch {}
     }
 
     // If autotexter disabled or AI failed, graceful fallback
-    if (!enabled || !replyText) replyText = 'Thanks—message received.';
+    if (!enabled) replyText = FALLBACK_REPLY;
 
     // (3) Insert messages_out for tracking (even though Twilio sends from TwiML)
     try {
@@ -164,7 +174,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res
       .status(200)
       .setHeader('content-type', 'text/xml')
-      .send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>Thanks—message received.</Message></Response>`);
+      .send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(FALLBACK_REPLY)}</Message></Response>`);
   }
 }
 

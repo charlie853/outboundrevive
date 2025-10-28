@@ -1,21 +1,21 @@
 // app/api/internal/knowledge/draft/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin as db } from '@/lib/supabaseServer';
-
 export const runtime = 'nodejs';
 
-// ── auth helper (ADMIN_API_KEY or ADMIN_TOKEN)
-function isAdmin(req: Request) {
-  const got = (req.headers.get('x-admin-token') || '').trim();
-  const want =
-    (process.env.ADMIN_API_KEY?.trim() || '') ||
-    (process.env.ADMIN_TOKEN?.trim() || '');
-  return !!want && got === want;
+import { NextResponse } from 'next/server';
+import { supabaseAdmin as db } from '@/lib/supabaseServer';
+
+// ── auth helper (internal secret with header normalization)
+function getHeader(req: Request, name: string) {
+  return req.headers.get(name) ?? req.headers.get(name.toLowerCase()) ?? null;
 }
-function hasInternalSecret(req: Request) {
-  const hdrSecret = (req.headers.get('x-internal-secret') || req.headers.get('X-Internal-Secret') || '').trim();
-  const want = (process.env.INTERNAL_API_SECRET || '').trim();
-  return !!want && hdrSecret === want;
+function isAuthorized(req: Request) {
+  const expected = (process.env.INTERNAL_API_SECRET || '').trim();
+  const raw =
+    getHeader(req, 'x-internal-secret') ||
+    getHeader(req, 'x-internal-api-secret') ||
+    (getHeader(req, 'authorization') || '').replace(/^Bearer\s+/i, '');
+  const got = (raw || '').trim();
+  return !!expected && !!got && got === expected;
 }
 
 // ── shared helpers (match /answer behavior)
@@ -286,8 +286,8 @@ function shapeSms(text: string, maxChars: number, includeFooter = false, footer 
   return out;
 }
 
-export async function POST(req: NextRequest) {
-  if (!(hasInternalSecret(req) || isAdmin(req))) {
+export async function POST(req: Request) {
+  if (!isAuthorized(req)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
