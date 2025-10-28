@@ -74,24 +74,33 @@ async function generateWithLLM(userText: string) {
 /** Best-effort persist to Supabase (non-blocking) */
 async function persistOut(fromPhone: string, toPhone: string, body: string) {
   if (!SUPABASE_URL || !SRK || !ACCOUNT_ID || !body) return;
+
   const payload = [{
     account_id: ACCOUNT_ID,
-    to_phone: fromPhone,     // replying to sender
-    from_phone: toPhone,     // your Twilio number
+    to_phone: fromPhone,
+    from_phone: toPhone,
     body,
     sent_by: "ai"
   }];
 
-  await fetch(`${SUPABASE_URL}/rest/v1/messages_out`, {
+  const resp = await fetch(`${SUPABASE_URL}/rest/v1/messages_out`, {
     method: "POST",
     headers: {
       "apikey": SRK,
       "Authorization": `Bearer ${SRK}`,
       "Content-Type": "application/json",
-      "Prefer": "return=minimal"
+      "Prefer": "return=representation"
     },
     body: JSON.stringify(payload)
-  }).catch(() => {});
+  });
+
+  const text = await resp.text();
+  if (!resp.ok) {
+    console.error("messages_out insert failed", resp.status, text);
+    return; // don't throw; we already returned TwiML to Twilio
+  }
+
+  console.log("messages_out insert ok:", text);
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
