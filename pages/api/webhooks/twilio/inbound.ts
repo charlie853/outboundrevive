@@ -299,6 +299,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // TwiML reply (so the user sees it immediately)
   finalReply = ensureBookingLinkAtEnd(req, finalReply);
+  // Flatten whitespace so the SMS is a single clean line (helps tests and carriers)
+  finalReply = (finalReply || '').replace(/\s*\n+\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
 
   const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(finalReply)}</Message></Response>`;
 
