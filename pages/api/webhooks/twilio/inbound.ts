@@ -1,5 +1,4 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { MessagingResponse } from 'twilio/lib/twiml/MessagingResponse';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 
 const SB_URL = process.env.SUPABASE_URL!;
@@ -37,6 +36,12 @@ function nearDuplicate(a: string, b: string) {
   return intersection / union > 0.9;
 }
 
+function escapeXml(s: string) {
+  return s.replace(/[<>&'\"]/g, (c) =>
+    ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' } as Record<string, string>)[c] || c,
+  );
+}
+
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(url, init);
   const text = await resp.text();
@@ -49,7 +54,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
-    res.status(405).send('');
+    sendTwiml(res, '');
     return;
   }
 
@@ -64,7 +69,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const to = normPhone(toRaw);
 
     if (!from || !to) {
-      respond(res, SAFE_FALLBACK);
+      sendTwiml(res, SAFE_FALLBACK);
       return;
     }
 
@@ -106,8 +111,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const errBody = await inUpsert.text();
         const lower = errBody.toLowerCase();
         if (lower.includes('duplicate') || lower.includes('unique')) {
-          res.setHeader('Content-Type', 'text/xml');
-          res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
+          sendTwiml(res, '');
           return;
         }
       }
@@ -231,7 +235,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           /availability|book|schedule|call|time|tomorrow|today/i.test(`${text} ${aiText}`);
 
         if (schedulingIntent) {
-          const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+          const since = encodeURIComponent(new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
           const encTo = encodeURIComponent(from);
           const url =
             `${SB_URL}/rest/v1/messages_out?account_id=eq.${acc.account_id}` +
@@ -293,16 +297,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }).catch((err) => console.error('INBOUND_MARK_PROCESSED_ERR', err));
     }
 
-    respond(res, finalText);
+    sendTwiml(res, finalText);
   } catch (err) {
     console.error('WEBHOOK_FATAL', err);
-    respond(res, SAFE_FALLBACK);
+    sendTwiml(res, SAFE_FALLBACK);
   }
 }
 
-function respond(res: NextApiResponse, message: string) {
-  const twiml = new MessagingResponse();
-  twiml.message(message);
+function sendTwiml(res: NextApiResponse, message: string) {
   res.setHeader('Content-Type', 'text/xml');
-  res.status(200).send(twiml.toString());
+  res
+    .status(200)
+    .send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(message)}</Message></Response>`);
 }
