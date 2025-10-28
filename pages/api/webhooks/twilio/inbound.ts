@@ -45,7 +45,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res
       .status(200)
       .setHeader('Content-Type', 'text/xml')
-      .send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+      .send('<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(aiReply)}</Message></Response>');
   }
 
   // --- LLM draft call (first pass) ---
