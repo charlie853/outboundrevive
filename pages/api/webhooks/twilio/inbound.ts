@@ -3,14 +3,21 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import twilio from 'twilio';
 
 const DEFAULT_ACCOUNT_ID = (process.env.DEFAULT_ACCOUNT_ID || '').trim();
-const SAFE_FALLBACK = "Got it. Can you share a bit more detail on what you're looking for? I'll tailor the next steps.";
+const SAFE_FALLBACK = 'Thanks for reaching out. Want me to outline how we revive stalled leads, or should I focus on something else first?';
 const BOOKING_LINK = (process.env.CAL_BOOKING_URL || process.env.CAL_PUBLIC_URL || '').trim();
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').trim();
 const INTERNAL_SECRET = (process.env.INTERNAL_API_SECRET || '').trim();
 
 export const config = {
-  api: { bodyParser: true },
+  api: { bodyParser: false },
 };
+
+async function parseTwilioForm(req: any) {
+  const chunks: Buffer[] = [];
+  for await (const c of req) chunks.push(c as Buffer);
+  const raw = Buffer.concat(chunks).toString('utf8');
+  return Object.fromEntries(new URLSearchParams(raw));
+}
 
 function normPhone(s: string) {
   const d = (s || '').replace(/[^\d+]/g, '');
@@ -48,6 +55,15 @@ async function sentLinkInLast24h(supabase: SupabaseClient, accountId: string, to
   return data.some((row) => String(row?.body || '').includes(bookingUrl));
 }
 
+function neutralFollowUp(body: string, brand: string): string {
+  const cleaned = body.replace(/\s+/g, ' ').trim();
+  if (!cleaned) {
+    return `Thanks for reaching out. Want me to outline how ${brand} revives stalled leads, or should I focus on something else first?`;
+  }
+  const excerpt = cleaned.length > 110 ? `${cleaned.slice(0, 107)}...` : cleaned;
+  return `Got it on "${excerpt}". Want a quick rundown of how ${brand} tackles that, or should I suggest next steps?`;
+}
+
 function sendTwiml(res: NextApiResponse, message: string, statusCallback?: string) {
   const response = new twilio.twiml.MessagingResponse();
   const trimmed = (message || '').trim();
@@ -70,11 +86,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const payload = (req.body || {}) as Record<string, unknown>;
-    const rawFrom = String((payload.From ?? payload.from ?? '') || '');
-    const rawTo = String((payload.To ?? payload.to ?? '') || '');
-    const bodyText = String(payload.Body ?? payload.body ?? '').trim();
-    const profileName = typeof payload.ProfileName === 'string' ? String(payload.ProfileName).trim() : null;
+    const form = await parseTwilioForm(req);
+    const rawFrom = String(form.From || '');
+    const rawTo = String(form.To || '');
+    const bodyText = String(form.Body || '').trim();
+    const profileName = typeof form.ProfileName === 'string' ? String(form.ProfileName).trim() : null;
+
+    console.log('INBOUND:', { fromPhone: rawFrom, toPhone: rawTo, textRaw: bodyText });
 
     const from = normPhone(cleanE164(rawFrom));
     const to = normPhone(cleanE164(rawTo));
@@ -350,6 +368,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       replyText = `We revive stalled pipeline for ${brand}: rebooking no-shows, warming inbound trials, and following up web leads fast. Are you focused on bookings or another funnel step?`;
     } else if (asksResults) {
       replyText = 'Revive campaigns typically turn 10-20% of cold or no-show leads into fresh conversations within two weeks. Want a quick call to compare playbooks?';
+    } else if (bodyText.trim().length) {
+      replyText = neutralFollowUp(bodyText, brand);
     }
 
     if (replyText) {
@@ -412,7 +432,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (!aiReply) {
-      aiReply = SAFE_FALLBACK;
+      aiReply = neutralFollowUp(bodyText, brand);
     }
 
     if (shouldIntroduce && !/\bOutboundRevive\b/i.test(aiReply) && !/\bCharlie\b/i.test(aiReply)) {
