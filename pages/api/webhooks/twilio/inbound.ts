@@ -1,300 +1,109 @@
+/* LLM-first inbound Twilio webhook (Pages API)
+   - parses x-www-form-urlencoded
+   - calls /api/ai/draft
+   - sends via /api/sms/send (persisted to messages_out)
+   - returns empty TwiML to avoid dup sends
+*/
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { supabaseAdmin } from '@/lib/supabaseServer';
 
-const DEFAULT_ACCOUNT_ID = (process.env.DEFAULT_ACCOUNT_ID || '').trim();
-const SAFE_FALLBACK = "Happy to help and share details. Would you like a quick 10-min call, or should I text a brief summary?";
-const BOOKING_LINK = (process.env.CAL_BOOKING_URL || process.env.CAL_PUBLIC_URL || '').trim();
-const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').trim();
-const INTERNAL_SECRET = (process.env.INTERNAL_API_SECRET || '').trim();
-
-export const config = {
-  api: { bodyParser: true },
-};
-
-function normPhone(s: string) {
-  const d = (s || '').replace(/[^\d+]/g, '');
-  if (!d) return '';
-  if (d.startsWith('+')) return `+${d.replace(/^\++/, '')}`;
-  const digits = d.replace(/^\++/, '');
-  const withCountry = digits.length === 10 ? `1${digits}` : digits;
-  return `+${withCountry}`;
-}
-
-const clean = (p: string) => (p || '').replace(/\s+/g, '').replace(/\r/g, '');
-
-function isSchedulingIntent(message: string): boolean {
-  const msg = (message || '').toLowerCase();
-  const booking = /\b(book|schedule|reschedul|move|slot|availability|available|time|tomorrow|today|next\s+(mon|tue|wed|thu|fri|week))\b/;
-  const modality = /\b(call|meeting|appt|appointment|zoom|phone|chat)\b/;
-  return booking.test(msg) && modality.test(msg);
-}
-
-function askedWhoIsThis(input: string): boolean {
-  return /\bwho\s+is\s+(this|that)\b/i.test(input || '');
-}
-
-function sanitizeForLinkInjection(s: string): string {
-  let out = s;
-
-  out = out
-    .replace(
-      /(?:^|[.!?]\s*)([^.!?]*\bI can[\u2019']?t send links\b[^.!?]*)([.!?])?/gi,
-      (_match, _sentence, endPunct = '') => (endPunct ? endPunct : ''),
-    )
-    .trim();
-
-  out = out.replace(/(^|\.\s+)(?:but|however),?\s+/gi, '$1');
-  out = out.replace(/\bI[\u2019']?m sorry,?\s*but\s*\.(\s|$)/gi, '');
-  out = out.replace(/\s{2,}/g, ' ').trim();
-
-  return out;
-}
+export const config = { api: { bodyParser: false } };
 
 function escapeXml(s: string) {
-  return s.replace(/[<>&'\"]/g, (c) =>
-    ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' } as Record<string, string>)[c] || c,
+  return s.replace(/[<>&'"]/g, (c) =>
+    ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' } as any)[c]
   );
 }
 
-async function sentLinkInLast24h(accountId: string, toPhone: string, bookingUrl: string) {
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { data, error } = await supabaseAdmin
-    .from('messages_out')
-    .select('id,body,created_at')
-    .eq('account_id', accountId)
-    .eq('to_phone', toPhone)
-    .gte('created_at', since)
-    .order('created_at', { ascending: false })
-    .limit(50);
-
-  if (error || !data) {
-    if (error) console.error('LINK_HISTORY_ERR', error);
-    return false;
-  }
-
-  return data.some((row) => String(row?.body || '').includes(bookingUrl));
-}
-
-function sendTwiml(res: NextApiResponse, message: string) {
-  res.setHeader('Content-Type', 'text/xml');
-  const trimmed = (message || '').trim();
-  const body = trimmed
-    ? `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(trimmed)}</Message></Response>`
-    : '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
-  res.status(200).send(body);
+async function readRawBody(req: NextApiRequest): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Uint8Array[] = [];
+    req.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
-    sendTwiml(res, 'OK');
-    return;
+    return res.status(405).send('Method Not Allowed');
   }
 
-  try {
-    const payload = (req.body || {}) as Record<string, unknown>;
-    const fromInput = clean(String((payload.From ?? payload.from ?? '') || ''));
-    const toInput = clean(String((payload.To ?? payload.to ?? '') || ''));
-    const bodyText = String(payload.Body ?? payload.body ?? '').trim();
-    const profileName = typeof payload.ProfileName === 'string' ? String(payload.ProfileName).trim() : null;
+  // --- Parse Twilio form payload ---
+  const raw = await readRawBody(req);
+  const form = new URLSearchParams(raw);
+  const fromPhone = (form.get('From') || '').trim();  // lead's phone
+  const toPhone   = (form.get('To')   || '').trim();  // your Twilio number
+  const textRaw   = (form.get('Body') || '').trim();
 
-    const from = normPhone(fromInput);
-    const to = normPhone(toInput);
+  const accountId = (process.env.DEFAULT_ACCOUNT_ID || '').trim();
+  const baseUrl   = (process.env.PUBLIC_BASE_URL || '').trim();
+  const secret    = (process.env.INTERNAL_API_SECRET || '').trim();
+  const calUrl    = (process.env.CAL_BOOKING_URL || process.env.CAL_PUBLIC_URL || process.env.CAL_URL || '').trim();
 
-    if (!from || !to || !DEFAULT_ACCOUNT_ID) {
-      console.error('WEBHOOK_BAD_INPUT', { from, to });
-      sendTwiml(res, SAFE_FALLBACK);
-      return;
-    }
-
-    let accountId = DEFAULT_ACCOUNT_ID;
-    let brand = 'OutboundRevive';
-    let accountBookingLink = '';
-
-    try {
-      const { data: acctRows, error: acctErr } = await supabaseAdmin
-        .from('account_settings')
-        .select('account_id,brand,booking_link')
-        .eq('phone_from', to)
-        .limit(1);
-
-      if (acctErr) {
-        console.error('ACCOUNT_LOOKUP_ERR', acctErr);
-      }
-
-      if (Array.isArray(acctRows) && acctRows.length) {
-        accountId = acctRows[0].account_id || accountId;
-        brand = acctRows[0].brand?.trim() || brand;
-        accountBookingLink = acctRows[0].booking_link?.trim() || '';
-      }
-    } catch (lookupErr) {
-      console.error('ACCOUNT_LOOKUP_EX', lookupErr);
-    }
-
-    let leadId: string | null = null;
-    try {
-      const { data: leadRows, error: leadErr } = await supabaseAdmin
-        .from('leads')
-        .upsert(
-          {
-            account_id: accountId,
-            phone: from,
-            name: profileName && profileName.length ? profileName : null,
-            status: 'active',
-          },
-          { onConflict: 'phone' },
-        )
-        .select('id')
-        .limit(1);
-
-      if (leadErr) {
-        console.error('LEAD_UPSERT_ERR', leadErr);
-      }
-
-      if (Array.isArray(leadRows) && leadRows.length) {
-        leadId = leadRows[0]?.id ? String(leadRows[0].id) : null;
-      }
-    } catch (leadEx) {
-      console.error('LEAD_UPSERT_EX', leadEx);
-    }
-
-    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-
-    const [inHistoryResult, outHistoryResult] = await Promise.all([
-      supabaseAdmin
-        .from('messages_in')
-        .select('created_at,body')
-        .eq('account_id', accountId)
-        .eq('from_phone', from)
-        .order('created_at', { ascending: true })
-        .limit(12),
-      supabaseAdmin
-        .from('messages_out')
-        .select('created_at,body')
-        .eq('account_id', accountId)
-        .eq('to_phone', from)
-        .order('created_at', { ascending: true })
-        .limit(12),
-    ]);
-
-    if (inHistoryResult.error) console.error('IN_HISTORY_ERR', inHistoryResult.error);
-    if (outHistoryResult.error) console.error('OUT_HISTORY_ERR', outHistoryResult.error);
-
-    const inboundHistoryRaw = Array.isArray(inHistoryResult.data) ? inHistoryResult.data : [];
-    const outboundHistoryRaw = Array.isArray(outHistoryResult.data) ? outHistoryResult.data : [];
-
-    const inboundHistory = inboundHistoryRaw.map((msg) => ({ at: msg.created_at, role: 'user' as const, content: msg.body || '' }));
-    const outboundHistory = outboundHistoryRaw.map((msg) => ({ at: msg.created_at, role: 'assistant' as const, content: msg.body || '' }));
-
-    const hasHistory = inboundHistory.length > 0 || outboundHistory.length > 0;
-    const lastInboundTimestamp = inboundHistoryRaw.length
-      ? Date.parse(inboundHistoryRaw[inboundHistoryRaw.length - 1].created_at)
-      : null;
-    const lastOutboundTimestamp = outboundHistoryRaw.length
-      ? Date.parse(outboundHistoryRaw[outboundHistoryRaw.length - 1].created_at)
-      : null;
-    const timestampCandidates = [lastInboundTimestamp, lastOutboundTimestamp].filter(
-      (v): v is number => typeof v === 'number' && !Number.isNaN(v),
-    );
-    const lastContactTimestamp = timestampCandidates.length ? Math.max(...timestampCandidates) : null;
-
-    let shouldIntroduce = askedWhoIsThis(bodyText) || !hasHistory;
-    if (!shouldIntroduce && lastContactTimestamp !== null) {
-      shouldIntroduce = Date.now() - lastContactTimestamp > THIRTY_DAYS_MS;
-    }
-
-    const llmHistory = [...inboundHistory, ...outboundHistory]
-      .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
-      .slice(-12)
-      .map((entry) => ({ role: entry.role, content: entry.content }));
-
-    void supabaseAdmin
-      .from('messages_in')
-      .insert({
-        account_id: accountId,
-        lead_id: leadId,
-        from_phone: from,
-        to_phone: to,
-        body: bodyText,
-        processed: true,
-        provider: 'twilio',
-      })
-      .then(({ error }) => {
-        if (error) console.error('INBOUND_SAVE_ERR', error);
-      });
-
-    let reply = '';
-
-    if (PUBLIC_BASE_URL && INTERNAL_SECRET) {
-      try {
-        const draftResp = await fetch(`${PUBLIC_BASE_URL}/api/internal/knowledge/draft`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'x-internal-secret': INTERNAL_SECRET,
-          },
-          body: JSON.stringify({
-            account_id: accountId,
-            q: bodyText,
-            history: llmHistory,
-            hints: { brand, should_introduce: shouldIntroduce },
-          }),
-        });
-
-        if (draftResp.ok) {
-          const draftJson = (await draftResp.json().catch(() => ({}))) as { reply?: string };
-          reply = String(draftJson?.reply || '').trim();
-        } else {
-          console.warn('DRAFT_CALL_BAD_STATUS', draftResp.status, await draftResp.text());
-        }
-      } catch (draftErr) {
-        console.error('DRAFT_CALL_ERR', draftErr);
-      }
-    } else {
-      console.warn('DRAFT_CALL_SKIPPED_NO_BASE');
-    }
-
-    if (!reply) {
-      reply = SAFE_FALLBACK;
-    }
-
-    if (shouldIntroduce && !/\bOutboundRevive\b/i.test(reply) && !/\bCharlie\b/i.test(reply)) {
-      reply = `Hi, it's Charlie from OutboundRevive with ${brand}. ${reply}`;
-    }
-
-    let finalReply = reply.trim();
-    const bookingUrl = (BOOKING_LINK || accountBookingLink || '').trim();
-
-    try {
-      if (bookingUrl && isSchedulingIntent(bodyText)) {
-        const alreadySent = await sentLinkInLast24h(accountId, from, bookingUrl);
-        if (!alreadySent && !finalReply.includes(bookingUrl)) {
-          finalReply = `${sanitizeForLinkInjection(finalReply)} ${bookingUrl}`.trim();
-        }
-      }
-    } catch (linkErr) {
-      console.error('LINK_DECISION_ERR', linkErr);
-    }
-
-    void supabaseAdmin
-      .from('messages_out')
-      .insert({
-        account_id: accountId,
-        lead_id: leadId,
-        to_phone: from,
-        from_phone: to,
-        body: finalReply,
-        status: 'sent',
-        sent_by: 'ai',
-        provider: 'twilio',
-        channel: 'sms',
-      })
-      .then(({ error }) => {
-        if (error) console.error('OUTBOUND_SAVE_ERR', error);
-      });
-
-    sendTwiml(res, finalReply);
-  } catch (err) {
-    console.error('WEBHOOK_FATAL', err);
-    sendTwiml(res, SAFE_FALLBACK);
+  if (!fromPhone || !toPhone || !accountId || !baseUrl || !secret) {
+    // Acknowledge to Twilio to stop retries, but don't send an outbound.
+    return res
+      .status(200)
+      .setHeader('Content-Type', 'text/xml')
+      .send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
   }
+
+  // --- LLM draft call (first pass) ---
+  async function aiDraft(prompt: string, hints: any = {}) {
+    const r = await fetch(`${baseUrl}/api/ai/draft`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-internal-secret': secret },
+      body: JSON.stringify({ account_id: accountId, q: prompt, hints })
+    }).catch(() => null);
+
+    if (!r || !r.ok) return '';
+    const j: any = await r.json().catch(() => ({}));
+    return (j?.reply || j?.draft || '').trim();
+  }
+
+  // System rules for the SMS model are in SMS_SYSTEM_PROMPT env on Vercel.
+  const basePrompt = `Only output one SMS (<=320 chars). Be direct and specific. User said: "${textRaw}"`;
+
+  let aiReply = await aiDraft(basePrompt, { brand: 'OutboundRevive', should_introduce: false });
+
+  // Special-case: whois
+  if (/^\s*(who\s+is\s+this|who[’'`]s\s+this|who\s+dis)\s*$/i.test(textRaw)) {
+    aiReply = 'Charlie from OutboundRevive.';
+  }
+
+  // Retry once if blank
+  if (!aiReply) {
+    aiReply = await aiDraft(`Reply with a single helpful SMS (<=320 chars) to: "${textRaw}"`, {});
+  }
+
+  // Smart Calendly append for schedule intent
+  const wantsSchedule = /\b(book|schedule|zoom|call)\b/i.test(textRaw);
+  if (wantsSchedule && calUrl && !aiReply.includes(calUrl)) {
+    aiReply = aiReply ? `${aiReply} ${calUrl}` : `Here’s my booking link: ${calUrl}`;
+  }
+
+  // Final guard: if still blank, send the minimal identity line (better than a dead end)
+  if (!aiReply) {
+    aiReply = 'Charlie from OutboundRevive.';
+  }
+
+  // --- REST-only send & persist ---
+  await fetch(`${baseUrl}/api/sms/send`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-internal-secret': secret },
+    body: JSON.stringify({
+      account_id: accountId,
+      // lead_id optional—your /api/sms/send can resolve by phone
+      to: fromPhone,    // outbound goes back to the sender
+      from: toPhone,    // your Twilio number
+      body: aiReply,
+      sent_by: 'ai'
+    })
+  }).catch(() => { /* swallow, we still ack Twilio */ });
+
+  // --- Ack Twilio with empty TwiML to avoid double-send ---
+  return res
+    .status(200)
+    .setHeader('Content-Type', 'text/xml')
+    .send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
 }
