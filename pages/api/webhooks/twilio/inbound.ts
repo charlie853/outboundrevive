@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { supabaseAdmin } from '@/lib/supabaseServer';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 const DEFAULT_ACCOUNT_ID = (process.env.DEFAULT_ACCOUNT_ID || '').trim();
 const SAFE_FALLBACK = "Happy to help and share details. Would you like a quick 10-min call, or should I text a brief summary?";
@@ -10,6 +10,13 @@ const INTERNAL_SECRET = (process.env.INTERNAL_API_SECRET || '').trim();
 export const config = {
   api: { bodyParser: true },
 };
+
+function admin(): SupabaseClient {
+  const url = process.env.SUPABASE_URL?.trim();
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!url || !key) throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
+}
 
 function normPhone(s: string) {
   const d = (s || '').replace(/[^\d+]/g, '');
@@ -56,9 +63,9 @@ function escapeXml(s: string) {
   );
 }
 
-async function sentLinkInLast24h(accountId: string, toPhone: string, bookingUrl: string) {
+async function sentLinkInLast24h(supabase: SupabaseClient, accountId: string, toPhone: string, bookingUrl: string) {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('messages_out')
     .select('id,body,created_at')
     .eq('account_id', accountId)
@@ -106,12 +113,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return;
     }
 
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY || !process.env.SUPABASE_URL) {
+      console.error('FATAL_NO_SERVICE_ROLE');
+      sendTwiml(res, SAFE_FALLBACK);
+      return;
+    }
+
+    const supabase = admin();
+
     let accountId = DEFAULT_ACCOUNT_ID;
     let brand = 'OutboundRevive';
     let accountBookingLink = '';
 
     try {
-      const { data: acctRows, error: acctErr } = await supabaseAdmin
+      const { data: acctRows, error: acctErr } = await supabase
         .from('account_settings')
         .select('account_id,brand,booking_link')
         .eq('phone_from', to)
@@ -132,7 +147,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     let leadId: string | null = null;
     try {
-      const { data: leadRows, error: leadErr } = await supabaseAdmin
+      const { data: leadRows, error: leadErr } = await supabase
         .from('leads')
         .upsert(
           {
@@ -160,14 +175,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
     const [inHistoryResult, outHistoryResult] = await Promise.all([
-      supabaseAdmin
+      supabase
         .from('messages_in')
         .select('created_at,body')
         .eq('account_id', accountId)
         .eq('from_phone', from)
         .order('created_at', { ascending: true })
         .limit(12),
-      supabaseAdmin
+      supabase
         .from('messages_out')
         .select('created_at,body')
         .eq('account_id', accountId)
@@ -207,20 +222,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .slice(-12)
       .map((entry) => ({ role: entry.role, content: entry.content }));
 
-    void supabaseAdmin
-      .from('messages_in')
-      .insert({
-        account_id: accountId,
-        lead_id: leadId,
-        from_phone: from,
-        to_phone: to,
-        body: bodyText,
-        processed: true,
-        provider: 'twilio',
-      })
-      .then(({ error }) => {
-        if (error) console.error('INBOUND_SAVE_ERR', error);
-      });
+    const nowIso = new Date().toISOString();
+
+    const { error: inErr } = await supabase.from('messages_in').insert({
+      account_id: accountId,
+      lead_id: leadId,
+      from_phone: from,
+      to_phone: to,
+      body: bodyText,
+      processed: true,
+      provider: 'twilio',
+    });
+    if (inErr) console.error('INBOUND_SAVE_ERR', inErr);
+
+    if (leadId) {
+      const { error: leadUpd1 } = await supabase
+        .from('leads')
+        .update({
+          last_inbound_at: nowIso,
+          last_reply_at: nowIso,
+          last_reply_body: bodyText,
+          replied: true,
+        })
+        .eq('id', leadId);
+      if (leadUpd1) console.error('LEAD_UPD_INBOUND_ERR', leadUpd1);
+    }
 
     let reply = '';
 
@@ -266,7 +292,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     try {
       if (bookingUrl && isSchedulingIntent(bodyText)) {
-        const alreadySent = await sentLinkInLast24h(accountId, from, bookingUrl);
+        const alreadySent = await sentLinkInLast24h(supabase, accountId, from, bookingUrl);
         if (!alreadySent && !finalReply.includes(bookingUrl)) {
           finalReply = `${sanitizeForLinkInjection(finalReply)} ${bookingUrl}`.trim();
         }
@@ -275,22 +301,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       console.error('LINK_DECISION_ERR', linkErr);
     }
 
-    void supabaseAdmin
-      .from('messages_out')
-      .insert({
-        account_id: accountId,
-        lead_id: leadId,
-        to_phone: from,
-        from_phone: to,
-        body: finalReply,
-        status: 'sent',
-        sent_by: 'ai',
-        provider: 'twilio',
-        channel: 'sms',
-      })
-      .then(({ error }) => {
-        if (error) console.error('OUTBOUND_SAVE_ERR', error);
-      });
+    const { error: outErr } = await supabase.from('messages_out').insert({
+      account_id: accountId,
+      lead_id: leadId,
+      to_phone: from,
+      from_phone: to,
+      body: finalReply,
+      status: 'sent',
+      sent_by: 'ai',
+      provider: 'twilio',
+      channel: 'sms',
+    });
+    if (outErr) console.error('OUTBOUND_SAVE_ERR', outErr);
+
+    if (leadId) {
+      const { error: leadUpd2 } = await supabase.from('leads').update({ last_sent_at: nowIso }).eq('id', leadId);
+      if (leadUpd2) console.error('LEAD_UPD_OUTBOUND_ERR', leadUpd2);
+    }
 
     sendTwiml(res, finalReply);
   } catch (err) {
