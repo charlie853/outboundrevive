@@ -95,29 +95,57 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       replyText = replyText.slice(0, 480);
     }
 
-    // --- persist the outbound AI reply so dashboard & metrics can see it ---
+    // --- persist outbound AI reply so dashboards see it ---
     try {
       const sbUrl = process.env.SUPABASE_URL!;
       const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-      const body = {
-        account_id,
-        to_phone: From,
-        from_phone: To,
-        body: replyText,
-        status: 'queued',
-      };
+      const defaultAccount = process.env.DEFAULT_ACCOUNT_ID;
 
-      await fetch(`${sbUrl}/rest/v1/messages_out`, {
+      // Normalize E.164 inputs (strip whitespace/newlines)
+      const toPhone = (From || '').replace(/\s+/g, '');
+      const fromPhone = (To || '').replace(/\s+/g, '');
+
+      // Best-effort resolve account_id by Twilio number, else fallback
+      let accountIdForInsert = account_id || defaultAccount;
+      try {
+        const s = await fetch(
+          `${sbUrl}/rest/v1/account_settings?select=account_id&phone_from=eq.${encodeURIComponent(fromPhone)}&limit=1`,
+          { headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}` } }
+        );
+        if (s.ok) {
+          const j = await s.json();
+          if (Array.isArray(j) && j[0]?.account_id) accountIdForInsert = j[0].account_id;
+        }
+      } catch {}
+
+      // Insert outbound row
+      const ins = await fetch(`${sbUrl}/rest/v1/messages_out`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
           apikey: sbKey,
           Authorization: `Bearer ${sbKey}`,
-          Prefer: 'return=minimal',
+          Prefer: 'return=representation',
         },
-        body: JSON.stringify(body),
-      }).catch(() => {});
-    } catch {}
+        body: JSON.stringify({
+          account_id: accountIdForInsert,
+          to_phone: toPhone,
+          from_phone: fromPhone,
+          body: replyText,
+          status: 'queued',
+        }),
+      });
+
+      if (!ins.ok) {
+        const errTxt = await ins.text().catch(() => '');
+        console.error('OUTBOUND_INSERT_FAILED', ins.status, errTxt);
+      } else {
+        const row = await ins.json().catch(() => null);
+        console.log('OUTBOUND_INSERT_OK', row?.[0]?.id || null);
+      }
+    } catch (e) {
+      console.error('OUTBOUND_INSERT_THROW', e);
+    }
 
     res.setHeader('Content-Type', 'text/xml; charset=utf-8');
     res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${xmlEscape(replyText)}</Message></Response>`);
