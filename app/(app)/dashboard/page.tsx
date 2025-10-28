@@ -3,6 +3,7 @@ export const revalidate = 0;
 export const dynamic = 'force-dynamic';
 
 import ConnectCrmButton from '@/app/components/ConnectCrmButton';
+import AutotexterToggle from '../../components/AutotexterToggle';
 import MetricsPanel from '@/app/components/MetricsPanel';
 import ThreadsPanel from '@/app/components/ThreadsPanel';
 
@@ -14,7 +15,10 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-semibold tracking-tight text-ink-1">Dashboard</h1>
           <p className="text-sm text-ink-3">Monitor outreach performance and jump back into conversations.</p>
         </div>
-        <ConnectCrmButton />
+        <div className="flex items-center gap-3">
+          <ConnectCrmButton />
+          <AutotexterToggle />
+        </div>
       </header>
 
       <MetricsPanel />
