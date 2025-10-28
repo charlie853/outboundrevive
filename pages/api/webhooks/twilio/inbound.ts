@@ -293,73 +293,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   let finalReply = postProcessSms({
 
-  // === Booking link materializer (append or replace token; keep link last) ===
-  (function ensureBookingLinkAtEnd(){
-    try {
-      const rawBodyAny: any = (req as any).body || {};
-      const inboundText = String(rawBodyAny?.Body || '').trim();
-      const bookingLink =
-        (process.env.CAL_BOOKING_URL || '').trim() ||
-        (process.env.CAL_PUBLIC_URL || '').trim() ||
-        (process.env.CAL_URL || '').trim();
-
-      // Detect scheduling-ish intent from the inbound text only
-      const scheduleLike = /\b(book|schedule|resched|re\s*book|zoom|call|meet|meeting|slot|time|times?|availability|available|tomorrow|today|next\s+week|this\s+week|calendar|calendly)\b/i.test(inboundText);
-
-      // Do not touch whois exact reply
-      const whoisExact = /^\s*Charlie\s+from\s+Outbound\s*Revive\.?\s*$/i.test(finalReply);
-
-      if (!whoisExact && bookingLink && scheduleLike) {
-        // 1) Replace {{booking_link}} token if present
-        let replaced = false;
-        if (/\{\{\s*booking_link\s*\}\}/i.test(finalReply)) {
-          finalReply = finalReply.replace(/\{\{\s*booking_link\s*\}\}/ig, bookingLink).trim();
-          replaced = true;
-        }
-
-        const hasAnyUrl = /https?:\/\/\S+/i.test(finalReply);
-
-        // 2) If no URL present after replacement, append link at the end with a separator
-        if (!hasAnyUrl) {
-          const needsSep = /[.:!?]\s*$/.test(finalReply) ? ' ' : (finalReply ? ': ' : '');
-          finalReply = (finalReply + needsSep + bookingLink).trim();
-        } else {
-          // 3) Ensure the last token is the link (move last URL to the end)
-          const urls = finalReply.match(/https?:\/\/\S+/gi) || [];
-          const lastUrl = urls[urls.length - 1];
-          // Remove all URLs, then re-append only the last one
-          finalReply = finalReply.replace(/https?:\/\/\S+/gi, '').trim();
-          finalReply = (finalReply ? finalReply : 'Here’s the link') + ' ' + lastUrl;
-          finalReply = finalReply.trim();
-        }
-
-        // 4) Clamp to 320 while preserving trailing link
-        if (finalReply.length > 320) {
-          const m = finalReply.match(/\s(https?:\/\/\S+)\s*$/);
-          if (m) {
-            const link = m[1];
-            const head = finalReply.slice(0, Math.max(0, 320 - link.length - 1)).trim();
-            finalReply = (head ? (head + ' ') : '') + link;
-          } else {
-            finalReply = finalReply.slice(0, 320);
-          }
-        }
-      }
-    } catch { /* no-op */ }
-  })();
-    aiReply,
-    inboundBody,
-    isScheduleLike,
-    gateHit,
-    bookingLink,
-  });
-
-  // Special case: exact “who is this”
+    // Special case: exact “who is this”
   if (/^\s*who\s+is\s+this\??\s*$/i.test(inboundBody)) {
     finalReply = "Charlie from OutboundRevive.";
   }
 
   // TwiML reply (so the user sees it immediately)
+  finalReply = ensureBookingLinkAtEnd(req, finalReply);
+
   const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(finalReply)}</Message></Response>`;
 
   // Fire-and-forget persistence
