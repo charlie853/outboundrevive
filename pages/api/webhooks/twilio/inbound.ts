@@ -1,8 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-function normPhone(s: string) {
-  return (s || '').replace(/\s+/g, '').replace(/\r|\n/g, '');
-}
+const norm = (s: string) => (s || '').replace(/\s+/g, '').replace(/[\r\n]/g, '');
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -11,8 +9,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const DEFAULT_ACCOUNT_ID = process.env.DEFAULT_ACCOUNT_ID!;
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY!;
 
-    const from = normPhone((req.body?.From as string) || '');
-    const to = normPhone((req.body?.To as string) || '');
+    const from = norm(req.body?.From as string);
+    const to = norm(req.body?.To as string);
 
     // 1) Resolve account_id by 'to' number (your Twilio number)
     let account_id = DEFAULT_ACCOUNT_ID;
@@ -72,16 +70,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // 3) Persist to messages_out
     try {
-      const payload = [
-        {
-          account_id,
-          to_phone: from, // reply goes to the lead
-          from_phone: to, // your Twilio number
-          body: aiText,
-          status: 'queued',
-        },
-      ];
-
       const rIns = await fetch(`${SB_URL}/rest/v1/messages_out`, {
         method: 'POST',
         headers: {
@@ -90,12 +78,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           'content-type': 'application/json',
           Prefer: 'return=representation',
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify([
+          {
+            account_id,
+            to_phone: from,
+            from_phone: to,
+            body: aiText,
+            status: 'queued',
+          },
+        ]),
       });
-      const insTxt = await rIns.text();
-      console.log('OUTBOUND_INSERT', rIns.status, insTxt);
+
+      const insText = await rIns.text();
+      console.log('OUTBOUND_INSERT', rIns.status, insText);
+
+      if (rIns.status !== 201) {
+        throw new Error(`messages_out insert failed: ${rIns.status} ${insText}`);
+      }
+
+      let insJson: any = undefined;
+      try {
+        insJson = JSON.parse(insText);
+      } catch {}
+      console.log('OUTBOUND_INSERT_PARSED', Array.isArray(insJson) ? insJson[0] : insJson);
     } catch (e) {
       console.log('OUTBOUND_INSERT_ERROR', String(e));
+      throw e;
     }
 
     // 4) Return TwiML with AI message
