@@ -91,47 +91,6 @@ async function getOrCreateLead({
   return { lead: created, lead_id: created.id };
 }
 
-async function persistOutbound({
-  accountId,
-  leadId,
-  toPhone,
-  fromPhone,
-  body,
-  status = 'sent',
-  providerStatus,
-}: {
-  accountId: string;
-  leadId: string | null;
-  toPhone: string;
-  fromPhone: string;
-  body: string;
-  status?: string;
-  providerStatus?: string | null;
-}): Promise<string | null> {
-  const { data, error } = await adminSupabase
-    .from('messages_out')
-    .insert({
-      account_id: accountId,
-      lead_id: leadId,
-      to_phone: toPhone,
-      from_phone: fromPhone,
-      body,
-      sent_by: 'ai',
-      status,
-      provider_status: providerStatus ?? null,
-      provider: 'twilio',
-    })
-    .select('id')
-    .single();
-
-  if (error) {
-    console.error('OUTBOUND_INSERT_ERR', error);
-    return null;
-  }
-
-  return data?.id ?? null;
-}
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     res.setHeader('Content-Type', 'text/xml');
@@ -235,6 +194,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const nowIso = new Date().toISOString();
 
+    const finalReply = reply;
+
     try {
       await adminSupabase.from('messages_in').insert({
         account_id: accountId,
@@ -248,26 +209,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       console.error('INBOUND_INSERT_ERR', inErr);
     }
 
-    const outId = await persistOutbound({
-      accountId,
-      leadId: lead_id,
-      toPhone: from,
-      fromPhone: to,
-      body: reply,
-      status: 'queued',
-      providerStatus: 'queued',
-    });
+    let outId: string | null = null;
+    try {
+      const { data: outRow, error: outErr } = await adminSupabase
+        .from('messages_out')
+        .insert({
+          account_id: accountId,
+          lead_id,
+          to_phone: from,
+          from_phone: to,
+          body: finalReply,
+          status: 'sent',
+          sent_by: 'ai',
+          provider: 'twilio',
+          provider_status: 'queued',
+        })
+        .select('id')
+        .single();
+
+      if (outErr) {
+        console.error('OUTBOUND_INSERT_ERR', outErr);
+      } else {
+        outId = outRow?.id ?? null;
+      }
+    } catch (outEx) {
+      console.error('OUTBOUND_INSERT_EX', outEx);
+    }
 
     try {
       await adminSupabase
         .from('leads')
-        .update({ last_inbound_at: nowIso, last_sent_at: nowIso, last_reply_body: textRaw })
+        .update({ last_inbound_at: nowIso, last_sent_at: nowIso, last_reply_body: null })
         .eq('id', lead_id);
     } catch (leadUpdateErr) {
       console.error('LEAD_ACTIVITY_UPDATE_ERR', leadUpdateErr);
     }
 
-    const twiml = `<Response><Message>${escapeXml(reply)}</Message></Response>`;
+    const twiml = `<Response><Message>${escapeXml(finalReply)}</Message></Response>`;
     res.setHeader('Content-Type', 'text/xml');
     res.status(200).send(twiml);
   } catch (err) {
