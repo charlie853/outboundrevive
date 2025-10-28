@@ -101,24 +101,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
       const defaultAccount = process.env.DEFAULT_ACCOUNT_ID;
 
-      // Normalize E.164 inputs (strip whitespace/newlines)
-      const toPhone = (From || '').replace(/\s+/g, '');
-      const fromPhone = (To || '').replace(/\s+/g, '');
+      // Normalize – remove whitespace/newlines
+      const leadPhone = (From || '').replace(/\s+/g, '');
+      const twilioFrom = (To || '').replace(/\s+/g, '');
 
-      // Best-effort resolve account_id by Twilio number, else fallback
-      let accountIdForInsert = account_id || defaultAccount;
+      // Resolve account by Twilio number, else fallback
+      let account_id = defaultAccount;
       try {
         const s = await fetch(
-          `${sbUrl}/rest/v1/account_settings?select=account_id&phone_from=eq.${encodeURIComponent(fromPhone)}&limit=1`,
+          `${sbUrl}/rest/v1/account_settings?select=account_id&phone_from=eq.${encodeURIComponent(twilioFrom)}&limit=1`,
           { headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}` } }
         );
         if (s.ok) {
           const j = await s.json();
-          if (Array.isArray(j) && j[0]?.account_id) accountIdForInsert = j[0].account_id;
+          if (Array.isArray(j) && j[0]?.account_id) account_id = j[0].account_id;
         }
       } catch {}
 
-      // Insert outbound row
+      // Insert outbound AI reply
       const ins = await fetch(`${sbUrl}/rest/v1/messages_out`, {
         method: 'POST',
         headers: {
@@ -128,9 +128,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           Prefer: 'return=representation',
         },
         body: JSON.stringify({
-          account_id: accountIdForInsert,
-          to_phone: toPhone,
-          from_phone: fromPhone,
+          account_id,
+          to_phone: leadPhone,
+          from_phone: twilioFrom,
           body: replyText,
           status: 'queued',
         }),
@@ -141,7 +141,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.error('OUTBOUND_INSERT_FAILED', ins.status, errTxt);
       } else {
         const row = await ins.json().catch(() => null);
-        console.log('OUTBOUND_INSERT_OK', row?.[0]?.id || null);
+        console.log('OUTBOUND_INSERT_OK', row?.[0]?.id || null, { account_id, leadPhone, twilioFrom });
       }
     } catch (e) {
       console.error('OUTBOUND_INSERT_THROW', e);
