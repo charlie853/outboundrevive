@@ -136,7 +136,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   // LLM-only logic for everything else:
-  const aiReply = await generateWithLLM(Body);
+  const BOOKING_LINK =
+    (process.env.CAL_BOOKING_URL ||
+     process.env.CAL_PUBLIC_URL ||
+     process.env.CAL_URL ||
+     "").trim();
+
+  let aiReply = (await generateWithLLM(Body) || "").trim();
+
+  if (BOOKING_LINK) {
+    aiReply = aiReply
+      .replace(/\$\{\s*cal_booking_url\s*\}/gi, BOOKING_LINK)
+      .replace(/\$\{\s*booking_link\s*\}/gi, BOOKING_LINK)
+      .replace(/\{\{\s*booking_link\s*\}\}/gi, BOOKING_LINK)
+      .replace(/\{\{\s*CAL_URL\s*\}\}/gi, BOOKING_LINK);
+  }
+
+  const looksLikeScheduling =
+    /\b(zoom|schedule|book|call|meet|reschedule|availability|available|slot|calendar|time|tomorrow|today)\b/i
+      .test((Body || "").toString());
+
+  if (looksLikeScheduling && BOOKING_LINK) {
+    aiReply = BOOKING_LINK;
+  }
 
   // TwiML reply (so the user sees it immediately)
   const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(aiReply)}</Message></Response>`;
