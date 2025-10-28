@@ -14,6 +14,135 @@ const ACCOUNT_ID = process.env.DEFAULT_ACCOUNT_ID || "";
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SRK = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
+// === SMS post-processing helpers (humanize + link rules) ===
+const SCHED_RE = /\b(zoom|call|meet|meeting|book|schedule|resched|availability|available|time|slot|tomorrow|today|this week|next week)\b/i;
+const CAL_RE = /(https?:\/\/)?([a-z0-9-]+\.)*cal\.com\/\S+/i;
+
+function pickBookingLink(): string {
+  return (
+    process.env.CAL_BOOKING_URL ||
+    process.env.CAL_PUBLIC_URL ||
+    process.env.CAL_URL ||
+    ""
+  ).trim();
+}
+
+function stripBannedOpeners(s: string): string {
+  return s
+    .replace(/^\s*(Happy to help|Got it|Thanks for reaching out)[\s—,-:]*/i, "")
+    .trim();
+}
+
+function removeThreeBulletTic(s: string): string {
+  return s.replace(/3[- ]?bullet( summary)?/gi, "").trim();
+}
+
+function extractAnyLink(s: string): string | null {
+  const m = s.match(CAL_RE);
+  return m ? m[0] : null;
+}
+
+function withoutLinks(s: string): string {
+  return s.replace(CAL_RE, "").replace(/\s+/g, " ").trim();
+}
+
+function ensureContextBlurb(s: string, inbound: string): string {
+  // If reply is only a link or empty, prepend a tiny contextual line.
+  const trimmed = s.trim();
+  const onlyLink = CAL_RE.test(trimmed) && withoutLinks(trimmed) === "";
+  if (!onlyLink) return s;
+
+  const leadIn = SCHED_RE.test(inbound)
+    ? "Let’s do it—grab a time that works: "
+    : "Here you go—book a time that suits you: ";
+  const link = extractAnyLink(trimmed) || pickBookingLink();
+  return (leadIn + link).trim();
+}
+
+function enforceOneLinkAtEnd(msg: string, bookingLink: string): string {
+  // Move a single booking link to the very end; strip any duplicates/other links.
+  const core = withoutLinks(msg);
+  const link = bookingLink || extractAnyLink(msg) || "";
+  return (core ? core + " " : "") + (link ? link : "");
+}
+
+function clampSms(msg: string, limit = 320): string {
+  if (msg.length <= limit) return msg;
+  // Preserve link at end if present
+  const m = msg.match(/\s(https?:\/\/\S+)\s*$/);
+  if (m) {
+    const link = m[1];
+    const head = msg.slice(0, Math.max(0, limit - link.length - 1)).trim();
+    return `${head} ${link}`.trim();
+  }
+  return msg.slice(0, limit);
+}
+
+async function wasLinkSentInLast24h(accountId: string, toPhone: string): Promise<boolean> {
+  try {
+    const base = process.env.SUPABASE_URL!;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    if (!base || !key) return false;
+
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const url =
+      `${base}/rest/v1/messages_out` +
+      `?account_id=eq.${encodeURIComponent(accountId)}` +
+      `&to_phone=eq.${encodeURIComponent(toPhone)}` +
+      `&created_at=gte.${encodeURIComponent(since)}` +
+      `&select=body&order=created_at.desc&limit=50`;
+
+    const r = await fetch(url, {
+      headers: { apikey: key, Authorization: `Bearer ${key}` },
+    });
+    if (!r.ok) return false;
+    const rows: Array<{ body?: string }> = await r.json();
+    return rows.some(
+      (row) => typeof row.body === "string" && CAL_RE.test(row.body!)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function postProcessSms(params: {
+  aiReply: string;
+  inboundBody: string;
+  isScheduleLike: boolean;
+  gateHit: boolean; // true => sent link in last 24h
+  bookingLink: string;
+}): string {
+  let s = params.aiReply || "";
+  s = s.trim();
+
+  // Sanitize phrasing
+  s = stripBannedOpeners(s);
+  s = removeThreeBulletTic(s);
+
+  // Scheduling behavior
+  if (params.isScheduleLike) {
+    if (params.gateHit) {
+      // Gate hit => do NOT include link; keep the sentence helpful.
+      s = withoutLinks(s);
+      if (!s) s = "Share two times that work and I’ll confirm.";
+    } else {
+      // Gate open => ensure one contextual blurb + a single link at end.
+      if (!CAL_RE.test(s)) {
+        // No link present -> add one
+        s = ensureContextBlurb(s || params.bookingLink, params.inboundBody);
+      }
+      s = enforceOneLinkAtEnd(s, params.bookingLink);
+    }
+  } else {
+    // Non-scheduling: never include raw placeholders; if LLM injected a link, ensure one at end.
+    if (CAL_RE.test(s)) s = enforceOneLinkAtEnd(s, params.bookingLink);
+  }
+
+  // Final clamp
+  s = clampSms(s, 320);
+  return s;
+}
+
 /** Parse Twilio form body safely */
 async function parseTwilioForm(req: NextApiRequest): Promise<{From:string;To:string;Body:string}> {
   const chunks: Buffer[] = [];
@@ -136,35 +265,50 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   // LLM-only logic for everything else:
-  const BOOKING_LINK =
-    (process.env.CAL_BOOKING_URL ||
-     process.env.CAL_PUBLIC_URL ||
-     process.env.CAL_URL ||
-     "").trim();
-
   let aiReply = (await generateWithLLM(Body) || "").trim();
 
-  if (BOOKING_LINK) {
+  const bookingLink = pickBookingLink();
+
+  if (bookingLink) {
     aiReply = aiReply
-      .replace(/\$\{\s*cal_booking_url\s*\}/gi, BOOKING_LINK)
-      .replace(/\$\{\s*booking_link\s*\}/gi, BOOKING_LINK)
-      .replace(/\{\{\s*booking_link\s*\}\}/gi, BOOKING_LINK)
-      .replace(/\{\{\s*CAL_URL\s*\}\}/gi, BOOKING_LINK);
+      .replace(/\$\{\s*cal_booking_url\s*\}/gi, bookingLink)
+      .replace(/\$\{\s*booking_link\s*\}/gi, bookingLink)
+      .replace(/\{\{\s*booking_link\s*\}\}/gi, bookingLink)
+      .replace(/\{\{\s*CAL_URL\s*\}\}/gi, bookingLink);
   }
 
-  const looksLikeScheduling =
-    /\b(zoom|schedule|book|call|meet|reschedule|availability|available|slot|calendar|time|tomorrow|today)\b/i
-      .test((Body || "").toString());
+  // === POST-PROCESS LLM TEXT BEFORE TwiML ===
+  const accountId =
+    process.env.DEFAULT_ACCOUNT_ID ||
+    ((req as any)?.body?.account_id as string | undefined) ||
+    (typeof req.query.account_id === "string"
+      ? req.query.account_id
+      : Array.isArray(req.query.account_id)
+      ? req.query.account_id[0]
+      : undefined) ||
+    "11111111-1111-1111-1111-111111111111";
+  const inboundBody = typeof Body === "string" ? Body : String(Body || "");
+  const isScheduleLike = SCHED_RE.test(inboundBody) || SCHED_RE.test(aiReply);
+  const gateHit = bookingLink ? await wasLinkSentInLast24h(accountId, From) : false;
 
-  if (looksLikeScheduling && BOOKING_LINK) {
-    aiReply = BOOKING_LINK;
+  let finalReply = postProcessSms({
+    aiReply,
+    inboundBody,
+    isScheduleLike,
+    gateHit,
+    bookingLink,
+  });
+
+  // Special case: exact “who is this”
+  if (/^\s*who\s+is\s+this\??\s*$/i.test(inboundBody)) {
+    finalReply = "Charlie from OutboundRevive.";
   }
 
   // TwiML reply (so the user sees it immediately)
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(aiReply)}</Message></Response>`;
+  const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(finalReply)}</Message></Response>`;
 
   // Fire-and-forget persistence
-  persistOut(From, To, aiReply).catch(()=>{});
+  persistOut(From, To, finalReply).catch(()=>{});
 
   return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
 }
