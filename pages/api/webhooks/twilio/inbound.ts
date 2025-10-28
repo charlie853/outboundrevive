@@ -1,92 +1,46 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { parse } from 'qs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+const SRK = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL!;
+const ACCOUNT_ID = '11111111-1111-1111-1111-111111111111';
 
-const sbHeaders = {
-  apikey: SUPABASE_SERVICE_ROLE_KEY,
-  Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-  'Content-Type': 'application/json',
-  Prefer: 'resolution=merge-duplicates',
-};
+function normPhone(s: string | undefined) {
+  return (s || '').replace(/[^\d+]/g, '');
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
-
   try {
-    const From = String(req.body?.From ?? '').trim();
-    const To   = String(req.body?.To ?? '').trim();
-    const Body = String(req.body?.Body ?? '').trim();
-    const now  = new Date().toISOString();
+    // Twilio sends application/x-www-form-urlencoded
+    const body = typeof req.body === 'string' ? parse(req.body) : (req.body ?? {});
+    const from = normPhone(String((body as any).From));
+    const to = normPhone(String((body as any).To));
+    const text = String((body as any).Body ?? '').trim();
 
-    // Resolve account by inbound number
-    const s = new URL(`${SUPABASE_URL}/rest/v1/account_settings`);
-    s.searchParams.set('select', 'account_id, phone_from, autotexter_enabled, brand, quiet_hours, tz, quiet_start, quiet_end');
-    s.searchParams.set('phone_from', `eq.${To}`);
-    const rSet = await fetch(s.toString(), { headers: sbHeaders });
-    const settings = rSet.ok ? await rSet.json() : [];
-    const set = settings?.[0];
-
-    const account_id: string | undefined = set?.account_id;
-    const autotexter_enabled: boolean = !!set?.autotexter_enabled;
-
-    // If no account matches this To number, just ACK so Twilio is happy
-    if (!account_id) {
-      res
-        .status(200)
-        .setHeader('Content-Type', 'text/xml')
-        .send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>Thanks—message received.</Message></Response>`);
-      return;
-    }
-
-    // Upsert lead for this account
+    // 1) Upsert lead (ensure account_id)
     await fetch(`${SUPABASE_URL}/rest/v1/leads?on_conflict=phone`, {
       method: 'POST',
-      headers: sbHeaders,
-      body: JSON.stringify([{
-        account_id,
-        phone: From,
-        name: From,
-        status: 'pending',
-        created_at: now,
-        last_inbound_at: now,
-        replied: true,
-        last_reply_at: now,
-      }]),
+      headers: { apikey: SRK, Authorization: `Bearer ${SRK}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' },
+      body: JSON.stringify([{ account_id: ACCOUNT_ID, phone: from, name: from, replied: true, last_reply_at: new Date().toISOString() }])
     });
 
-    // Insert inbound message
+    // 2) Insert inbound message as "work" for the agent (processed=false)
     await fetch(`${SUPABASE_URL}/rest/v1/messages_in`, {
       method: 'POST',
-      headers: sbHeaders,
-      body: JSON.stringify([{
-        account_id,
-        from_phone: From,
-        to_phone: To,
-        body: Body,
-        created_at: now,
-      }]),
+      headers: { apikey: SRK, Authorization: `Bearer ${SRK}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify([{ account_id: ACCOUNT_ID, from_phone: from, to_phone: to, body: text, processed: false }])
     });
 
-    // Fire-and-forget: trigger the responder immediately (if enabled)
-    if (autotexter_enabled && PUBLIC_BASE_URL) {
-      fetch(`${PUBLIC_BASE_URL}/api/internal/agent/consume`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ account_id, from: From, to: To, mode: 'immediate' }),
-      }).catch(() => {});
-    }
+    // 3) Kick agent (fire-and-forget)
+    fetch(`${PUBLIC_BASE_URL}/api/internal/agent/consume`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reason: 'webhook' }) })
+      .catch(() => {});
 
-    // Return TwiML (never block Twilio on AI)
-    res
-      .status(200)
-      .setHeader('Content-Type', 'text/xml')
-      .send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>Thanks—message received.</Message></Response>`);
-  } catch {
-    res
-      .status(200)
-      .setHeader('Content-Type', 'text/xml')
-      .send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>Thanks—message received.</Message></Response>`);
+    // Tell Twilio OK right away
+    res.setHeader('Content-Type', 'text/xml');
+    res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>Thanks—message received.</Message></Response>`);
+  } catch (e) {
+    res.setHeader('Content-Type', 'text/xml');
+    res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>Thanks—message received.</Message></Response>`);
   }
 }
