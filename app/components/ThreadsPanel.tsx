@@ -14,13 +14,26 @@ const fetcher = (url: string) =>
   });
 
 type ThreadRow = {
-  lead_phone: string | null;
-  lead_name: string | null;
-  last_message: string | null;
-  last_at: string | null;
+  phone?: string | null;
+  lead_phone?: string | null;
+  name?: string | null;
+  lead_name?: string | null;
+  lastMessage?: string | null;
+  last_message?: string | null;
+  lastAt?: string | null;
+  last_at?: string | null;
+  [key: string]: unknown;
 };
 
-type Message = { direction: 'in' | 'out'; body: string; created_at: string };
+type ConversationMessage = { at: string; dir: 'in' | 'out'; body: string; status?: string };
+type ConversationPayload = {
+  ok?: boolean;
+  contact?: { phone: string; name: string };
+  messages?: ConversationMessage[];
+};
+
+const THREADS_BANNER =
+  "Threads temporarily unavailable. If you’re not signed in, please sign in and refresh.";
 
 const formatPhone = (phone: string | null | undefined) => {
   if (!phone) return 'Unknown';
@@ -44,47 +57,28 @@ export default function ThreadsPanel() {
   console.debug('THREADS payload', data);
 
   const threads = useMemo(() => {
-    const raw = data?.threads ?? [];
-    const mapped = raw
-      .map((row: any) => {
-        const phone = row?.phone ?? row?.lead_phone ?? '';
-        const name = row?.name ?? row?.lead_name ?? phone;
-        const lastMessage = row?.lastMessage ?? row?.last_message ?? '';
-        const lastAt = row?.lastAt ?? row?.last_at ?? null;
-        return {
-          lead_phone: phone,
-          lead_name: name,
-          last_message: lastMessage,
-          last_at: lastAt,
-        };
-      })
-      .filter((row) => row.lead_phone);
-    return mapped.sort((a, b) => {
-      const aTime = a.last_at ? new Date(a.last_at).getTime() : 0;
-      const bTime = b.last_at ? new Date(b.last_at).getTime() : 0;
+    const raw = Array.isArray(data?.threads) ? data.threads : [];
+    const parseTime = (input: any) => {
+      const source = input ?? null;
+      if (!source) return 0;
+      const ms = Date.parse(source);
+      return Number.isFinite(ms) ? ms : 0;
+    };
+    return [...raw].sort((a: ThreadRow, b: ThreadRow) => {
+      const aTime = parseTime(a?.lastAt ?? a?.last_at);
+      const bTime = parseTime(b?.lastAt ?? b?.last_at);
       return bTime - aTime;
     });
   }, [data?.threads]);
 
-  const [activePhone, setActivePhone] = useState<string | null>(null);
   const [activeName, setActiveName] = useState<string>('');
   const [showModal, setShowModal] = useState(false);
-
-  const {
-    data: conversation,
-    error: convoError,
-    isLoading: convoLoading,
-  } = useSWR<{ ok: boolean; messages?: Message[] }>(
-    activePhone ? `/api/threads/${encodeURIComponent(activePhone)}` : null,
-    fetcher,
-    { shouldRetryOnError: (err) => err?.status !== 401 },
-  );
+  const [conversation, setConversation] = useState<ConversationPayload | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [modalLoading, setModalLoading] = useState(false);
 
   if (error) {
     console.warn('[THREADS_PANEL] error', error);
-  }
-  if (convoError) {
-    console.warn('[THREADS_PANEL] error', convoError);
   }
 
   useEffect(() => {
@@ -96,18 +90,51 @@ export default function ThreadsPanel() {
     return () => window.removeEventListener('keydown', onKey);
   }, [showModal]);
 
-  const openThread = (thread: ThreadRow) => {
-    const phone = thread.lead_phone || '';
-    if (!phone) return;
-    setActivePhone(phone);
-    setActiveName(thread.lead_name || formatPhone(phone));
+  const openThread = async (thread: ThreadRow) => {
+    const phone = thread?.phone ?? thread?.lead_phone ?? '';
+    const friendlyName = thread?.name ?? thread?.lead_name ?? (phone ? formatPhone(phone) : 'Unknown');
+
+    setActiveName(friendlyName);
     setShowModal(true);
+    setModalLoading(true);
+    setModalError(null);
+    setConversation(null);
+
+    if (!phone) {
+      setModalLoading(false);
+      setModalError('No phone number available for this thread.');
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/threads/${encodeURIComponent(phone)}`);
+      const json: ConversationPayload & { error?: string } = await response
+        .json()
+        .catch(() => ({ ok: false }));
+
+      if (response.ok && json?.ok && Array.isArray(json.messages)) {
+        setConversation(json);
+        if (json.contact?.name) setActiveName(json.contact.name);
+      } else {
+        setModalError(THREADS_BANNER);
+      }
+    } catch (err: unknown) {
+      console.warn('[THREADS_PANEL] conversation fetch failed', err);
+      setModalError(THREADS_BANNER);
+    } finally {
+      setModalLoading(false);
+    }
   };
 
-  const closeModal = () => setShowModal(false);
+  const closeModal = () => {
+    setShowModal(false);
+    setConversation(null);
+    setModalError(null);
+    setModalLoading(false);
+  };
 
   const isUnauthorized = (error as any)?.status === 401;
-  const showBanner = data?.ok === false && !error;
+  const showBanner = (data?.ok === false && !error) || isUnauthorized;
 
   return (
     <section className="space-y-4">
@@ -124,15 +151,15 @@ export default function ThreadsPanel() {
         </div>
         {showBanner && (
           <div className="text-sm text-amber-700">
-            Threads temporarily unavailable. If you’re not signed in, please sign in and refresh.
+            {THREADS_BANNER}
           </div>
         )}
-        {error && !isUnauthorized && (
-          <div className="flex items-center gap-3 text-sm text-rose-700">
-            Couldn’t load threads.
-            <button
-              type="button"
-              onClick={() => mutate()}
+      {error && !isUnauthorized && (
+        <div className="flex items-center gap-3 text-sm text-rose-700">
+          Couldn’t load threads.
+          <button
+            type="button"
+            onClick={() => mutate()}
               className="rounded-lg border border-rose-300 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100"
             >
               Retry
@@ -145,14 +172,21 @@ export default function ThreadsPanel() {
         )}
         {!error && !isLoading && threads.length > 0 && (
           <ul className="divide-y divide-surface-line">
-            {threads.map((thread) => {
-              const title = thread.lead_name || formatPhone(thread.lead_phone);
+            {threads.map((thread, idx) => {
+              const phone = thread?.phone ?? thread?.lead_phone ?? '';
+              const name = thread?.name ?? thread?.lead_name ?? phone;
+              const last = thread?.lastMessage ?? thread?.last_message ?? '';
+              const at = thread?.lastAt ?? thread?.last_at ?? null;
+              const displayName = name || formatPhone(phone);
+              const lastTimestamp = at ? new Date(at).toLocaleString() : '—';
+              const itemKey = `${phone || 'unknown'}-${at || 'na'}-${idx}`;
+
               return (
-                <li key={`${thread.lead_phone ?? 'unknown'}-${thread.last_at}`} className="flex items-center justify-between gap-4 py-3">
+                <li key={itemKey} className="flex items-center justify-between gap-4 py-3">
                   <div>
-                    <div className="text-sm font-medium text-ink-1">{title}</div>
-                    <div className="text-xs text-ink-3">{new Date(thread.last_at).toLocaleString()}</div>
-                    <div className="text-sm text-ink-2 line-clamp-2">{thread.last_message}</div>
+                    <div className="text-sm font-medium text-ink-1">{displayName}</div>
+                    <div className="text-xs text-ink-3">{lastTimestamp}</div>
+                    <div className="text-sm text-ink-2 line-clamp-2">{last || '—'}</div>
                   </div>
                   <button
                     type="button"
@@ -193,28 +227,35 @@ export default function ThreadsPanel() {
               </button>
             </div>
             <div className="max-h-96 overflow-y-auto space-y-3">
-              {convoLoading && <div className="h-24 animate-pulse rounded-xl bg-surface-bg" />}
-              {!convoLoading && !convoError && (conversation?.messages ?? []).length === 0 && (
+              {modalLoading && <div className="h-24 animate-pulse rounded-xl bg-surface-bg" />}
+              {!modalLoading && modalError && (
+                <div className="text-sm text-rose-600">{modalError}</div>
+              )}
+              {!modalLoading && !modalError && (conversation?.messages ?? []).length === 0 && (
                 <div className="text-sm text-ink-2">No messages yet.</div>
               )}
-              {!convoLoading && !convoError &&
-                (conversation?.messages ?? []).map((msg, idx) => (
-                  <div key={`${msg.created_at}-${idx}`} className={`flex ${msg.direction === 'out' ? 'justify-end' : 'justify-start'}`}>
-                    <div
-                      className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm shadow-soft ${
-                        msg.direction === 'out'
-                          ? 'bg-brand-600 text-white rounded-br-sm'
-                          : 'bg-surface-bg text-ink-1 rounded-bl-sm'
-                      }`}
-                    >
-                      <div className="whitespace-pre-line">{msg.body}</div>
-                      <div className="mt-1 text-xs opacity-75">{new Date(msg.created_at).toLocaleString()}</div>
+              {!modalLoading && !modalError &&
+                (conversation?.messages ?? []).map((msg, idx) => {
+                  const timestamp = msg.at ? new Date(msg.at).toLocaleString() : '—';
+                  const isOutbound = msg.dir === 'out';
+                  const author = isOutbound ? 'You' : conversation?.contact?.name || activeName || 'Contact';
+                  return (
+                    <div key={`${msg.at}-${idx}`} className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
+                      <div
+                        className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm shadow-soft ${
+                          isOutbound
+                            ? 'bg-brand-600 text-white rounded-br-sm'
+                            : 'bg-surface-bg text-ink-1 rounded-bl-sm'
+                        }`}
+                      >
+                        <div className="text-xs font-semibold opacity-80">{author}</div>
+                        <div className="whitespace-pre-line">{msg.body || '—'}</div>
+                        <div className="mt-1 text-xs opacity-75">{timestamp}</div>
+                        {msg.status && <div className="mt-1 text-[11px] uppercase opacity-60">{msg.status}</div>}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              {convoError && (
-                <div className="text-sm text-rose-600">Failed to load conversation. Please try again later.</div>
-              )}
+                  );
+                })}
             </div>
           </div>
         </div>

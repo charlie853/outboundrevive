@@ -89,32 +89,76 @@ export default function MetricsPanel() {
   }
 
   const isUnauthorized = (error as any)?.status === 401;
+  const showBanner = (!error && data?.ok === false) || isUnauthorized;
+
   const kpiPayload = data?.kpis ?? { newLeads: 0, messagesSent: 0, deliveredPct: 0, replies: 0 };
   const charts = data?.charts ?? { deliveryOverTime: [], repliesPerDay: [] };
+  const delivery = charts.deliveryOverTime ?? [];
+  const repliesS = charts.repliesPerDay ?? [];
 
   const kpis = buildKpis(kpiPayload);
+  const deliveryPoints: DayPoint[] = useMemo(() => {
+    if (!Array.isArray(delivery) || delivery.length === 0) return [];
+    const repliesMap = new Map<string, number>();
+    repliesS.forEach((row: any) => {
+      const src = row?.date;
+      if (!src) return;
+      const date = (() => {
+        try {
+          return new Date(src).toISOString().slice(0, 10);
+        } catch {
+          return typeof src === 'string' ? src.slice(0, 10) : '';
+        }
+      })();
+      if (!date) return;
+      repliesMap.set(date, toNumber(row?.replies));
+    });
 
-  const chartDays: DayPoint[] = useMemo(() => {
-    const map = new Map<string, DayPoint>();
-    (charts.deliveryOverTime ?? []).forEach((row: any) => {
-      if (!row?.date) return;
-      map.set(row.date.slice(0, 10), {
-        d: row.date.slice(0, 10),
-        sent: toNumber(row.sent),
-        delivered: toNumber(row.delivered),
-        failed: toNumber(row.failed),
-        inbound: 0,
-      });
-    });
-    (charts.repliesPerDay ?? []).forEach((row: any) => {
-      if (!row?.date) return;
-      const key = row.date.slice(0, 10);
-      const existing = map.get(key) ?? { d: key, sent: 0, delivered: 0, failed: 0, inbound: 0 };
-      existing.inbound = toNumber(row.replies);
-      map.set(key, existing);
-    });
-    return Array.from(map.values()).sort((a, b) => a.d.localeCompare(b.d));
-  }, [charts]);
+    return delivery
+      .map((row: any) => {
+        const src = row?.date;
+        const iso = (() => {
+          try {
+            return new Date(src).toISOString().slice(0, 10);
+          } catch {
+            return typeof src === 'string' ? src.slice(0, 10) : '';
+          }
+        })();
+
+        return {
+          d: iso,
+          sent: toNumber(row?.sent),
+          delivered: toNumber(row?.delivered),
+          failed: toNumber(row?.failed),
+          inbound: repliesMap.get(iso) ?? 0,
+        } as DayPoint;
+      })
+      .sort((a, b) => a.d.localeCompare(b.d));
+  }, [delivery, repliesS]);
+
+  const replyPoints: DayPoint[] = useMemo(() => {
+    if (!Array.isArray(repliesS) || repliesS.length === 0) return [];
+    return repliesS
+      .map((row: any) => {
+        const src = row?.date;
+        const iso = (() => {
+          try {
+            return new Date(src).toISOString().slice(0, 10);
+          } catch {
+            return typeof src === 'string' ? src.slice(0, 10) : '';
+          }
+        })();
+
+        return {
+          d: iso,
+          sent: 0,
+          delivered: 0,
+          failed: 0,
+          inbound: toNumber(row?.replies),
+        } as DayPoint;
+      })
+      .sort((a, b) => a.d.localeCompare(b.d));
+  }, [repliesS]);
 
   const funnel = {
     leads: kpiPayload.newLeads ?? 0,
@@ -143,7 +187,7 @@ export default function MetricsPanel() {
         </div>
       </div>
 
-      {(!data?.ok && !error) && (
+      {showBanner && (
         <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Metrics temporarily unavailable. If you’re not signed in, please sign in and refresh.
           <button
@@ -156,7 +200,7 @@ export default function MetricsPanel() {
         </div>
       )}
 
-      {error && (
+      {error && !isUnauthorized && (
         <div className="flex items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           Couldn’t load metrics.
           <button
@@ -180,15 +224,15 @@ export default function MetricsPanel() {
       )}
 
       <div className="grid gap-6 md:grid-cols-2">
-        {chartDays.length ? (
-          <DeliveryChart days={chartDays} />
+        {delivery.length >= 1 ? (
+          <DeliveryChart days={deliveryPoints} />
         ) : (
-          <div className="rounded-2xl border border-surface-line bg-surface-card p-4 shadow-soft text-sm text-ink-2">No delivery data yet.</div>
+          <div className="rounded-2xl border border-surface-line bg-surface-card p-4 text-sm text-ink-2 shadow-soft">No data yet.</div>
         )}
-        {chartDays.length ? (
-          <RepliesChart days={chartDays} />
+        {repliesS.length >= 1 ? (
+          <RepliesChart days={replyPoints} />
         ) : (
-          <div className="rounded-2xl border border-surface-line bg-surface-card p-4 shadow-soft text-sm text-ink-2">No replies yet.</div>
+          <div className="rounded-2xl border border-surface-line bg-surface-card p-4 text-sm text-ink-2 shadow-soft">No data yet.</div>
         )}
       </div>
 

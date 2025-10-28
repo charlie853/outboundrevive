@@ -81,5 +81,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     },
   };
 
+  const nowISO = new Date().toISOString();
+  const failed = Math.max(0, messagesSent - deliveredCount);
+  payload.charts.deliveryOverTime = [
+    {
+      date: nowISO,
+      delivered: deliveredCount,
+      sent: messagesSent,
+      failed,
+    },
+  ];
+  payload.charts.repliesPerDay = [
+    {
+      date: nowISO,
+      replies,
+    },
+  ];
+
   res.status(200).json(payload);
 }
