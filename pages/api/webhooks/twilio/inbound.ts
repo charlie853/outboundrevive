@@ -1,339 +1,261 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { createClient } from '@supabase/supabase-js';
-import { DateTime } from 'luxon';
-
-import { generateSmsReply, DEFAULT_AI_FALLBACK_MESSAGE, SmsReplyContract } from '@/lib/ai';
-import {
-  normalizePhone,
-  isOptOut,
-  isHelp,
-  computeNeedsFooter,
-  withinQuietHours,
-} from '@/lib/policy';
-
-export const config = { api: { bodyParser: true } };
-
 const SB_URL = process.env.SUPABASE_URL!;
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const OPENAI_KEY = process.env.OPENAI_API_KEY!;
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const INTERNAL_SECRET = process.env.INTERNAL_API_SECRET || '';
 const DEFAULT_ACCOUNT_ID = process.env.DEFAULT_ACCOUNT_ID!;
+const SYSTEM_PROMPT = process.env.SMS_SYSTEM_PROMPT || 'You are Charlie from OutboundRevive...';
+const SAFE_FALLBACK = "Happy to help and share details. Would you like a quick 10-min call, or should I text a brief summary?";
 
-const OPT_OUT_RESPONSE = "You're paused and won't receive further messages. Reply START to resume.";
-const HELP_RESPONSE = "Hi, it’s Charlie from OutboundRevive. Text START to resume or PAUSE to take a break. Anything else I can do?";
-const MAX_SMS_LENGTH = 320;
+function normPhone(s: string) {
+  const d = (s || '').replace(/[^\d+]/g, '');
+  if (!d) return '';
+  if (d.startsWith('+')) return `+${d.replace(/^\++/, '')}`;
+  const digits = d.replace(/^\++/, '');
+  const withCountry = digits.length === 10 ? `1${digits}` : digits;
+  return `+${withCountry}`;
+}
 
-type LeadSnapshot = {
-  id: string;
-  name: string | null;
-  tz: string | null;
-  state: string | null;
-  last_message_at: string | null;
-  last_footer_at: string | null;
-  last_inbound_at: string | null;
-  last_sent_at: string | null;
-  opted_out: boolean | null;
-};
+function nearDuplicate(a: string, b: string) {
+  const na = a.toLowerCase().replace(/\s+/g, ' ').trim();
+  const nb = b.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  const tokensA = new Set(na.split(/\W+/).filter(Boolean));
+  const tokensB = new Set(nb.split(/\W+/).filter(Boolean));
+  const intersection = [...tokensA].filter((token) => tokensB.has(token)).length;
+  const union = new Set([...tokensA, ...tokensB]).size || 1;
+  return intersection / union > 0.9;
+}
+
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const resp = await fetch(url, init);
+  const text = await resp.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return ([] as unknown) as T;
+  }
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST');
-    return res.status(405).end();
+    res.status(405).send('');
+    return;
   }
 
   try {
-    const form = parseForm(req);
-    const from = normalizePhone(String(form.From ?? form.from ?? ''));
-    const to = normalizePhone(String(form.To ?? form.to ?? ''));
-    const inboundText = String(form.Body ?? form.body ?? '').trim();
-    const rawProfileName = form.ProfileName ?? form.profile_name ?? '';
-    const profileName = String(rawProfileName || '').trim();
+    const body = (req.body || {}) as Record<string, unknown>;
+    const fromRaw = (body.From || body.from || '') as string;
+    const toRaw = (body.To || body.to || '') as string;
+    const text = String(body.Body || body.body || '').trim();
+    const messageSid = String(body.MessageSid || body.SmsMessageSid || '').trim();
+
+    const from = normPhone(fromRaw);
+    const to = normPhone(toRaw);
 
     if (!from || !to) {
-      console.error('INBOUND_MISSING_NUMBERS', { from, to });
-      return respond(res, "We couldn't process that number—reply HELP for support.");
+      respond(res, SAFE_FALLBACK);
+      return;
     }
 
-    const supa = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
-
-    const { data: account, error: accountErr } = await supa
-      .from('account_settings')
-      .select('*')
-      .eq('phone_from', to)
-      .maybeSingle();
-
-    if (accountErr) {
-      console.error('ACCOUNT_RESOLVE_ERR', accountErr);
-      return respond(res, "We couldn't find this number. Reply HELP for assistance.");
-    }
-
-    if (!account) {
-      console.error('ACCOUNT_RESOLVE_FAIL', { to });
-      return respond(res, "We couldn't find this number. Reply HELP for assistance.");
-    }
-
-    const accountId: string = account.account_id || DEFAULT_ACCOUNT_ID;
-    const nowIso = new Date().toISOString();
-
-    const { data: existingLead, error: leadFetchErr } = await supa
-      .from<LeadSnapshot>('leads')
-      .select('id,name,tz,state,last_message_at,last_footer_at,last_inbound_at,last_sent_at,opted_out')
-      .eq('account_id', accountId)
-      .eq('phone', from)
-      .maybeSingle();
-
-    if (leadFetchErr) {
-      console.error('LEAD_LOOKUP_ERR', leadFetchErr);
-    }
-
-    let lead: LeadSnapshot | null = existingLead ?? null;
-    if (!lead) {
-      const { data: insertedLead, error: leadInsertErr } = await supa
-        .from<LeadSnapshot>('leads')
-        .insert({
-          account_id: accountId,
-          phone: from,
-          name: profileName || 'SMS Lead',
-          status: 'active',
-          last_inbound_at: nowIso,
-        })
-        .select('id,name,tz,state,last_message_at,last_footer_at,last_inbound_at,last_sent_at,opted_out')
-        .single();
-
-      if (leadInsertErr) {
-        console.error('LEAD_INSERT_ERR', leadInsertErr);
-      } else {
-        lead = insertedLead ?? null;
-      }
-    }
-
-    const leadId = lead?.id ?? null;
-    const firstName = lead?.name?.split(' ')?.[0] || profileName.split(' ')?.[0] || null;
-
-    const lastContactIso = lead?.last_message_at || lead?.last_inbound_at || lead?.last_sent_at || null;
-    const lastContact30dAgo = lastContactIso
-      ? Date.now() - new Date(lastContactIso).getTime() > 30 * 24 * 60 * 60 * 1000
-      : true;
-
-    const lastFooterAtIso = lead?.last_footer_at || account?.last_footer_at || null;
-    const needsFooter = computeNeedsFooter(lastFooterAtIso, nowIso);
-
-    const tz = lead?.tz || account?.tz || 'America/New_York';
-    let nowLocalHHMM = '12:00';
-    try {
-      nowLocalHHMM = DateTime.now().setZone(tz).toFormat('HH:mm');
-    } catch (err) {
-      console.warn('TZ_PARSE_WARN', tz, err);
-      nowLocalHHMM = DateTime.now().toFormat('HH:mm');
-    }
-
-    const askedWho = /who\s+is\s+this/i.test(inboundText);
-    const schedulingIntent = /(book|schedule|resched|availability)/i.test(inboundText);
-    const helpRequested = isHelp(inboundText);
-    const optOut = isOptOut(inboundText);
-    const quietHoursBlock = withinQuietHours(nowLocalHHMM, lead?.state || null);
-
-    const ctx = {
-      brand: account.brand || 'OutboundRevive',
-      booking_link: account.booking_link || null,
-      first_name: firstName,
-      service: account.service || null,
-      vertical: account.vertical || null,
-      account_id: accountId,
-      lead_id: leadId,
-      is_new_thread: !existingLead,
-      last_contact_at_iso: lastContactIso,
-      last_contact_30d_ago: lastContact30dAgo,
-      last_footer_at_iso: lastFooterAtIso,
-      last_footer_within_30d: !needsFooter,
-      scheduling_intent: schedulingIntent,
-      inbound_text: inboundText,
-      lead_tz: tz,
-      lead_state: lead?.state || null,
-      quiet_hours_block: quietHoursBlock,
-      state_cap_block: false,
-      asked_who_is_this: askedWho,
-      opt_out_phrase: optOut ? inboundText : null,
-      help_requested: helpRequested,
-      needs_footer: needsFooter,
+    const accRows = await fetchJson<Array<{ account_id: string; brand?: string; autotexter_enabled?: boolean; phone_from?: string; booking_link?: string }>>(
+      `${SB_URL}/rest/v1/account_settings?select=account_id,brand,autotexter_enabled,phone_from,booking_link&phone_from=eq.${encodeURIComponent(to)}`,
+      {
+        headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
+      },
+    );
+    const acc = accRows?.[0] || {
+      account_id: DEFAULT_ACCOUNT_ID,
+      brand: 'OutboundRevive',
+      autotexter_enabled: true,
+      phone_from: to,
+      booking_link: undefined,
     };
 
-    let replyContract: SmsReplyContract | null = null;
-    let replyText = '';
-
-    if (optOut) {
-      replyText = OPT_OUT_RESPONSE;
-      replyContract = {
-        intent: 'opt_out',
-        confidence: 1,
-        message: replyText,
-        needs_footer: false,
-        actions: [{ type: 'suppress' }],
-        hold_until: null,
-        policy_flags: {
-          quiet_hours_block: false,
-          state_cap_block: false,
-          footer_appended: false,
-          opt_out_processed: true,
+    if (messageSid) {
+      const inUpsert = await fetch(`${SB_URL}/rest/v1/messages_in`, {
+        method: 'POST',
+        headers: {
+          apikey: SB_KEY,
+          Authorization: `Bearer ${SB_KEY}`,
+          'content-type': 'application/json',
+          Prefer: 'resolution=merge-duplicates',
         },
-      };
-    } else {
-      try {
-        replyContract = await generateSmsReply(ctx);
-        replyText = String(replyContract?.message || '').trim();
-      } catch (err) {
-        console.error('GENERATE_SMS_REPLY_ERR', err);
-      }
-
-      if (!replyText && helpRequested) {
-        replyText = HELP_RESPONSE;
-        replyContract = replyContract ?? {
-          intent: 'help',
-          confidence: 0.6,
-          message: replyText,
-          needs_footer: needsFooter,
-          actions: [],
-          hold_until: null,
-          policy_flags: {
-            quiet_hours_block,
-            state_cap_block: false,
-            footer_appended: false,
-            opt_out_processed: false,
+        body: JSON.stringify([
+          {
+            message_sid: messageSid,
+            account_id: acc.account_id,
+            from_phone: from,
+            to_phone: to,
+            body: text,
+            processed: false,
           },
-        };
+        ]),
+      });
+      if (!inUpsert.ok) {
+        const errBody = await inUpsert.text();
+        const lower = errBody.toLowerCase();
+        if (lower.includes('duplicate') || lower.includes('unique')) {
+          res.setHeader('Content-Type', 'text/xml');
+          res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
+          return;
+        }
       }
     }
 
-    if (!replyText) {
-      replyText = DEFAULT_AI_FALLBACK_MESSAGE;
-    }
+    const leadUpsert = await fetch(`${SB_URL}/rest/v1/leads?on_conflict=phone`, {
+      method: 'POST',
+      headers: {
+        apikey: SB_KEY,
+        Authorization: `Bearer ${SB_KEY}`,
+        'content-type': 'application/json',
+        Prefer: 'resolution=merge-duplicates,return=representation',
+      },
+      body: JSON.stringify([
+        {
+          account_id: acc.account_id,
+          phone: from,
+          name: from,
+          status: 'active',
+        },
+      ]),
+    });
+    const leadRows = (await leadUpsert.json().catch(() => [])) as Array<{ id: string }>;
+    const lead = leadRows?.[0];
 
-    let appendedFooter = false;
-    if ((replyContract?.needs_footer || (replyContract == null && needsFooter)) && !/reply\s+pause\s+to\s+stop/i.test(replyText)) {
-      replyText = replyText.trim();
-      if (replyText && !/[.!?]$/.test(replyText)) replyText += '.';
-      replyText += ' Reply PAUSE to stop';
-      appendedFooter = true;
-      if (replyContract) {
-        replyContract.policy_flags = {
-          ...(replyContract.policy_flags ?? {}),
-          footer_appended: true,
-        };
+    const [insResp, outsResp] = await Promise.all([
+      fetchJson<Array<{ created_at: string; body: string }>>(
+        `${SB_URL}/rest/v1/messages_in?account_id=eq.${acc.account_id}&from_phone=eq.${encodeURIComponent(from)}&select=created_at,body&order=created_at.asc&limit=12`,
+        { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } },
+      ),
+      fetchJson<Array<{ created_at: string; body: string }>>(
+        `${SB_URL}/rest/v1/messages_out?account_id=eq.${acc.account_id}&to_phone=eq.${encodeURIComponent(from)}&select=created_at,body&order=created_at.asc&limit=12`,
+        { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } },
+      ),
+    ]);
+
+    const mergedHistory = [
+      ...(insResp || []).map((msg) => ({ at: msg.created_at, role: 'user' as const, content: msg.body })),
+      ...(outsResp || []).map((msg) => ({ at: msg.created_at, role: 'assistant' as const, content: msg.body })),
+    ]
+      .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+      .slice(-12)
+      .map((msg) => ({ role: msg.role, content: msg.content }));
+
+    let aiText = '';
+
+    try {
+      const draft = await fetch(`${process.env.PUBLIC_BASE_URL || ''}/api/internal/knowledge/draft`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-internal-secret': INTERNAL_SECRET,
+        },
+        body: JSON.stringify({
+          account_id: acc.account_id,
+          q: text,
+          history: mergedHistory,
+          vars: { brand: acc.brand, booking_link: acc.booking_link },
+        }),
+      });
+      if (draft.ok) {
+        const j = (await draft.json().catch(() => ({}))) as Record<string, unknown>;
+        aiText = String(j?.reply ?? '').trim();
       }
+    } catch (err) {
+      console.error('DRAFT_CALL_ERR', err);
     }
 
-    if (replyText.length > MAX_SMS_LENGTH) {
-      replyText = replyText.slice(0, MAX_SMS_LENGTH - 1).trimEnd() + '…';
-    }
-
-    const accountIdForInsert = accountId;
-    const replyForInsert = replyText;
-
-    (async () => {
+    if (!aiText) {
       try {
-        const sb = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
-
-        let resolvedLeadId = leadId;
-        if (!resolvedLeadId) {
-          const { data: inserted, error: lateInsertErr } = await sb
-            .from('leads')
-            .insert({
-              account_id: accountIdForInsert,
-              phone: from,
-              name: profileName || 'SMS Lead',
-              status: 'active',
-              last_inbound_at: nowIso,
-            })
-            .select('id')
-            .single();
-          if (lateInsertErr) {
-            console.error('LEAD_INSERT_LATE_ERR', lateInsertErr);
-          } else {
-            resolvedLeadId = inserted?.id ?? null;
-          }
-        }
-
-        if (!resolvedLeadId) return;
-
-        const updates: Record<string, unknown> = { last_inbound_at: nowIso };
-        if (profileName && (!lead?.name || lead?.name?.trim() === '')) {
-          updates.name = profileName;
-        }
-        if (appendedFooter) updates.last_footer_at = nowIso;
-        if (optOut) updates.opted_out = true;
-
-        const { error: leadUpdateErr } = await sb
-          .from('leads')
-          .update(updates)
-          .eq('id', resolvedLeadId);
-        if (leadUpdateErr) console.error('LEAD_UPDATE_ERR', leadUpdateErr);
-
-        const inboundPayload: Record<string, unknown> = {
-          account_id: accountIdForInsert,
-          lead_id: resolvedLeadId,
-          body: inboundText,
-          provider_from: from,
-          provider_to: to,
-          processed: true,
-          meta: replyContract ? { policy_flags: replyContract.policy_flags, actions: replyContract.actions } : null,
-        };
-
-        const { data: inboundRow, error: inboundErr } = await sb
-          .from('messages_in')
-          .insert(inboundPayload)
-          .select('id')
-          .single();
-        if (inboundErr) console.error('INBOUND_INSERT_ERR', inboundErr);
-
-        const messagePayload: Record<string, unknown> = {
-          account_id: accountIdForInsert,
-          lead_id: resolvedLeadId,
-          to_phone: from,
-          from_phone: to,
-          body: replyForInsert,
-          status: 'queued',
-          provider: 'twilio',
-          source: 'ai',
-          intent: replyContract?.intent ?? null,
-          gate_log: replyContract ? { policy_flags: replyContract.policy_flags, actions: replyContract.actions } : null,
-        };
-        if (inboundRow?.id) messagePayload.parent_in_id = inboundRow.id;
-
-        const { error: messagesOutErr } = await sb.from('messages_out').insert(messagePayload);
-        if (messagesOutErr) console.error('OUTBOUND_INSERT_ERR', messagesOutErr);
+        const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+          { role: 'system', content: SYSTEM_PROMPT.replaceAll('{{brand}}', acc.brand || 'OutboundRevive') },
+          ...mergedHistory,
+          { role: 'user', content: text },
+        ];
+        const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            Authorization: `Bearer ${OPENAI_KEY}`,
+          },
+          body: JSON.stringify({ model: OPENAI_MODEL, temperature: 0.5, top_p: 0.9, messages }),
+        });
+        const completion = (await resp.json().catch(() => ({}))) as { choices?: Array<{ message?: { content?: string } }> };
+        aiText = String(completion?.choices?.[0]?.message?.content ?? '').trim();
       } catch (err) {
-        console.error('OUTBOUND_ASYNC_ERR', err);
+        console.error('OPENAI_FALLBACK_ERR', err);
       }
-    })().catch((err) => console.error('OUTBOUND_ASYNC_ERR', err));
+    }
 
-    return respond(res, replyText);
+    let lastOut = '';
+    try {
+      const lastRows = await fetchJson<Array<{ body: string }>>(
+        `${SB_URL}/rest/v1/messages_out?account_id=eq.${acc.account_id}&to_phone=eq.${encodeURIComponent(from)}&select=body&order=created_at.desc&limit=1`,
+        { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } },
+      );
+      lastOut = String(lastRows?.[0]?.body || '');
+    } catch (err) {
+      console.error('LAST_OUT_FETCH_ERR', err);
+    }
+
+    if (aiText && nearDuplicate(aiText, lastOut)) {
+      aiText = aiText.replace(/(\.|!|\?)?$/, ' — would Tues 10am or 2pm work?');
+    }
+
+    if (!aiText) aiText = SAFE_FALLBACK;
+
+    void (async () => {
+      try {
+        await fetch(`${SB_URL}/rest/v1/messages_out`, {
+          method: 'POST',
+          headers: {
+            apikey: SB_KEY,
+            Authorization: `Bearer ${SB_KEY}`,
+            'content-type': 'application/json',
+            Prefer: 'return=minimal',
+          },
+          body: JSON.stringify([
+            {
+              account_id: acc.account_id,
+              lead_id: lead?.id || null,
+              to_phone: from,
+              from_phone: to,
+              body: aiText,
+              status: 'queued',
+              provider: 'twilio',
+              source: 'ai',
+            },
+          ]),
+        });
+      } catch (err) {
+        console.error('OUTBOUND_PERSIST_ERR', err);
+      }
+    })();
+
+    if (messageSid) {
+      void fetch(`${SB_URL}/rest/v1/messages_in?message_sid=eq.${encodeURIComponent(messageSid)}`, {
+        method: 'PATCH',
+        headers: {
+          apikey: SB_KEY,
+          Authorization: `Bearer ${SB_KEY}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ processed: true }),
+      }).catch((err) => console.error('INBOUND_MARK_PROCESSED_ERR', err));
+    }
+
+    respond(res, aiText);
   } catch (err) {
     console.error('WEBHOOK_FATAL', err);
-    return respond(res, DEFAULT_AI_FALLBACK_MESSAGE);
+    respond(res, SAFE_FALLBACK);
   }
-}
-
-function parseForm(req: NextApiRequest) {
-  const body = req.body;
-  if (!body) return {} as Record<string, unknown>;
-  if (typeof body === 'string') {
-    return Object.fromEntries(new URLSearchParams(body)) as Record<string, unknown>;
-  }
-  if (Buffer.isBuffer(body)) {
-    return Object.fromEntries(new URLSearchParams(body.toString('utf8')));
-  }
-  return body as Record<string, unknown>;
 }
 
 function respond(res: NextApiResponse, message: string) {
-  res.setHeader('Content-Type', 'text/xml; charset=utf-8');
-  const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(message)}</Message></Response>`;
-  return res.status(200).send(xml);
-}
-
-function escapeXml(s: string) {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+  const escaped = message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  res.setHeader('Content-Type', 'text/xml');
+  res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escaped}</Message></Response>`);
 }
