@@ -347,7 +347,7 @@ export async function POST(req: NextRequest) {
     console.error('/api/ai/draft error', e);
     const base = process.env.CAL_BOOKING_URL || 'https://cal.com/YOURNAME/15min';
     return NextResponse.json({
-      draft: clampSms(`Happy to help—can we do a quick 10-min chat? ${base}`, 160),
+      draft: clampSms(`Let's do it—can we do a quick 10-min chat? ${base}`, 160),
       intent:'fallback',
       source:'fallback'
     });
