@@ -26,13 +26,6 @@
   --color-brand-800: #3730A3;
   --color-brand-900: #312E81;
 
-  /* Accent (Cyan) */
-  --color-accent-50:  #ECFEFF;
-  --color-accent-200: #A5F3FC;
-  --color-accent-400: #22D3EE;
-  --color-accent-500: #06B6D4;
-  --color-accent-600: #0891B2;
-
   /* Neutrals */
   --color-surface-bg:   #F8FAFC; /* page bg */
   --color-surface-card: #FFFFFF;
@@ -44,16 +37,8 @@
   --shadow-card: 0 1px 1px rgba(0,0,0,0.02), 0 8px 24px rgba(0,0,0,0.05);
   --shadow-soft: 0 8px 30px rgba(2, 6, 23, 0.06);
 
-  /* Backgrounds */
-  --background-grid: radial-gradient(rgba(0,0,0,0.04) 1px, transparent 1px);
-
   /* Radius */
   --radius-pill: 9999px;
-
-  /* Status */
-  --color-success: #10B981;
-  --color-warning: #F59E0B;
-  --color-danger:  #EF4444;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -68,39 +53,149 @@ body {
   background: radial-gradient(1200px 600px at 50% -10%, #EEF2FF 0%, transparent 60%), var(--bg);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  background-color: #312e81; /* indigo-900 fallback */
 }
 
 html {
   scroll-behavior: smooth;
 }
 
-/* Subtle grid overlay utility */
-.bg-grid { position: relative; }
-.bg-grid::before {
-  content: '';
-  position: absolute; inset: 0;
-  background:
-    linear-gradient(var(--grid) 1px, transparent 1px) 0 0/24px 24px,
-    linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0/24px 24px;
-  -webkit-mask-image: radial-gradient(ellipse at center, black 60%, transparent 100%);
-  mask-image: radial-gradient(ellipse at center, black 60%, transparent 100%);
-  pointer-events: none;
+/* === Site-wide animated grid layer === */
+/* Subtle purple grid that pans slowly across the entire site */
+.bg-grid {
+  position: relative;
+  isolation: isolate;
+}
+.bg-grid::after{
+  content:"";
+  position: fixed; inset: 0; z-index:-1; pointer-events:none;
+  background-image:
+    linear-gradient(to right, rgba(139,92,246,.12) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(139,92,246,.12) 1px, transparent 1px);
+  background-size: 60px 60px;
+  opacity:.6;
+  animation:grid-pan 30s linear infinite;
+}
+@keyframes grid-pan { to { background-position:60px 60px, 60px 60px; } }
+
+/* === Microinteractions + buttons === */
+/* Utility classes for interactive elements */
+
+/* Pill-shaped buttons */
+.btn-pill{ border-radius:9999px; }
+
+/* Lift effect on hover with shadow */
+.hover-lift{ transition:transform .25s ease, box-shadow .25s ease; }
+.hover-lift:hover{ transform:translateY(-2px); box-shadow:0 8px 30px rgba(3,7,18,.35); }
+
+/* Press feedback - slight scale down */
+.tap-active:active{ transform:translateY(1px) scale(.99); }
+
+/* Amber gradient button background */
+.btn-amber{
+  background-image:linear-gradient(90deg,#d97706,#f59e0b);
+  color:#0b0f20;
 }
 
-/* App area: quick table theming for dark surface */
-.app-table table { width: 100%; border-collapse: collapse; }
-.app-table th {
-  text-align: left;
-  padding: 8px 10px;
-  border-bottom: 1px solid #1f2430;
-  font-weight: 600;
-  font-size: 12px;
-  color: #9aa3b2;
-  background: #0f1115;
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce){
+  .hover-lift{ transition:none !important; animation:none !important; }
+  .bg-grid::after{ animation:none; }
 }
-.app-table td {
-  padding: 8px 10px;
-  border-bottom: 1px solid #1f2430;
-  font-size: 13px;
-  color: #e6e8ee;
+
+/* ---------- Sweeping gradient divider (under hero) ---------- */
+.sweep-divider {
+  position: relative;
+}
+.sweep-divider::after {
+  content:"";
+  position:absolute; left:50%; transform:translateX(-50%);
+  bottom:-1px; width:min(92%,1100px); height:2px; overflow:hidden;
+  background: linear-gradient(90deg, rgba(245,158,11,0), rgba(245,158,11,.9), rgba(245,158,11,0));
+  animation: sweep 6s ease-in-out infinite;
+  opacity:.8;
+}
+@keyframes sweep {
+  0% { transform: translateX(-60%); }
+  50%{ transform: translateX(60%); }
+  100%{ transform: translateX(-60%); }
+}
+
+/* ---------- Shimmer button effect (on hover only) ---------- */
+.btn-shimmer {
+  position:relative; overflow:hidden;
+}
+.btn-shimmer::after {
+  content:"";
+  position:absolute; inset:-2px; width:140%;
+  background: linear-gradient(120deg, transparent 40%, rgba(255,255,255,.35) 50%, transparent 60%);
+  transform: translateX(-120%);
+  transition: transform .5s ease;
+}
+.btn-shimmer:hover::after { transform: translateX(0%); }
+
+/* ---------- Press feedback / lift ---------- */
+.hover-lift { transition: transform .2s ease, box-shadow .2s ease; }
+.hover-lift:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(3,7,18,.35); }
+.tap-active:active { transform: translateY(1px) scale(.99); }
+
+/* ---------- Animated gradient border for cards ---------- */
+.grad-border {
+  position: relative;
+  border-radius: var(--radius);
+  background: linear-gradient(90deg, rgba(255,255,255,.08), rgba(79,70,229,.25), rgba(255,255,255,.08)) border-box;
+  -webkit-mask:
+    linear-gradient(#000 0 0) padding-box,
+    linear-gradient(#000 0 0) border-box;
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  border: 1px solid transparent;
+}
+.grad-border:hover { filter: brightness(1.05); }
+@media (prefers-reduced-motion: no-preference) {
+  .grad-border { animation: border-shift 8s linear infinite; }
+  @keyframes border-shift {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 200% 50%; }
+  }
+}
+
+/* ---------- Reduced motion guard ---------- */
+@media (prefers-reduced-motion: reduce){
+  .sweep-divider::after, .grad-border { animation: none !important; }
+  .btn-shimmer::after { transition: none !important; }
+}
+
+/* === Unified page shell: static aurora background === */
+/* Background wrapper for secondary pages (Contact, About, Privacy, etc.) */
+.page-shell { position: relative; overflow: hidden; }
+.page-shell::before{
+  content:""; position:absolute; inset:-10% -5% -20%; z-index:0; pointer-events:none;
+  /* Three gradient orbs for subtle visual interest */
+  background:
+    radial-gradient(40% 30% at 20% 10%, rgba(79,70,229,.35), transparent 60%),
+    radial-gradient(35% 28% at 80% 20%, rgba(88,28,135,.25), transparent 65%),
+    radial-gradient(30% 25% at 50% 0%, rgba(245,158,11,.12), transparent 70%);
+  filter: blur(36px);
+}
+
+/* === Card surface + animated amber border === */
+/* Reusable card styling for secondary pages */
+
+/* Base card surface - semi-transparent with blur */
+.card-surface{
+  background: rgba(255,255,255,.045);
+  backdrop-filter: blur(2px);
+}
+
+/* Amber gradient border card */
+.grad-border-amber{
+  position: relative;
+  border-radius: 1rem;
+  border: 1px solid rgba(245,158,11,.3);
+  background: rgba(255,255,255,.045);
+  backdrop-filter: blur(2px);
+}
+/* Brighten border on hover */
+.grad-border-amber:hover {
+  border-color: rgba(245,158,11,.5);
 }

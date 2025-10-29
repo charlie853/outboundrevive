@@ -1,30 +1,92 @@
-export const metadata = {
-  title: 'Terms & Conditions | OutboundRevive',
-  description: 'SMS program terms, consent, frequency, fees, and opt-out.',
-};
+import type { Metadata } from 'next';
+import { pageMeta } from '@/lib/seo';
+import Nav from "@/app/(www)/components/Nav";
+import PageShell from "@/app/(www)/components/PageShell";
+import SectionHeader from "@/app/(www)/components/SectionHeader";
+import OrangeCard from "@/app/(www)/components/OrangeCard";
 
-export default function Page() {
+export default function TermsPage() {
   return (
-    <main className="mx-auto max-w-3xl px-4 md:px-6 py-12">
-      <section className="relative overflow-hidden rounded-2xl border border-surface-line bg-surface-card shadow-soft px-6 md:px-10 py-8">
-        <h1 className="text-3xl font-semibold leading-tight text-ink-1">Terms &amp; Conditions</h1>
+    <div className="min-h-screen flex flex-col">
+      <Nav />
+      <main className="flex-1">
+        <PageShell>
+          <div className="container mx-auto max-w-4xl px-4 py-16 md:py-24">
+            <SectionHeader title="Terms & Conditions" />
+            
+            <div className="space-y-6">
+              <OrangeCard>
+                <p className="text-lg text-gray-300">
+                  <strong className="text-white">Program:</strong> OutboundRevive SMS
+                </p>
+              </OrangeCard>
 
-        <div className="mt-6 space-y-4 text-ink-2">
-          <p><strong className="text-ink-1">Program:</strong> OutboundRevive SMS</p>
-          <p>
-            By opting in, you consent to receive text messages related to your account and services.
-            You must be the account holder or authorized user of the phone number provided.
-          </p>
-          <p><strong className="text-ink-1">Frequency:</strong> Up to 4 messages per month (unless otherwise stated).</p>
-          <p><strong className="text-ink-1">Fees:</strong> Message and data rates may apply.</p>
-          <p><strong className="text-ink-1">Opt-Out:</strong> Reply <code>PAUSE</code> at any time to pause reminders. Reply <code>RESUME</code> to continue.</p>
-          <p><strong className="text-ink-1">Help:</strong> Reply <code>HELP</code> for assistance or email <a className="underline" href="mailto:support@outboundrevive.com">support@outboundrevive.com</a>.</p>
-          <p><strong className="text-ink-1">Carrier Disclaimer:</strong> Carriers are not liable for delayed or undelivered messages.</p>
-          <p><strong className="text-ink-1">Acceptable Use:</strong> You may not use our services for unlawful, abusive, or prohibited purposes. We may suspend or terminate service for violations.</p>
-          <p><strong className="text-ink-1">Changes:</strong> We may update these terms from time to time. The latest version will always be available on this page.</p>
-          <p>See also our <a className="underline" href="/privacy">Privacy Policy</a>.</p>
-        </div>
-      </section>
-    </main>
+              <OrangeCard>
+                <p className="text-lg text-gray-300 leading-relaxed">
+                  By opting in, you consent to receive text messages related to your account and services.
+                  You must be the account holder or authorized user of the phone number provided.
+                </p>
+              </OrangeCard>
+
+              <OrangeCard>
+                <div className="space-y-4 text-lg text-gray-300">
+                  <p>
+                    <strong className="text-white">Frequency:</strong> Up to 4 messages per month (unless otherwise stated).
+                  </p>
+                  <p>
+                    <strong className="text-white">Fees:</strong> Message and data rates may apply.
+                  </p>
+                  <p>
+                    <strong className="text-white">Opt-Out:</strong> Reply{' '}
+                    <code className="text-amber-400 bg-white/10 px-2 py-1 rounded">PAUSE</code> at any time to pause reminders. Reply{' '}
+                    <code className="text-amber-400 bg-white/10 px-2 py-1 rounded">RESUME</code> to continue.
+                  </p>
+                  <p>
+                    <strong className="text-white">Help:</strong> Reply{' '}
+                    <code className="text-amber-400 bg-white/10 px-2 py-1 rounded">HELP</code> for assistance or email{' '}
+                    <a className="text-amber-400 hover:text-amber-300 transition-colors" href="mailto:support@outboundrevive.com">
+                      support@outboundrevive.com
+                    </a>.
+                  </p>
+                </div>
+              </OrangeCard>
+
+              <OrangeCard>
+                <p className="text-lg text-gray-300 leading-relaxed">
+                  <strong className="text-white">Carrier Disclaimer:</strong> Carriers are not liable for delayed or undelivered messages.
+                </p>
+              </OrangeCard>
+
+              <OrangeCard>
+                <p className="text-lg text-gray-300 leading-relaxed">
+                  <strong className="text-white">Acceptable Use:</strong> You may not use our services for unlawful, abusive, or prohibited purposes. We may suspend or terminate service for violations.
+                </p>
+              </OrangeCard>
+
+              <OrangeCard>
+                <p className="text-lg text-gray-300 leading-relaxed">
+                  <strong className="text-white">Changes:</strong> We may update these terms from time to time. The latest version will always be available on this page.
+                </p>
+              </OrangeCard>
+
+              <OrangeCard>
+                <p className="text-lg text-gray-300 leading-relaxed">
+                  See also our{' '}
+                  <a className="text-amber-400 hover:text-amber-300 transition-colors" href="/privacy">
+                    Privacy Policy
+                  </a>.
+                </p>
+              </OrangeCard>
+            </div>
+          </div>
+        </PageShell>
+      </main>
+    </div>
   );
 }
+
+export const generateMetadata = (): Metadata => pageMeta(
+  'Terms & Conditions — OutboundRevive',
+  'SMS program terms, consent, frequency, fees, and opt-out.',
+  '/terms'
+);
