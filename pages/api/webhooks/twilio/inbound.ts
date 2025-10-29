@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { supabaseAdmin } from "@/lib/supabaseServer";
 
 /** Twilio posts x-www-form-urlencoded; we must disable Next's JSON parser. */
 export const config = { api: { bodyParser: false } };
@@ -78,27 +79,26 @@ function clampSms(msg: string, limit = 320): string {
   return msg.slice(0, limit);
 }
 
-async function wasLinkSentInLast24h(accountId: string, toPhone: string): Promise<boolean> {
+async function sentBookingLinkInLast24h(
+  supabase: typeof supabaseAdmin,
+  accountId: string,
+  toPhone: string,
+  bookingUrl: string
+): Promise<boolean> {
+  if (!accountId || !toPhone || !bookingUrl) return false;
   try {
-    const base = process.env.SUPABASE_URL!;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    if (!base || !key) return false;
-
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const url =
-      `${base}/rest/v1/messages_out` +
-      `?account_id=eq.${encodeURIComponent(accountId)}` +
-      `&to_phone=eq.${encodeURIComponent(toPhone)}` +
-      `&created_at=gte.${encodeURIComponent(since)}` +
-      `&select=body&order=created_at.desc&limit=50`;
-
-    const r = await fetch(url, {
-      headers: { apikey: key, Authorization: `Bearer ${key}` },
-    });
-    if (!r.ok) return false;
-    const rows: Array<{ body?: string }> = await r.json();
-    return rows.some(
-      (row) => typeof row.body === "string" && CAL_RE.test(row.body!)
+    const sinceISO = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabase
+      .from("messages_out")
+      .select("body,created_at")
+      .eq("account_id", accountId)
+      .eq("to_phone", toPhone)
+      .gte("created_at", sinceISO)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (error || !data) return false;
+    return data.some(
+      (row) => typeof row.body === "string" && row.body.includes(bookingUrl)
     );
   } catch {
     return false;
@@ -236,27 +236,82 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method !== "POST") return res.status(405).end();
 
   const { From, To, Body } = await parseTwilioForm(req);
+  const inboundBody = typeof Body === "string" ? Body : String(Body || "");
+  const accountId =
+    process.env.DEFAULT_ACCOUNT_ID ||
+    ((req as any)?.body?.account_id as string | undefined) ||
+    (typeof req.query.account_id === "string"
+      ? req.query.account_id
+      : Array.isArray(req.query.account_id)
+      ? req.query.account_id[0]
+      : undefined) ||
+    "11111111-1111-1111-1111-111111111111";
 
-  // Hard compliance (still allowed while keeping LLM for everything else)
-  const low = Body.toLowerCase().replace(/\W+/g, "");
-  if (["stop","stopall","unsubscribe","end","quit","cancel","remove"].includes(low)) {
-    const msg = "You’re unsubscribed. Reply START to resume.";
-    await persistOut(From, To, msg);
-    return res
-      .status(200)
-      .setHeader("Content-Type","text/xml")
-      .send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(msg)}</Message></Response>`);
+  const isWhoIsExact = /^\s*who\s+is\s+this\??\s*$/i.test(inboundBody || "");
+  if (isWhoIsExact) {
+    const finalReply = "Charlie from OutboundRevive.";
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(finalReply)}</Message></Response>`;
+    await persistOut(From, To, finalReply);
+    res.status(200).setHeader("Content-Type","text/xml").send(twiml);
+    return;
   }
+
+  const text = (inboundBody || "").trim();
+  const STOP_RX = /^(stop|stopall|unsubscribe|cancel|end|quit|remove)\b/i;
+  const PAUSE_RX = /^pause\b/i;
+
+  if (STOP_RX.test(text)) {
+    try {
+      await supabaseAdmin
+        .from("leads")
+        .update({
+          opted_out: true,
+          last_reply_body: inboundBody,
+          last_inbound_at: new Date().toISOString(),
+        })
+        .eq("account_id", accountId)
+        .eq("phone", From);
+    } catch (err) {
+      console.error("lead opt-out update failed", err);
+    }
+
+    const msg = "You’re opted out and won’t receive further messages. Reply START to resume.";
+    await persistOut(From, To, msg);
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(msg)}</Message></Response>`;
+    res.status(200).setHeader("Content-Type","text/xml").send(twiml);
+    return;
+  }
+
+  if (PAUSE_RX.test(text)) {
+    const msg = "Okay—pausing messages. Reply START to resume anytime.";
+    await persistOut(From, To, msg);
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(msg)}</Message></Response>`;
+    res.status(200).setHeader("Content-Type","text/xml").send(twiml);
+    return;
+  }
+
+  try {
+    const { data: leadRow } = await supabaseAdmin
+      .from("leads")
+      .select("opted_out")
+      .eq("account_id", accountId)
+      .eq("phone", From)
+      .limit(1)
+      .maybeSingle();
+    if (leadRow?.opted_out) {
+      res
+        .status(200)
+        .setHeader("Content-Type", "text/xml")
+        .send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
+      return;
+    }
+  } catch (err) {
+    console.error("lead opt-out lookup failed", err);
+  }
+
+  const low = inboundBody.toLowerCase().replace(/\W+/g, "");
   if (low === "help") {
     const msg = "Help: booking & support via this number. Reply PAUSE to stop; START to resume.";
-    await persistOut(From, To, msg);
-    return res
-      .status(200)
-      .setHeader("Content-Type","text/xml")
-      .send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(msg)}</Message></Response>`);
-  }
-  if (low === "pause") {
-    const msg = "You’re paused—no more messages. Reply START to resume.";
     await persistOut(From, To, msg);
     return res
       .status(200)
@@ -278,29 +333,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   // === POST-PROCESS LLM TEXT BEFORE TwiML ===
-  const accountId =
-    process.env.DEFAULT_ACCOUNT_ID ||
-    ((req as any)?.body?.account_id as string | undefined) ||
-    (typeof req.query.account_id === "string"
-      ? req.query.account_id
-      : Array.isArray(req.query.account_id)
-      ? req.query.account_id[0]
-      : undefined) ||
-    "11111111-1111-1111-1111-111111111111";
-  const inboundBody = typeof Body === "string" ? Body : String(Body || "");
   const isScheduleLike = SCHED_RE.test(inboundBody) || SCHED_RE.test(aiReply);
-  const gateHit = bookingLink ? await wasLinkSentInLast24h(accountId, From) : false;
-
-  let finalReply = (aiReply ?? "").toString();
-    // Special case: exact “who is this”
-  if (/^\s*who\s+is\s+this\??\s*$/i.test(inboundBody)) {
-    finalReply = "Charlie from OutboundRevive.";
+  let gateHit = false;
+  if (isScheduleLike && bookingLink) {
+    gateHit = await sentBookingLinkInLast24h(supabaseAdmin, accountId, From, bookingLink);
   }
 
-  // TwiML reply (so the user sees it immediately)
-  finalReply = ensureBookingLinkAtEnd(req, finalReply);
+  let finalReply = postProcessSms({
+    aiReply,
+    inboundBody,
+    isScheduleLike,
+    gateHit,
+    bookingLink,
+  });
+
   // Flatten whitespace so the SMS is a single clean line (helps tests and carriers)
-  finalReply = (finalReply || '').replace(/\s*\n+\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  finalReply = (finalReply || "").replace(/\s*\n+\s*/g, " ").replace(/\s{2,}/g, " ").trim();
+
+  const logPayload = {
+    route: "twilio/inbound",
+    from: From,
+    to: To,
+    identify_exact: isWhoIsExact,
+    schedule_like: isScheduleLike,
+    gated: isScheduleLike ? gateHit : undefined,
+    final_has_link: /\bhttps?:\/\/\S+$/.test(finalReply),
+    sample_final: finalReply.slice(0, 160),
+  };
+  console.log(JSON.stringify(logPayload));
 
   const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(finalReply)}</Message></Response>`;
 
@@ -308,52 +368,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   persistOut(From, To, finalReply).catch(()=>{});
 
   return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
-}
-
-/** Ensure booking link is present and last when inbound looks like scheduling. */
-function ensureBookingLinkAtEnd(req: any, finalReply: string): string {
-  try {
-    const inbound = (req as any)?.body?.Body;
-    const inboundText = (typeof inbound === 'string' ? inbound : '').trim();
-
-    // Leave exact whois reply untouched
-    if (/^\s*Charlie\s+from\s+Outbound\s*Revive\.\s*$/i.test(finalReply)) return finalReply;
-
-    const scheduleLike = /\b(book|schedule|resched|re\s*book|zoom|call|meet(ing)?|slot|time(s)?|availability|available|tomorrow|today|next\s+week|this\s+week|calendar|calendly)\b/i
-      .test(inboundText);
-
-    const bookingLink = (process.env.CAL_BOOKING_URL || process.env.CAL_PUBLIC_URL || process.env.CAL_URL || '').trim();
-    if (!scheduleLike || !bookingLink) return finalReply;
-
-    // Replace {{booking_link}} token if present
-    finalReply = finalReply.replace(/\{\{\s*booking_link\s*\}\}/ig, bookingLink).trim();
-
-    // If no URL is present, append the link; ensure link is last
-    if (!/https?:\/\/\S+/i.test(finalReply)) {
-      const sep = /[.!?]\s*$/.test(finalReply) || finalReply === '' ? ' ' : ': ';
-      finalReply = (finalReply + sep + bookingLink).trim();
-    } else {
-      // Dedupe and make the last token the link
-      const urls = finalReply.match(/https?:\/\/\S+/gi) || [];
-      const last = urls[urls.length - 1];
-      finalReply = finalReply.replace(/https?:\/\/\S+/gi, '').trim();
-      finalReply = (finalReply ? finalReply + ' ' : '') + last;
-    }
-
-    // Clamp ≤320 chars while preserving trailing link
-    if (finalReply.length > 320) {
-      const m = finalReply.match(/\s(https?:\/\/\S+)\s*$/);
-      if (m) {
-        const link = m[1];
-        const head = finalReply.slice(0, Math.max(0, 320 - link.length - 1)).trim();
-        finalReply = (head ? head + ' ' : '') + link;
-      } else {
-        finalReply = finalReply.slice(0, 320);
-      }
-    }
-
-    return finalReply;
-  } catch {
-    return finalReply;
-  }
 }
