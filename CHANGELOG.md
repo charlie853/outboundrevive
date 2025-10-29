@@ -1,5 +1,36 @@
 # OutboundRevive Changelog
 
+## [Critical Fixes] - 2025-10-29 (Part 2)
+
+### 🐛 **Critical Bug Fixes**
+
+#### 1. Inbound Messages Now Persist to Database
+- **Problem**: Inbound SMS messages were NOT being saved to `messages_in` table
+- **Impact**: Threads view only showed bot responses, not user messages
+- **Fix**: Added `persistIn()` function called immediately after lead lookup
+- **File**: `pages/api/webhooks/twilio/inbound.ts`
+
+#### 2. System Prompt Caching Removed
+- **Problem**: System prompt was cached globally, preventing updates without restart
+- **Impact**: Changes to `prompts/sms_system_prompt.md` were not reflected in responses
+- **Fix**: Removed `SYSTEM_PROMPT_TEMPLATE` caching, now reloads on every request
+- **File**: `pages/api/webhooks/twilio/inbound.ts`
+
+#### 3. Dashboard Now Shows Visible UI Improvements
+- **Problem**: Previous changes were only code comments, no visible UI
+- **Impact**: Dashboard looked unchanged to users
+- **Fixes**:
+  - **KPI Cards**: Added interactive info icon tooltips explaining each metric
+  - **Dashboard Header**: Added prominent blue banner explaining what dashboard shows
+  - **Export Button**: Added CSV export functionality for metrics
+  - **Enhanced Funnel**: Added conversion percentages, visual progress bars, conversion summary
+- **Files**: 
+  - `app/(app)/dashboard/components/KpiCards.tsx`
+  - `app/components/MetricsPanel.tsx`
+  - `app/(app)/dashboard/components/Funnel.tsx`
+
+---
+
 ## [Unreleased] - 2025-10-29
 
 ### 🎯 Major Improvements

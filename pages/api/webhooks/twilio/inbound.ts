@@ -18,26 +18,23 @@ const SRK = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const FL_NPAS = new Set(['239', '305', '321', '352', '386', '407', '561', '727', '754', '772', '786', '813', '850', '863', '904', '941', '954']);
 const OK_NPAS = new Set(['405', '539', '580', '918']);
 
-// === Load System Prompt ===
-let SYSTEM_PROMPT_TEMPLATE = "";
+// === Load System Prompt (no caching - always fresh) ===
 function loadSystemPrompt(): string {
-  if (SYSTEM_PROMPT_TEMPLATE) return SYSTEM_PROMPT_TEMPLATE;
-  
   // 1. Try env first
   if (process.env.SMS_SYSTEM_PROMPT) {
-    SYSTEM_PROMPT_TEMPLATE = process.env.SMS_SYSTEM_PROMPT;
-    return SYSTEM_PROMPT_TEMPLATE;
+    console.log("Using SMS_SYSTEM_PROMPT from env");
+    return process.env.SMS_SYSTEM_PROMPT;
   }
   
-  // 2. Try file
+  // 2. Try file (reload every time for latest changes)
   try {
     const filePath = path.join(process.cwd(), "prompts", "sms_system_prompt.md");
-    SYSTEM_PROMPT_TEMPLATE = fs.readFileSync(filePath, "utf8");
-    return SYSTEM_PROMPT_TEMPLATE;
+    const content = fs.readFileSync(filePath, "utf8");
+    console.log("Loaded system prompt from file, length:", content.length);
+    return content;
   } catch (err) {
     console.error("Failed to load system prompt from file:", err);
-    SYSTEM_PROMPT_TEMPLATE = "You are Charlie from OutboundRevive. Be brief, helpful, and book appointments.";
-    return SYSTEM_PROMPT_TEMPLATE;
+    return "You are Charlie from OutboundRevive. Be brief, helpful, and book appointments.";
   }
 }
 
@@ -382,6 +379,32 @@ function postProcessMessage(
   return s;
 }
 
+// === Persist INBOUND message to messages_in ===
+async function persistIn(leadId: string, body: string, fromPhone: string, toPhone: string) {
+  if (!leadId || !body) return;
+
+  try {
+    const { error } = await supabaseAdmin
+      .from("messages_in")
+      .insert({
+        lead_id: leadId,
+        account_id: ACCOUNT_ID,
+        body,
+        provider_from: fromPhone,
+        provider_to: toPhone,
+        created_at: new Date().toISOString()
+      });
+
+    if (error) {
+      console.error("messages_in insert failed:", error);
+    } else {
+      console.log("messages_in insert ok for lead", leadId);
+    }
+  } catch (err) {
+    console.error("persistIn error:", err);
+  }
+}
+
 // === Persist outbound message and update last_footer_at ===
 async function persistOut(leadId: string, body: string, needsFooterFlag: boolean) {
   if (!SUPABASE_URL || !SRK || !ACCOUNT_ID || !body || !leadId) return;
@@ -390,28 +413,28 @@ async function persistOut(leadId: string, body: string, needsFooterFlag: boolean
     const finalBody = needsFooterFlag && !body.includes("Reply PAUSE")
       ? `${body} Reply PAUSE to stop`
       : body;
-
-  const payload = [{
+    
+    const payload = [{
       lead_id: leadId,
-    account_id: ACCOUNT_ID,
+      account_id: ACCOUNT_ID,
       body: finalBody,
-    sent_by: "ai"
-  }];
+      sent_by: "ai"
+    }];
 
-  const resp = await fetch(`${SUPABASE_URL}/rest/v1/messages_out`, {
-    method: "POST",
-    headers: {
-      "apikey": SRK,
-      "Authorization": `Bearer ${SRK}`,
-      "Content-Type": "application/json",
-      "Prefer": "return=representation"
-    },
-    body: JSON.stringify(payload)
-  });
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/messages_out`, {
+      method: "POST",
+      headers: {
+        "apikey": SRK,
+        "Authorization": `Bearer ${SRK}`,
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+      },
+      body: JSON.stringify(payload)
+    });
 
     if (!resp.ok) {
-  const text = await resp.text();
-    console.error("messages_out insert failed", resp.status, text);
+      const text = await resp.text();
+      console.error("messages_out insert failed", resp.status, text);
       return;
     }
 
@@ -471,6 +494,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(msg)}</Message></Response>`;
     return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
   }
+
+  // === PERSIST INBOUND MESSAGE ===
+  // Save every inbound message to messages_in table so it shows in threads
+  await persistIn(leadId, inboundBody, From, To);
 
   // === Handle compliance keywords ===
   const text = inboundBody.trim().toLowerCase().replace(/\W+/g, "");

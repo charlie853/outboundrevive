@@ -216,6 +216,15 @@ export default function MetricsPanel() {
 
   return (
     <section className="space-y-8">
+      {/* Dashboard Header */}
+      <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+        <h2 className="text-lg font-semibold text-sky-900 mb-1">Live Performance Dashboard</h2>
+        <p className="text-sm text-sky-700">
+          Track your AI texter's outreach performance and conversation health in real-time. 
+          Metrics update as messages are sent and leads respond.
+        </p>
+      </div>
+
       {/* Time Range Selector */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="inline-flex rounded-xl border border-surface-line bg-white p-1">
@@ -233,8 +242,29 @@ export default function MetricsPanel() {
             </button>
           ))}
         </div>
-        {/* TODO: Add export button here */}
-        {/* <button className="...">Export CSV</button> */}
+        <button
+          onClick={() => {
+            const csv = [
+              ['Metric', 'Value', 'Delta'],
+              ['New Leads', kpis.leadsNew, `${Math.round(kpis.deltas.leadsNew * 100)}%`],
+              ['Messages Sent', kpis.sent, `${Math.round(kpis.deltas.sent * 100)}%`],
+              ['Delivered Rate', `${Math.round(kpis.deliveredRate * 100)}%`, `${Math.round(kpis.deltas.deliveredRate * 100)}%`],
+              ['Replies', kpis.replies, `${Math.round(kpis.deltas.replies * 100)}%`],
+            ].map(row => row.join(',')).join('\n');
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `outboundrevive-metrics-${range}.csv`;
+            a.click();
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-ink-1 bg-white border border-surface-line rounded-lg hover:bg-surface-bg transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          Export CSV
+        </button>
       </div>
 
       {showBanner && (
