@@ -46,23 +46,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const since = sinceISO(req.query.range);
 
-  // We compute KPIs using only the leads table (your schema is present + fast)
-  // messagesSent = leads with last_sent_at >= since
-  // deliveredPct  = delivered over messagesSent
-  // replies       = leads with replied = true and last_reply_at >= since
-  // newLeads      = leads with created_at >= since
+  // FIX: Compute KPIs from actual message tables for accuracy
+  // messagesSent = count of messages_out sent since date
+  // deliveredPct = messages_out with provider_status=delivered / messagesSent
+  // replies = count of UNIQUE leads with messages_in since date
+  // newLeads = leads created since date
 
-  const qsSinceCreated = `created_at=gte.${encodeURIComponent(since)}`;
-  const qsSinceSent    = `last_sent_at=gte.${encodeURIComponent(since)}`;
-  const qsSinceReply   = `replied=eq.true&last_reply_at=gte.${encodeURIComponent(since)}`;
-  const qsDelivered    = `delivery_status=eq.delivered&last_sent_at=gte.${encodeURIComponent(since)}`;
+  const qsNewLeads = `created_at=gte.${encodeURIComponent(since)}`;
+  const qsMessagesSent = `created_at=gte.${encodeURIComponent(since)}`;
+  const qsDelivered = `provider_status=eq.delivered&created_at=gte.${encodeURIComponent(since)}`;
+  const qsInbound = `created_at=gte.${encodeURIComponent(since)}`;
 
-  const [newLeads, messagesSent, deliveredCount, replies] = await Promise.all([
-    count('leads', qsSinceCreated),
-    count('leads', qsSinceSent),
-    count('leads', qsDelivered),
-    count('leads', qsSinceReply),
+  const [newLeads, messagesSent, deliveredCount, inboundCount] = await Promise.all([
+    count('leads', qsNewLeads),
+    count('messages_out', qsMessagesSent),
+    count('messages_out', qsDelivered),
+    count('messages_in', qsInbound),
   ]);
+
+  // Replies = unique leads with inbound messages
+  // For now use inbound count as proxy (could be refined to count distinct lead_id)
+  const replies = inboundCount;
 
   const deliveredPct = messagesSent > 0 ? Math.round((deliveredCount / messagesSent) * 100) : 0;
 

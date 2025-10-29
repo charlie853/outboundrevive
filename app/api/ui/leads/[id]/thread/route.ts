@@ -9,8 +9,8 @@ const supabase = createClient(
   { auth: { persistSession: false } }
 );
 
-type Inbound = { created_at: string; body: string; message_sid: string | null; intent: string | null };
-type Outbound = { created_at: string; body: string; sid: string | null; status: string | null };
+type Inbound = { created_at: string; body: string; provider_sid: string | null };
+type Outbound = { created_at: string; body: string; sid: string | null; status: string | null; intent: string | null };
 
 export async function GET(
   _req: NextRequest,
@@ -20,15 +20,16 @@ export async function GET(
   if (!leadId) return NextResponse.json({ error: 'missing id' }, { status: 400 });
 
   try {
+    // FIX: Query messages_in (not 'replies' which doesn't exist)
     const [{ data: ins, error: inErr }, { data: outs, error: outErr }] = await Promise.all([
       supabase
-        .from('replies')
-        .select('created_at, body, message_sid, intent')
+        .from('messages_in')
+        .select('created_at, body, provider_sid')
         .eq('lead_id', leadId)
         .order('created_at', { ascending: true }),
       supabase
         .from('messages_out')
-        .select('created_at, body, sid, status')
+        .select('created_at, body, sid, status, intent')
         .eq('lead_id', leadId)
         .order('created_at', { ascending: true }),
     ]);
@@ -46,8 +47,8 @@ export async function GET(
       dir: 'in' as const,
       at: r.created_at,
       body: r.body,
-      sid: r.message_sid,
-      intent: r.intent,
+      sid: r.provider_sid,
+      intent: null,
     }));
 
     const outbound = (outs || []).map((m: Outbound) => ({
@@ -56,11 +57,19 @@ export async function GET(
       body: m.body,
       sid: m.sid,
       status: m.status,
+      intent: m.intent,
     }));
 
-    const items = [...inbound, ...outbound].sort(
-      (a, b) => new Date(a.at).getTime() - new Date(b.at).getTime()
-    );
+    // Sort by timestamp, then by direction (in before out) for same-second messages
+    const items = [...inbound, ...outbound].sort((a, b) => {
+      const aTime = new Date(a.at).getTime();
+      const bTime = new Date(b.at).getTime();
+      if (aTime !== bTime) return aTime - bTime;
+      // Tiebreaker: inbound before outbound
+      if (a.dir === 'in' && b.dir === 'out') return -1;
+      if (a.dir === 'out' && b.dir === 'in') return 1;
+      return 0;
+    });
 
     return NextResponse.json({ items });
   } catch (e: any) {

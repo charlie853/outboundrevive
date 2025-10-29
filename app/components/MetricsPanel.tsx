@@ -216,10 +216,10 @@ export default function MetricsPanel() {
 
   return (
     <section className="space-y-8">
-      {/* Dashboard Header */}
-      <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
-        <h2 className="text-lg font-semibold text-sky-900 mb-1">Live Performance Dashboard</h2>
-        <p className="text-sm text-sky-700">
+      {/* Dashboard Header - Match homepage theme (indigo gradient) */}
+      <div className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 p-6 shadow-xl">
+        <h2 className="text-xl font-bold text-white mb-2">Live Performance Dashboard</h2>
+        <p className="text-sm text-indigo-100">
           Track your AI texter's outreach performance and conversation health in real-time. 
           Metrics update as messages are sent and leads respond.
         </p>
@@ -227,14 +227,16 @@ export default function MetricsPanel() {
 
       {/* Time Range Selector */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex rounded-xl border border-surface-line bg-white p-1">
+        <div className="inline-flex rounded-xl border border-indigo-200 bg-white p-1 shadow-md">
           {WINDOW_OPTIONS.map(({ label, value }) => (
             <button
               key={value}
               type="button"
               onClick={() => handleSetRange(value)}
-              className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                range === value ? 'bg-ink-1 text-white' : 'text-ink-1 hover:bg-surface-bg'
+              className={`px-3 py-1.5 text-sm rounded-lg transition-all ${
+                range === value 
+                  ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md' 
+                  : 'text-slate-700 hover:bg-indigo-50'
               }`}
               aria-pressed={range === value}
             >
@@ -258,7 +260,7 @@ export default function MetricsPanel() {
             a.download = `outboundrevive-metrics-${range}.csv`;
             a.click();
           }}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-ink-1 bg-white border border-surface-line rounded-lg hover:bg-surface-bg transition-colors"
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-amber-500 to-orange-500 rounded-lg hover:from-amber-600 hover:to-orange-600 transition-all shadow-md"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
