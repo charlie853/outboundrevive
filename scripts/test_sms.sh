@@ -27,7 +27,7 @@ send_sms() {
 
 # Helper: extract message from TwiML
 extract_message() {
-  echo "$1" | grep -oP '(?<=<Message>)[^<]+' | sed 's/&amp;/\&/g; s/&lt;/</g; s/&gt;/>/g; s/&quot;/"/g; s/&apos;/'\''/g'
+  echo "$1" | sed -n 's/.*<Message>\([^<]*\)<\/Message>.*/\1/p' | sed 's/&amp;/\&/g; s/&lt;/</g; s/&gt;/>/g; s/&quot;/"/g; s/&apos;/'\''/g'
 }
 
 # Helper: check if response contains text

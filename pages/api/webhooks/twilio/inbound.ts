@@ -248,10 +248,15 @@ async function generateWithLLM(
   templateVars: Record<string, string>,
   needsIntroFlag: boolean
 ): Promise<LLMOutputContract> {
-  if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
+  if (!OPENAI_API_KEY) {
+    console.error("OPENAI_API_KEY missing");
+    throw new Error("OPENAI_API_KEY missing");
+  }
 
   const systemPrompt = applyTemplateVars(loadSystemPrompt(), templateVars);
-  const systemWithContext = `${systemPrompt}\n\nContext: needs_intro=${needsIntroFlag}`;
+  console.log("System prompt loaded, length:", systemPrompt.length, "first 200 chars:", systemPrompt.slice(0, 200));
+  
+  const systemWithContext = `${systemPrompt}\n\nContext: needs_intro=${needsIntroFlag}\n\nIMPORTANT: You MUST return valid JSON matching this exact structure:\n{\n  "intent": "book|pricing_request|availability|general|...",\n  "confidence": 0.8,\n  "message": "your response text here",\n  "needs_footer": true,\n  "actions": [],\n  "hold_until": null,\n  "policy_flags": {}\n}`;
 
   const body = {
     model: LLM_MODEL,
@@ -261,8 +266,10 @@ async function generateWithLLM(
       { role: "system", content: systemWithContext },
       { role: "user", content: userContext }
     ],
-    max_tokens: 300
+    max_tokens: 400
   };
+
+  console.log("Calling OpenAI with model:", LLM_MODEL, "context:", userContext.slice(0, 100));
 
   let attempt = 0;
   while (attempt < 2) {
@@ -277,21 +284,32 @@ async function generateWithLLM(
       body: JSON.stringify(body)
     });
 
+    if (!r.ok) {
+      const errText = await r.text();
+      console.error("OpenAI API error:", r.status, errText);
+      throw new Error(`OpenAI API failed: ${r.status}`);
+    }
+
     const j = await r.json();
     const rawText = j?.choices?.[0]?.message?.content?.trim() || "{}";
     
+    console.log("LLM raw response (attempt", attempt, "):", rawText.slice(0, 200));
+    
     try {
       const parsed = JSON.parse(rawText) as LLMOutputContract;
-      if (parsed.message) {
+      if (parsed.message && parsed.message.length > 0) {
+        console.log("Successfully parsed LLM output:", { intent: parsed.intent, msg_len: parsed.message.length });
         return parsed;
+      } else {
+        console.warn("Parsed JSON but no message field");
       }
     } catch (parseErr) {
-      console.error("LLM JSON parse failed, attempt", attempt, parseErr, rawText);
+      console.error("LLM JSON parse failed, attempt", attempt, "error:", parseErr, "raw:", rawText.slice(0, 300));
       if (attempt === 1) {
         // Re-ask for valid JSON
         body.messages.push(
           { role: "assistant", content: rawText },
-          { role: "user", content: "Return valid JSON per the output contract. No prose." }
+          { role: "user", content: "Return ONLY valid JSON matching the output contract structure. Include the 'message' field with your response text." }
         );
         continue;
       }
@@ -299,7 +317,10 @@ async function generateWithLLM(
   }
   
   // Final fallback
+  console.error("LLM failed after 2 attempts, using fallback");
   return {
+    intent: "fallback",
+    confidence: 0,
     message: "Thanks for reaching out. Can I help with booking or pricing?",
     needs_footer: true
   };
@@ -511,10 +532,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   };
 
   const threadContext = await getThreadContext(leadId, inboundBody);
-  const llmOutput = await generateWithLLM(threadContext, templateVars, needsIntroFlag);
+  let llmOutput: LLMOutputContract;
+  
+  try {
+    llmOutput = await generateWithLLM(threadContext, templateVars, needsIntroFlag);
+    console.log("LLM output:", JSON.stringify({ intent: llmOutput.intent, message_length: llmOutput.message?.length }));
+  } catch (err) {
+    console.error("LLM generation failed:", err);
+    llmOutput = {
+      message: "Thanks for reaching out. Can I help with booking or pricing?",
+      needs_footer: true
+    };
+  }
 
-  // === Check link gate ===
-  const linkGateHit = BOOKING_LINK ? await sentBookingLinkInLast24h(leadId, BOOKING_LINK) : false;
+  // === No link gate - always send link if present ===
+  const linkGateHit = false; // User wants links sent every time
 
   // === Post-process ===
   let finalMessage = postProcessMessage(llmOutput.message, BOOKING_LINK, linkGateHit);
