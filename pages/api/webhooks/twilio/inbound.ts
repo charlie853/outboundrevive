@@ -1,159 +1,95 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { supabaseAdmin } from "@/lib/supabaseServer";
+import * as fs from "fs";
+import * as path from "path";
 
 /** Twilio posts x-www-form-urlencoded; we must disable Next's JSON parser. */
 export const config = { api: { bodyParser: false } };
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
-const OPENAI_MODEL   = process.env.OPENAI_MODEL || "gpt-4o-mini";
-
-const BOOKING =
-  (process.env.CAL_BOOKING_URL || process.env.CAL_PUBLIC_URL || process.env.CAL_URL || "").trim();
-const SYS_PROMPT = (process.env.SMS_SYSTEM_PROMPT || "").trim();
-const BRAND      = "OutboundRevive";
+const LLM_MODEL = process.env.LLM_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";
+const BOOKING_LINK = (process.env.CAL_BOOKING_URL || process.env.CAL_PUBLIC_URL || process.env.CAL_URL || "").trim();
+const BRAND = process.env.BRAND || "OutboundRevive";
 const ACCOUNT_ID = process.env.DEFAULT_ACCOUNT_ID || "";
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SRK = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
-// === SMS post-processing helpers (humanize + link rules) ===
-const SCHED_RE = /\b(zoom|call|meet|meeting|book|schedule|resched|availability|available|time|slot|tomorrow|today|this week|next week)\b/i;
-const CAL_RE = /(https?:\/\/)?([a-z0-9-]+\.)*cal\.com\/\S+/i;
+// Florida & Oklahoma NPAs for state-specific caps
+const FL_NPAS = new Set(['239', '305', '321', '352', '386', '407', '561', '727', '754', '772', '786', '813', '850', '863', '904', '941', '954']);
+const OK_NPAS = new Set(['405', '539', '580', '918']);
 
-function pickBookingLink(): string {
-  return (
-    process.env.CAL_BOOKING_URL ||
-    process.env.CAL_PUBLIC_URL ||
-    process.env.CAL_URL ||
-    ""
-  ).trim();
-}
-
-function stripBannedOpeners(s: string): string {
-  return s
-    .replace(/^\s*(Happy to help|Got it|Thanks for reaching out)[\s—,-:]*/i, "")
-    .trim();
-}
-
-function removeThreeBulletTic(s: string): string {
-  return s.replace(/3[- ]?bullet( summary)?/gi, "").trim();
-}
-
-function extractAnyLink(s: string): string | null {
-  const m = s.match(CAL_RE);
-  return m ? m[0] : null;
-}
-
-function withoutLinks(s: string): string {
-  return s.replace(CAL_RE, "").replace(/\s+/g, " ").trim();
-}
-
-function ensureContextBlurb(s: string, inbound: string): string {
-  // If reply is only a link or empty, prepend a tiny contextual line.
-  const trimmed = s.trim();
-  const onlyLink = CAL_RE.test(trimmed) && withoutLinks(trimmed) === "";
-  if (!onlyLink) return s;
-
-  const leadIn = SCHED_RE.test(inbound)
-    ? "Let’s do it—grab a time that works: "
-    : "Here you go—book a time that suits you: ";
-  const link = extractAnyLink(trimmed) || pickBookingLink();
-  return (leadIn + link).trim();
-}
-
-function enforceOneLinkAtEnd(msg: string, bookingLink: string): string {
-  // Move a single booking link to the very end; strip any duplicates/other links.
-  const core = withoutLinks(msg);
-  const link = bookingLink || extractAnyLink(msg) || "";
-  return (core ? core + " " : "") + (link ? link : "");
-}
-
-function clampSms(msg: string, limit = 320): string {
-  if (msg.length <= limit) return msg;
-  // Preserve link at end if present
-  const m = msg.match(/\s(https?:\/\/\S+)\s*$/);
-  if (m) {
-    const link = m[1];
-    const head = msg.slice(0, Math.max(0, limit - link.length - 1)).trim();
-    return `${head} ${link}`.trim();
+// === Load System Prompt ===
+let SYSTEM_PROMPT_TEMPLATE = "";
+function loadSystemPrompt(): string {
+  if (SYSTEM_PROMPT_TEMPLATE) return SYSTEM_PROMPT_TEMPLATE;
+  
+  // 1. Try env first
+  if (process.env.SMS_SYSTEM_PROMPT) {
+    SYSTEM_PROMPT_TEMPLATE = process.env.SMS_SYSTEM_PROMPT;
+    return SYSTEM_PROMPT_TEMPLATE;
   }
-  return msg.slice(0, limit);
-}
-
-async function sentBookingLinkInLast24h(
-  supabase: typeof supabaseAdmin,
-  accountId: string,
-  toPhone: string,
-  bookingUrl: string
-): Promise<boolean> {
-  if (!accountId || !toPhone || !bookingUrl) return false;
+  
+  // 2. Try file
   try {
-    // First get lead_id from phone
-    const { data: lead } = await supabase
-      .from("leads")
-      .select("id")
-      .eq("account_id", accountId)
-      .eq("phone", toPhone)
-      .maybeSingle();
-    
-    if (!lead?.id) return false;
-
-    // Then query messages_out by lead_id
-    const sinceISO = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { data, error } = await supabase
-      .from("messages_out")
-      .select("body,created_at")
-      .eq("lead_id", lead.id)
-      .gte("created_at", sinceISO)
-      .order("created_at", { ascending: false })
-      .limit(20);
-    if (error || !data) return false;
-    return data.some(
-      (row) => typeof row.body === "string" && row.body.includes(bookingUrl)
-    );
-  } catch {
-    return false;
+    const filePath = path.join(process.cwd(), "prompts", "sms_system_prompt.md");
+    SYSTEM_PROMPT_TEMPLATE = fs.readFileSync(filePath, "utf8");
+    return SYSTEM_PROMPT_TEMPLATE;
+  } catch (err) {
+    console.error("Failed to load system prompt from file:", err);
+    SYSTEM_PROMPT_TEMPLATE = "You are Charlie from OutboundRevive. Be brief, helpful, and book appointments.";
+    return SYSTEM_PROMPT_TEMPLATE;
   }
 }
 
-function postProcessSms(params: {
-  aiReply: string;
-  inboundBody: string;
-  isScheduleLike: boolean;
-  gateHit: boolean; // true => sent link in last 24h
-  bookingLink: string;
-}): string {
-  let s = params.aiReply || "";
-  s = s.trim();
-
-  // Sanitize phrasing
-  s = stripBannedOpeners(s);
-  s = removeThreeBulletTic(s);
-
-  // Scheduling behavior
-  if (params.isScheduleLike) {
-    if (params.gateHit) {
-      // Gate hit => do NOT include link; keep the sentence helpful.
-      s = withoutLinks(s);
-      if (!s) s = "Share two times that work and I’ll confirm.";
-    } else {
-      // Gate open => ensure one contextual blurb + a single link at end.
-      if (!CAL_RE.test(s)) {
-        // No link present -> add one
-        s = ensureContextBlurb(s || params.bookingLink, params.inboundBody);
-      }
-      s = enforceOneLinkAtEnd(s, params.bookingLink);
-    }
-  } else {
-    // Non-scheduling: never include raw placeholders; if LLM injected a link, ensure one at end.
-    if (CAL_RE.test(s)) s = enforceOneLinkAtEnd(s, params.bookingLink);
+// === Template Variable Substitution ===
+function applyTemplateVars(template: string, vars: Record<string, string>): string {
+  let result = template;
+  for (const [key, value] of Object.entries(vars)) {
+    const regex = new RegExp(`\\{\\{${key}\\}\\}`, "g");
+    result = result.replace(regex, value || "");
   }
-
-  // Final clamp
-  s = clampSms(s, 320);
-  return s;
+  return result;
 }
 
-/** Parse Twilio form body safely */
+// === Generate next time slots ===
+function generateTimeSlots(): { time1: string; time2: string } {
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(14, 0, 0, 0); // 2 PM
+  
+  const dayAfter = new Date(now);
+  dayAfter.setDate(dayAfter.getDate() + 2);
+  dayAfter.setHours(10, 0, 0, 0); // 10 AM
+  
+  const fmt = (d: Date) => {
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const hrs = d.getHours();
+    const ampm = hrs >= 12 ? 'p' : 'a';
+    const hr12 = hrs % 12 || 12;
+    return `${days[d.getDay()]} ${hr12}${ampm}`;
+  };
+  
+  return { time1: fmt(tomorrow), time2: fmt(dayAfter) };
+}
+
+// === JSON Output Contract ===
+type LLMOutputContract = {
+  intent?: string;
+  confidence?: number;
+  message: string;
+  needs_footer?: boolean;
+  actions?: Array<{type: string; [key: string]: any}>;
+  hold_until?: string | null;
+  policy_flags?: {
+    quiet_hours_block?: boolean;
+    state_cap_block?: boolean;
+    footer_appended?: boolean;
+    opt_out_processed?: boolean;
+  };
+};
+
+// === Parse Twilio form ===
 async function parseTwilioForm(req: NextApiRequest): Promise<{From:string;To:string;Body:string}> {
   const chunks: Buffer[] = [];
   for await (const c of req) chunks.push(typeof c === "string" ? Buffer.from(c) : c);
@@ -161,12 +97,12 @@ async function parseTwilioForm(req: NextApiRequest): Promise<{From:string;To:str
   const params = new URLSearchParams(raw);
   return {
     From: params.get("From") || "",
-    To:   params.get("To")   || "",
+    To: params.get("To") || "",
     Body: (params.get("Body") || "").trim(),
   };
 }
 
-/** Minimal XML escaper for TwiML */
+// === XML escaper for TwiML ===
 function escapeXml(s: string) {
   return s
     .replace(/&/g, "&amp;")
@@ -176,75 +112,253 @@ function escapeXml(s: string) {
     .replace(/'/g, "&apos;");
 }
 
-/** Call OpenAI Chat Completions with your system prompt */
-async function generateWithLLM(userText: string) {
-  if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
-
-  const system = [
-    SYS_PROMPT,
-    `Brand: ${BRAND}.`,
-    `booking_link: ${BOOKING || "(none)"} .`,
-    `Pricing: Starter $199/100 leads, Growth $499/300 leads, Enterprise custom. When asked about pricing, mention a specific tier (e.g., "starts at $199 for 100 leads") and offer to discuss fit via booking.`,
-    `Rules:`,
-    `- For scheduling intent: output a brief helpful message with the booking link.`,
-    `- For "who is this" ONLY: output exactly "Charlie from OutboundRevive."`,
-    `- For greetings (hi/hello): reply conversationally (e.g., "Hey! Happy to help—what can I answer?")`,
-    `- Max 320 chars. One message. Be specific and helpful, not generic.`,
-    `Examples:`,
-    `"hello" → "Hey! This is Charlie from OutboundRevive. What can I help with?"`,
-    `"who is this" → "Charlie from OutboundRevive."`,
-    `"how much" → "Starts at $199 for 100 leads (Starter plan). Want to discuss your volume? ${BOOKING}"`
-  ].filter(Boolean).join("\n");
-
-  const body = {
-    model: OPENAI_MODEL,
-    temperature: 0.3,
-    messages: [
-      { role: "system", content: system },
-      { role: "user",   content: userText }
-    ],
-    max_tokens: 200
-  };
-
-  const r = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENAI_API_KEY}` },
-    body: JSON.stringify(body)
-  });
-
-  const j = await r.json();
-  const txt = j?.choices?.[0]?.message?.content?.trim() || "";
-  return txt.slice(0, 320);
+// === Check if intro is needed (thread context) ===
+async function needsIntro(leadId: string): Promise<boolean> {
+  try {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { data } = await supabaseAdmin
+      .from("messages_out")
+      .select("body,created_at")
+      .eq("lead_id", leadId)
+      .order("created_at", { ascending: false })
+      .limit(5);
+    
+    if (!data || data.length === 0) return true; // First message
+    
+    // Check if last message was >30 days ago
+    if (data[0].created_at && new Date(data[0].created_at) < new Date(thirtyDaysAgo)) {
+      return true;
+    }
+    
+    // Check if we already introduced in recent messages
+    const hasRecentIntro = data.some(msg => 
+      msg.body?.includes("Charlie from OutboundRevive")
+    );
+    
+    return !hasRecentIntro;
+  } catch {
+    return true; // Default to introducing if can't check
+  }
 }
 
-/** Best-effort persist to Supabase (non-blocking) */
-async function persistOut(fromPhone: string, toPhone: string, body: string) {
-  if (!SUPABASE_URL || !SRK || !ACCOUNT_ID || !body) return;
+// === Check if footer was sent recently ===
+async function needsFooter(leadId: string): Promise<boolean> {
+  try {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { data } = await supabaseAdmin
+      .from("messages_out")
+      .select("body,created_at")
+      .eq("lead_id", leadId)
+      .gte("created_at", thirtyDaysAgo)
+      .order("created_at", { ascending: false })
+      .limit(10);
+    
+    if (!data || data.length === 0) return true; // First message
+    
+    // Check if any recent message had the footer
+    const hasRecentFooter = data.some(msg => 
+      msg.body?.includes("Reply PAUSE to stop") || msg.body?.includes("PAUSE to stop")
+    );
+    
+    return !hasRecentFooter;
+  } catch {
+    return true; // Default to adding footer if can't check
+  }
+}
+
+// === Check quiet hours ===
+function isQuietHours(phone: string): boolean {
+  // Extract NPA (area code)
+  const npa = phone.replace(/^\+?1?/, "").slice(0, 3);
+  const isFlOrOk = FL_NPAS.has(npa) || OK_NPAS.has(npa);
+  
+  // For simplicity, using UTC hour as proxy (production should use proper timezone)
+  const hour = new Date().getUTCHours();
+  
+  // FL/OK: 8a-8p = hours 13-1 UTC (EST-5), others 8a-9p
+  if (isFlOrOk) {
+    return hour < 13 || hour >= 1; // Simplified check
+  }
+  return hour < 13 || hour >= 2;
+}
+
+// === Check daily cap ===
+async function checkDailyCap(leadId: string, phone: string): Promise<boolean> {
+  try {
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data, count } = await supabaseAdmin
+      .from("messages_out")
+      .select("id", { count: "exact", head: false })
+      .eq("lead_id", leadId)
+      .gte("created_at", since24h);
+    
+    const npa = phone.replace(/^\+?1?/, "").slice(0, 3);
+    const isFlOrOk = FL_NPAS.has(npa) || OK_NPAS.has(npa);
+    
+    const cap = isFlOrOk ? 3 : 1;
+    return (count || 0) >= cap;
+  } catch {
+    return false; // Don't block on error
+  }
+}
+
+// === Check if sent booking link in last 24h ===
+async function sentBookingLinkInLast24h(leadId: string, bookingUrl: string): Promise<boolean> {
+  if (!leadId || !bookingUrl) return false;
+  try {
+    const sinceISO = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabaseAdmin
+      .from("messages_out")
+      .select("body,created_at")
+      .eq("lead_id", leadId)
+      .gte("created_at", sinceISO)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (error || !data) return false;
+    return data.some(row => typeof row.body === "string" && row.body.includes(bookingUrl));
+  } catch {
+    return false;
+  }
+}
+
+// === Get recent thread context ===
+async function getThreadContext(leadId: string, inboundText: string): Promise<string> {
+  try {
+    const { data: messages } = await supabaseAdmin
+      .from("messages_out")
+      .select("body,created_at")
+      .eq("lead_id", leadId)
+      .order("created_at", { ascending: false })
+      .limit(3);
+    
+    if (!messages || messages.length === 0) {
+      return `New inbound from lead: "${inboundText}"`;
+    }
+    
+    const thread = messages.reverse().map(m => `AI: ${m.body}`).join("\n");
+    return `Thread:\n${thread}\nNew inbound: "${inboundText}"`;
+  } catch {
+    return `Inbound: "${inboundText}"`;
+  }
+}
+
+// === Call LLM with JSON output contract ===
+async function generateWithLLM(
+  userContext: string,
+  templateVars: Record<string, string>,
+  needsIntroFlag: boolean
+): Promise<LLMOutputContract> {
+  if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
+
+  const systemPrompt = applyTemplateVars(loadSystemPrompt(), templateVars);
+  const systemWithContext = `${systemPrompt}\n\nContext: needs_intro=${needsIntroFlag}`;
+
+  const body = {
+    model: LLM_MODEL,
+    temperature: 0.3,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: systemWithContext },
+      { role: "user", content: userContext }
+    ],
+    max_tokens: 300
+  };
+
+  let attempt = 0;
+  while (attempt < 2) {
+    attempt++;
+    
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json", 
+        "Authorization": `Bearer ${OPENAI_API_KEY}` 
+      },
+      body: JSON.stringify(body)
+    });
+
+    const j = await r.json();
+    const rawText = j?.choices?.[0]?.message?.content?.trim() || "{}";
+    
+    try {
+      const parsed = JSON.parse(rawText) as LLMOutputContract;
+      if (parsed.message) {
+        return parsed;
+      }
+    } catch (parseErr) {
+      console.error("LLM JSON parse failed, attempt", attempt, parseErr, rawText);
+      if (attempt === 1) {
+        // Re-ask for valid JSON
+        body.messages.push(
+          { role: "assistant", content: rawText },
+          { role: "user", content: "Return valid JSON per the output contract. No prose." }
+        );
+        continue;
+      }
+    }
+  }
+  
+  // Final fallback
+  return {
+    message: "Thanks for reaching out. Can I help with booking or pricing?",
+    needs_footer: true
+  };
+}
+
+// === Post-process message ===
+function postProcessMessage(
+  msg: string,
+  bookingLink: string,
+  gateHit: boolean
+): string {
+  let s = msg.trim();
+  
+  // Strip robotic openers
+  s = s.replace(/^\s*(Happy to help|Got it|Thanks for reaching out)[\s—,-:]*/i, "").trim();
+  
+  // If gate hit (sent link in last 24h), remove any booking link
+  if (gateHit && bookingLink) {
+    s = s.replace(new RegExp(bookingLink.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), "").trim();
+    s = s.replace(/\s+/g, " ");
+  }
+  
+  // Enforce link-last rule if link present
+  if (bookingLink && s.includes(bookingLink)) {
+    const core = s.replace(new RegExp(bookingLink.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), "").trim();
+    s = core ? `${core} ${bookingLink}` : bookingLink;
+  }
+  
+  // Clamp to 320 chars, preserving link at end
+  if (s.length > 320) {
+    const linkMatch = s.match(/\s(https?:\/\/\S+)\s*$/);
+    if (linkMatch) {
+      const link = linkMatch[1];
+      const head = s.slice(0, Math.max(0, 320 - link.length - 1)).trim();
+      s = `${head} ${link}`.trim();
+    } else {
+      s = s.slice(0, 320);
+    }
+  }
+  
+  // Flatten whitespace
+  s = s.replace(/\s*\n+\s*/g, " ").replace(/\s{2,}/g, " ").trim();
+  
+  return s;
+}
+
+// === Persist outbound message ===
+async function persistOut(leadId: string, body: string, needsFooterFlag: boolean) {
+  if (!SUPABASE_URL || !SRK || !ACCOUNT_ID || !body || !leadId) return;
 
   try {
-    // First lookup lead_id from phone
-    const leadResp = await fetch(
-      `${SUPABASE_URL}/rest/v1/leads?account_id=eq.${ACCOUNT_ID}&phone=eq.${encodeURIComponent(fromPhone)}&select=id`,
-      {
-        headers: {
-          "apikey": SRK,
-          "Authorization": `Bearer ${SRK}`,
-        }
-      }
-    );
-    const leads = await leadResp.json();
-    const leadId = leads?.[0]?.id;
+    const finalBody = needsFooterFlag && !body.includes("Reply PAUSE")
+      ? `${body} Reply PAUSE to stop`
+      : body;
     
-    if (!leadId) {
-      console.error("persistOut: lead not found for phone", fromPhone);
-      return;
-    }
-
-    // Now insert with correct schema columns
     const payload = [{
       lead_id: leadId,
       account_id: ACCOUNT_ID,
-      body,
+      body: finalBody,
       sent_by: "ai"
     }];
 
@@ -259,161 +373,174 @@ async function persistOut(fromPhone: string, toPhone: string, body: string) {
       body: JSON.stringify(payload)
     });
 
-    const text = await resp.text();
     if (!resp.ok) {
+      const text = await resp.text();
       console.error("messages_out insert failed", resp.status, text);
-      return; // don't throw; we already returned TwiML to Twilio
+      return;
     }
 
-    console.log("messages_out insert ok:", text);
+    console.log("messages_out insert ok");
   } catch (err) {
     console.error("persistOut error:", err);
   }
 }
 
+// === Main handler ===
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).end();
 
   const { From, To, Body } = await parseTwilioForm(req);
   const inboundBody = typeof Body === "string" ? Body : String(Body || "");
-  const accountId =
-    process.env.DEFAULT_ACCOUNT_ID ||
-    ((req as any)?.body?.account_id as string | undefined) ||
-    (typeof req.query.account_id === "string"
-      ? req.query.account_id
-      : Array.isArray(req.query.account_id)
-      ? req.query.account_id[0]
-      : undefined) ||
-    "11111111-1111-1111-1111-111111111111";
+  const accountId = ACCOUNT_ID || "11111111-1111-1111-1111-111111111111";
 
-  const isWhoIsExact = /^\s*who\s+is\s+this\??\s*$/i.test(inboundBody || "");
-  if (isWhoIsExact) {
-    const finalReply = "Charlie from OutboundRevive.";
-    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(finalReply)}</Message></Response>`;
-    await persistOut(From, To, finalReply);
-    res.status(200).setHeader("Content-Type","text/xml").send(twiml);
-    return;
+  // Get or create lead
+  let leadId: string | null = null;
+  let firstName = "there";
+  
+  try {
+    const { data: lead } = await supabaseAdmin
+      .from("leads")
+      .select("id,name,opted_out")
+      .eq("account_id", accountId)
+      .eq("phone", From)
+      .maybeSingle();
+    
+    if (lead) {
+      leadId = lead.id;
+      firstName = (lead.name || "").split(" ")[0] || "there";
+      
+      // Check opt-out status
+      if (lead.opted_out) {
+        res.status(200).setHeader("Content-Type", "text/xml")
+          .send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
+        return;
+      }
+    }
+  } catch (err) {
+    console.error("lead lookup failed", err);
+  }
+  
+  if (!leadId) {
+    console.error("No lead found for phone", From);
+    const msg = "Thanks for reaching out. We'll get back to you shortly.";
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(msg)}</Message></Response>`;
+    return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
   }
 
-  const text = (inboundBody || "").trim();
-  const STOP_RX = /^(stop|stopall|unsubscribe|cancel|end|quit|remove)\b/i;
-  const PAUSE_RX = /^pause\b/i;
-
-  if (STOP_RX.test(text)) {
+  // === Handle compliance keywords ===
+  const text = inboundBody.trim().toLowerCase().replace(/\W+/g, "");
+  
+  if (/^(stop|stopall|unsubscribe|cancel|end|quit|remove)/.test(text)) {
     try {
-      const { data: updateResult, error: updateErr } = await supabaseAdmin
+      const { data: updateResult } = await supabaseAdmin
         .from("leads")
         .update({
           opted_out: true,
           last_reply_body: inboundBody,
           last_inbound_at: new Date().toISOString(),
         })
-        .eq("account_id", accountId)
-        .eq("phone", From)
+        .eq("id", leadId)
         .select();
       
-      if (updateErr) {
-        console.error("lead opt-out update error:", updateErr);
-      } else if (!updateResult || updateResult.length === 0) {
-        console.warn("STOP: no lead matched phone", From, "account", accountId);
+      if (updateResult && updateResult.length > 0) {
+        console.log("STOP: opted out lead", leadId);
       } else {
-        console.log("STOP: opted out lead", updateResult[0]?.id, "phone", From);
+        console.warn("STOP: update returned no rows for lead", leadId);
       }
     } catch (err) {
-      console.error("lead opt-out update failed", err);
+      console.error("STOP: update failed", err);
     }
 
-    const msg = "You're opted out and won't receive further messages. Reply START to resume.";
-    await persistOut(From, To, msg);
+    const msg = "You're paused and won't receive further messages. Reply START to resume.";
+    await persistOut(leadId, msg, false);
     const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(msg)}</Message></Response>`;
-    res.status(200).setHeader("Content-Type","text/xml").send(twiml);
-    return;
+    return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
   }
 
-  if (PAUSE_RX.test(text)) {
-    const msg = "Okay—pausing messages. Reply START to resume anytime.";
-    await persistOut(From, To, msg);
+  if (/^pause/.test(text)) {
+    const msg = "You're paused and won't receive further messages. Reply START to resume.";
+    await persistOut(leadId, msg, false);
     const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(msg)}</Message></Response>`;
-    res.status(200).setHeader("Content-Type","text/xml").send(twiml);
-    return;
+    return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
   }
 
-  try {
-    const { data: leadRow } = await supabaseAdmin
-      .from("leads")
-      .select("opted_out")
-      .eq("account_id", accountId)
-      .eq("phone", From)
-      .limit(1)
-      .maybeSingle();
-    if (leadRow?.opted_out) {
-      res
-        .status(200)
-        .setHeader("Content-Type", "text/xml")
+  if (text === "help") {
+    const msg = "Help: booking & support via this number. Reply PAUSE to stop. Reply START to resume.";
+    await persistOut(leadId, msg, false);
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(msg)}</Message></Response>`;
+    return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
+  }
+
+  // === Check quiet hours & daily caps (non-reply mode) ===
+  // For inbound replies, we skip these checks
+  const isInboundReply = true; // This is an inbound webhook, so it's always a reply context
+  
+  if (!isInboundReply) {
+    if (isQuietHours(From)) {
+      console.log("Quiet hours block for", From);
+      res.status(200).setHeader("Content-Type", "text/xml")
         .send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
       return;
     }
-  } catch (err) {
-    console.error("lead opt-out lookup failed", err);
+
+    if (await checkDailyCap(leadId, From)) {
+      console.log("Daily cap hit for", leadId);
+      res.status(200).setHeader("Content-Type", "text/xml")
+        .send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
+      return;
+    }
   }
 
-  const low = inboundBody.toLowerCase().replace(/\W+/g, "");
-  if (low === "help") {
-    const msg = "Help: booking & support via this number. Reply PAUSE to stop; START to resume.";
-    await persistOut(From, To, msg);
-    return res
-      .status(200)
-      .setHeader("Content-Type","text/xml")
-      .send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(msg)}</Message></Response>`);
-  }
-
-  // LLM-only logic for everything else:
-  let aiReply = (await generateWithLLM(Body) || "").trim();
-
-  const bookingLink = pickBookingLink();
-
-  if (bookingLink) {
-    aiReply = aiReply
-      .replace(/\$\{\s*cal_booking_url\s*\}/gi, bookingLink)
-      .replace(/\$\{\s*booking_link\s*\}/gi, bookingLink)
-      .replace(/\{\{\s*booking_link\s*\}\}/gi, bookingLink)
-      .replace(/\{\{\s*CAL_URL\s*\}\}/gi, bookingLink);
-  }
-
-  // === POST-PROCESS LLM TEXT BEFORE TwiML ===
-  const isScheduleLike = SCHED_RE.test(inboundBody) || SCHED_RE.test(aiReply);
-  let gateHit = false;
-  if (isScheduleLike && bookingLink) {
-    gateHit = await sentBookingLinkInLast24h(supabaseAdmin, accountId, From, bookingLink);
-  }
-
-  let finalReply = postProcessSms({
-    aiReply,
-    inboundBody,
-    isScheduleLike,
-    gateHit,
-    bookingLink,
-  });
-
-  // Flatten whitespace so the SMS is a single clean line (helps tests and carriers)
-  finalReply = (finalReply || "").replace(/\s*\n+\s*/g, " ").replace(/\s{2,}/g, " ").trim();
-
-  const logPayload = {
-    route: "twilio/inbound",
-    from: From,
-    to: To,
-    identify_exact: isWhoIsExact,
-    schedule_like: isScheduleLike,
-    gated: isScheduleLike ? gateHit : undefined,
-    final_has_link: /\bhttps?:\/\/\S+$/.test(finalReply),
-    sample_final: finalReply.slice(0, 160),
+  // === Generate LLM response ===
+  const needsIntroFlag = await needsIntro(leadId);
+  const needsFooterFlag = await needsFooter(leadId);
+  const { time1, time2 } = generateTimeSlots();
+  
+  const templateVars: Record<string, string> = {
+    brand: BRAND,
+    first_name: firstName,
+    booking_link: BOOKING_LINK,
+    time1,
+    time2,
+    service: "appointment scheduling", // Could be dynamic
+    pricing_range: "$299-$599/mo",
+    key_factors: "volume and features",
+    entry_option: "Lite at $299/mo",
+    differentiator: "AI-powered lead revival",
+    "insurers/financing": "major providers"
   };
-  console.log(JSON.stringify(logPayload));
 
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(finalReply)}</Message></Response>`;
+  const threadContext = await getThreadContext(leadId, inboundBody);
+  const llmOutput = await generateWithLLM(threadContext, templateVars, needsIntroFlag);
 
-  // Fire-and-forget persistence
-  persistOut(From, To, finalReply).catch(()=>{});
+  // === Check link gate ===
+  const linkGateHit = BOOKING_LINK ? await sentBookingLinkInLast24h(leadId, BOOKING_LINK) : false;
 
+  // === Post-process ===
+  let finalMessage = postProcessMessage(llmOutput.message, BOOKING_LINK, linkGateHit);
+  
+  // Apply footer if needed
+  const shouldAddFooter = needsFooterFlag || llmOutput.needs_footer;
+
+  // === Log & persist ===
+  console.log(JSON.stringify({
+    route: "twilio/inbound",
+    lead_id: leadId,
+    from: From,
+    intent: llmOutput.intent,
+    needs_intro: needsIntroFlag,
+    needs_footer: shouldAddFooter,
+    link_gated: linkGateHit,
+    final_length: finalMessage.length
+  }));
+
+  await persistOut(leadId, finalMessage, shouldAddFooter);
+
+  // TwiML response
+  const twimlBody = shouldAddFooter && !finalMessage.includes("Reply PAUSE")
+    ? `${finalMessage} Reply PAUSE to stop`
+    : finalMessage;
+  
+  const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(twimlBody)}</Message></Response>`;
   return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
 }
