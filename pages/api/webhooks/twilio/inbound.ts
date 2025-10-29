@@ -141,28 +141,28 @@ async function needsIntro(leadId: string): Promise<boolean> {
   }
 }
 
-// === Check if footer was sent recently ===
+// === Check if footer is needed based on last_footer_at ===
 async function needsFooter(leadId: string): Promise<boolean> {
   try {
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const { data } = await supabaseAdmin
-      .from("messages_out")
-      .select("body,created_at")
-      .eq("lead_id", leadId)
-      .gte("created_at", thirtyDaysAgo)
-      .order("created_at", { ascending: false })
-      .limit(10);
+    const { data: lead } = await supabaseAdmin
+      .from("leads")
+      .select("last_footer_at")
+      .eq("id", leadId)
+      .maybeSingle();
     
-    if (!data || data.length === 0) return true; // First message
+    if (!lead) return true; // Default to true if lead not found
     
-    // Check if any recent message had the footer
-    const hasRecentFooter = data.some(msg => 
-      msg.body?.includes("Reply PAUSE to stop") || msg.body?.includes("PAUSE to stop")
-    );
+    // If never sent footer, need it now
+    if (!lead.last_footer_at) return true;
     
-    return !hasRecentFooter;
-  } catch {
-    return true; // Default to adding footer if can't check
+    // Check if 30+ days since last footer
+    const lastFooterDate = new Date(lead.last_footer_at);
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    
+    return lastFooterDate < thirtyDaysAgo;
+  } catch (err) {
+    console.error("needsFooter check failed:", err);
+    return true; // Default to adding footer on error
   }
 }
 
@@ -274,15 +274,15 @@ async function generateWithLLM(
   let attempt = 0;
   while (attempt < 2) {
     attempt++;
-    
-    const r = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
+
+  const r = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
       headers: { 
         "Content-Type": "application/json", 
         "Authorization": `Bearer ${OPENAI_API_KEY}` 
       },
-      body: JSON.stringify(body)
-    });
+    body: JSON.stringify(body)
+  });
 
     if (!r.ok) {
       const errText = await r.text();
@@ -290,7 +290,7 @@ async function generateWithLLM(
       throw new Error(`OpenAI API failed: ${r.status}`);
     }
 
-    const j = await r.json();
+  const j = await r.json();
     const rawText = j?.choices?.[0]?.message?.content?.trim() || "{}";
     
     console.log("LLM raw response (attempt", attempt, "):", rawText.slice(0, 200));
@@ -316,12 +316,27 @@ async function generateWithLLM(
     }
   }
   
-  // Final fallback
-  console.error("LLM failed after 2 attempts, using fallback");
+  // Final fallback - try to be context-aware
+  console.error("LLM failed after 2 attempts, using context-aware fallback");
+  
+  // Extract intent from user context for better fallback
+  const contextLower = userContext.toLowerCase();
+  let fallbackMsg = "Thanks for reaching out.";
+  
+  if (contextLower.includes("price") || contextLower.includes("cost") || contextLower.includes("much")) {
+    fallbackMsg = `Happy to help with pricing. We have plans from $299/mo. Want me to share details or grab a time to chat? ${templateVars.booking_link || ''}`.trim();
+  } else if (contextLower.includes("book") || contextLower.includes("schedule") || contextLower.includes("call") || contextLower.includes("time")) {
+    fallbackMsg = `Let's schedule a time. ${templateVars.booking_link || 'Reply with two times that work for you.'}`.trim();
+  } else if (contextLower.includes("who") || contextLower.includes("what is this")) {
+    fallbackMsg = `It's Charlie from OutboundRevive with ${templateVars.brand}—following up on your earlier inquiry. Happy to help schedule a time or answer questions.`;
+  } else {
+    fallbackMsg = `Thanks for the message. I can help with scheduling or answer questions about ${templateVars.brand}. What works best for you?`;
+  }
+  
   return {
     intent: "fallback",
     confidence: 0,
-    message: "Thanks for reaching out. Can I help with booking or pricing?",
+    message: fallbackMsg,
     needs_footer: true
   };
 }
@@ -367,7 +382,7 @@ function postProcessMessage(
   return s;
 }
 
-// === Persist outbound message ===
+// === Persist outbound message and update last_footer_at ===
 async function persistOut(leadId: string, body: string, needsFooterFlag: boolean) {
   if (!SUPABASE_URL || !SRK || !ACCOUNT_ID || !body || !leadId) return;
 
@@ -375,32 +390,41 @@ async function persistOut(leadId: string, body: string, needsFooterFlag: boolean
     const finalBody = needsFooterFlag && !body.includes("Reply PAUSE")
       ? `${body} Reply PAUSE to stop`
       : body;
-    
-    const payload = [{
-      lead_id: leadId,
-      account_id: ACCOUNT_ID,
-      body: finalBody,
-      sent_by: "ai"
-    }];
 
-    const resp = await fetch(`${SUPABASE_URL}/rest/v1/messages_out`, {
-      method: "POST",
-      headers: {
-        "apikey": SRK,
-        "Authorization": `Bearer ${SRK}`,
-        "Content-Type": "application/json",
-        "Prefer": "return=representation"
-      },
-      body: JSON.stringify(payload)
-    });
+  const payload = [{
+      lead_id: leadId,
+    account_id: ACCOUNT_ID,
+      body: finalBody,
+    sent_by: "ai"
+  }];
+
+  const resp = await fetch(`${SUPABASE_URL}/rest/v1/messages_out`, {
+    method: "POST",
+    headers: {
+      "apikey": SRK,
+      "Authorization": `Bearer ${SRK}`,
+      "Content-Type": "application/json",
+      "Prefer": "return=representation"
+    },
+    body: JSON.stringify(payload)
+  });
 
     if (!resp.ok) {
-      const text = await resp.text();
-      console.error("messages_out insert failed", resp.status, text);
+  const text = await resp.text();
+    console.error("messages_out insert failed", resp.status, text);
       return;
     }
 
     console.log("messages_out insert ok");
+    
+    // Update last_footer_at if footer was added
+    if (needsFooterFlag && finalBody.includes("Reply PAUSE")) {
+      await supabaseAdmin
+        .from("leads")
+        .update({ last_footer_at: new Date().toISOString() })
+        .eq("id", leadId);
+      console.log("Updated last_footer_at for lead", leadId);
+    }
   } catch (err) {
     console.error("persistOut error:", err);
   }
@@ -434,7 +458,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (lead.opted_out) {
         res.status(200).setHeader("Content-Type", "text/xml")
           .send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
-        return;
+    return;
       }
     }
   } catch (err) {
@@ -501,8 +525,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       console.log("Quiet hours block for", From);
       res.status(200).setHeader("Content-Type", "text/xml")
         .send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
-      return;
-    }
+    return;
+  }
 
     if (await checkDailyCap(leadId, From)) {
       console.log("Daily cap hit for", leadId);
@@ -539,8 +563,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.log("LLM output:", JSON.stringify({ intent: llmOutput.intent, message_length: llmOutput.message?.length }));
   } catch (err) {
     console.error("LLM generation failed:", err);
+    
+    // Context-aware fallback
+    const inboundLower = inboundBody.toLowerCase();
+    let fallbackMsg = "Thanks for reaching out.";
+    
+    if (inboundLower.includes("price") || inboundLower.includes("cost") || inboundLower.includes("much")) {
+      fallbackMsg = `Happy to help with pricing. We have plans from $299/mo. Want me to share details or grab a time to chat? ${BOOKING_LINK || ''}`.trim();
+    } else if (inboundLower.includes("book") || inboundLower.includes("schedule") || inboundLower.includes("call") || inboundLower.includes("time")) {
+      fallbackMsg = `Let's schedule a time. ${BOOKING_LINK || 'Reply with two times that work for you.'}`.trim();
+    } else if (inboundLower.includes("who") || inboundLower.includes("what is this")) {
+      fallbackMsg = `It's Charlie from OutboundRevive with ${BRAND}—following up on your earlier inquiry. Happy to help schedule a time or answer questions.`;
+    } else {
+      fallbackMsg = `Thanks for the message. I can help with scheduling or answer questions about ${BRAND}. What works best for you?`;
+    }
+    
     llmOutput = {
-      message: "Thanks for reaching out. Can I help with booking or pricing?",
+      message: fallbackMsg,
       needs_footer: true
     };
   }
