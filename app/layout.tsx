@@ -19,6 +19,9 @@ export const metadata: Metadata = {
   title: { default: 'OutboundRevive', template: '%s | OutboundRevive' },
   description: 'AI SMS that revives cold leads and books time — hands off.',
   alternates: { canonical: '/' },
+  icons: {
+    icon: '/icon.svg',
+  },
   openGraph: {
     title: 'OutboundRevive',
     description: 'AI SMS that revives cold leads and books time — hands off.',
