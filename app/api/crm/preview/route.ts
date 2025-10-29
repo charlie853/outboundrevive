@@ -33,6 +33,8 @@ export async function POST(req: NextRequest) {
       endpoint = '/persons';
     } else if (integrationId === 'zoho') {
       endpoint = '/crm/v2/Contacts';
+    } else if (integrationId === 'gohighlevel') {
+      endpoint = '/contacts';
     }
 
     // Fetch contacts from CRM via Nango
@@ -63,6 +65,8 @@ export async function POST(req: NextRequest) {
       contactsArray = contacts.data?.data || contacts.data || [];
     } else if (integrationId === 'zoho') {
       contactsArray = contacts.data?.data || contacts.data || [];
+    } else if (integrationId === 'gohighlevel') {
+      contactsArray = contacts.data?.contacts || contacts.data || [];
     } else {
       contactsArray = contacts.data || [];
     }
@@ -84,6 +88,8 @@ export async function POST(req: NextRequest) {
         phone = contact.phone?.[0]?.value || contact.phone || '';
       } else if (integrationId === 'zoho') {
         phone = contact.Phone || contact.Mobile || '';
+      } else if (integrationId === 'gohighlevel') {
+        phone = contact.phone || '';
       } else {
         phone = contact.phone || contact.mobile || '';
       }

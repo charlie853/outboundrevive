@@ -20,8 +20,12 @@ export async function GET(
   if (!leadId) return NextResponse.json({ error: 'missing id' }, { status: 400 });
 
   try {
-    // FIX: Query messages_in (not 'replies' which doesn't exist)
-    const [{ data: ins, error: inErr }, { data: outs, error: outErr }] = await Promise.all([
+    // Fetch messages and lead details in parallel
+    const [
+      { data: ins, error: inErr },
+      { data: outs, error: outErr },
+      { data: lead, error: leadErr }
+    ] = await Promise.all([
       supabase
         .from('messages_in')
         .select('created_at, body, provider_sid')
@@ -32,6 +36,12 @@ export async function GET(
         .select('created_at, body, sid, status, intent')
         .eq('lead_id', leadId)
         .order('created_at', { ascending: true }),
+      // NEW: Fetch lead enrichment details
+      supabase
+        .from('leads')
+        .select('id, name, phone, email, company, role, lead_type, crm_source, crm_url, status, opted_out, last_inbound_at, last_outbound_at')
+        .eq('id', leadId)
+        .single(),
     ]);
 
     if (inErr) {
@@ -41,6 +51,10 @@ export async function GET(
     if (outErr) {
       console.error('[thread] outbound select error', outErr);
       return NextResponse.json({ error: outErr.message }, { status: 500 });
+    }
+    if (leadErr) {
+      console.error('[thread] lead select error', leadErr);
+      return NextResponse.json({ error: leadErr.message }, { status: 500 });
     }
 
     const inbound = (ins || []).map((r: Inbound) => ({
@@ -71,7 +85,11 @@ export async function GET(
       return 0;
     });
 
-    return NextResponse.json({ items });
+    // NEW: Return both thread items and lead metadata
+    return NextResponse.json({ 
+      items,
+      lead: lead || null,
+    });
   } catch (e: any) {
     console.error('[thread] exception', e);
     return NextResponse.json({ error: 'server_error' }, { status: 500 });

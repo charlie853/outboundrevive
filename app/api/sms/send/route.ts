@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 import { requireAccountAccess } from '@/lib/account';
 import { addFooter } from '@/lib/messagingCompliance';
+import { getConversationState } from '@/lib/conversation-state';
 
 export const runtime = 'nodejs';
 
@@ -205,6 +206,21 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
       try {
         if (l.opted_out) { results.push({ id: l.id, phone: l.phone, error: 'opted_out' }); continue; }
         if (await isSuppressed(l.phone)) { results.push({ id: l.id, phone: l.phone, error: 'suppressed' }); continue; }
+
+        // NEW: Context-aware reminder checks (skip if this is a manual reply)
+        if (!isReply && gateContext === 'reminder') {
+          const convState = await getConversationState(l.id, accountId!);
+          if (convState.hasBooked) {
+            results.push({ id: l.id, phone: l.phone, error: 'already_booked' });
+            continue;
+          }
+          if (convState.isDead) {
+            results.push({ id: l.id, phone: l.phone, error: 'conversation_dead' });
+            continue;
+          }
+          // Log conversation state for debugging
+          console.log(`[REMINDER] Lead ${l.id}: ${convState.unansweredOutboundCount} unanswered, should send: ${convState.shouldSendReminder}`);
+        }
 
         // quiet hours (skip if replyMode=true)
         if (!isReply && !withinWindow(nowMinLocal, startMin, endMin)) {

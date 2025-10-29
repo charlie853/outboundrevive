@@ -16,7 +16,7 @@ export interface SyncResult {
 }
 
 export type SyncStrategy = 'append' | 'overwrite' | 'preview';
-export type CRMProvider = 'hubspot' | 'salesforce' | 'pipedrive' | 'zoho';
+export type CRMProvider = 'hubspot' | 'salesforce' | 'pipedrive' | 'zoho' | 'gohighlevel';
 
 export interface CRMAdapter {
   syncContacts(token: string, strategy: SyncStrategy): Promise<CRMContact[]>;

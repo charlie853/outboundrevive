@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
+import ContactPanel from './ContactPanel';
 
 const fetcher = (url: string) =>
   fetch(url, { cache: 'no-store' }).then(async (res) => {
@@ -26,10 +27,30 @@ type ThreadRow = {
 };
 
 type ConversationMessage = { at: string; dir: 'in' | 'out'; body: string; status?: string };
+
+// NEW: Lead enrichment data
+type Lead = {
+  id: string;
+  name: string;
+  phone: string;
+  email?: string | null;
+  company?: string | null;
+  role?: string | null;
+  lead_type?: 'new' | 'old' | null;
+  crm_source?: string | null;
+  crm_url?: string | null;
+  status?: string | null;
+  opted_out?: boolean;
+  last_inbound_at?: string | null;
+  last_outbound_at?: string | null;
+};
+
 type ConversationPayload = {
   ok?: boolean;
   contact?: { phone: string; name: string };
   messages?: ConversationMessage[];
+  items?: ConversationMessage[]; // NEW API format
+  lead?: Lead | null; // NEW: Enrichment data
 };
 
 const THREADS_BANNER =
@@ -92,6 +113,7 @@ export default function ThreadsPanel() {
 
   const openThread = async (thread: ThreadRow) => {
     const phone = thread?.phone ?? thread?.lead_phone ?? '';
+    const leadId = thread?.id ?? (thread as any)?.lead_id;
     const friendlyName = thread?.name ?? thread?.lead_name ?? (phone ? formatPhone(phone) : 'Unknown');
 
     setActiveName(friendlyName);
@@ -100,21 +122,36 @@ export default function ThreadsPanel() {
     setModalError(null);
     setConversation(null);
 
-    if (!phone) {
+    // NEW: Prefer lead ID endpoint (includes enrichment) over phone-based endpoint
+    const endpoint = leadId 
+      ? `/api/ui/leads/${encodeURIComponent(leadId)}/thread`
+      : phone
+      ? `/api/threads/${encodeURIComponent(phone)}`
+      : null;
+
+    if (!endpoint) {
       setModalLoading(false);
-      setModalError('No phone number available for this thread.');
+      setModalError('No phone number or lead ID available for this thread.');
       return;
     }
 
     try {
-      const response = await fetch(`/api/threads/${encodeURIComponent(phone)}`);
+      const response = await fetch(endpoint);
       const json: ConversationPayload & { error?: string } = await response
         .json()
         .catch(() => ({ ok: false }));
 
-      if (response.ok && json?.ok && Array.isArray(json.messages)) {
-        setConversation(json);
-        if (json.contact?.name) setActiveName(json.contact.name);
+      // Handle both old format (messages) and new format (items)
+      const messagesList = json?.items ?? json?.messages ?? [];
+      
+      if (response.ok && Array.isArray(messagesList)) {
+        setConversation({
+          ...json,
+          messages: messagesList,
+          items: messagesList,
+        });
+        if (json.lead?.name) setActiveName(json.lead.name);
+        else if (json.contact?.name) setActiveName(json.contact.name);
       } else {
         setModalError(THREADS_BANNER);
       }
@@ -210,7 +247,7 @@ export default function ThreadsPanel() {
           onClick={closeModal}
         >
           <div
-            className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-w-4xl rounded-2xl bg-white p-6 shadow-xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between gap-3">
@@ -226,7 +263,19 @@ export default function ThreadsPanel() {
                 Close
               </button>
             </div>
-            <div className="max-h-96 overflow-y-auto space-y-3">
+
+            {/* NEW: Two-column layout with ContactPanel + Messages */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {/* Contact Panel - shows enrichment on larger screens */}
+              {conversation?.lead && (
+                <div className="lg:col-span-1 order-first lg:order-none">
+                  <ContactPanel lead={conversation.lead} />
+                </div>
+              )}
+              
+              {/* Messages Thread */}
+              <div className={conversation?.lead ? "lg:col-span-2" : "lg:col-span-3"}>
+                <div className="max-h-96 overflow-y-auto space-y-3 bg-slate-50 rounded-xl p-4">
               {modalLoading && <div className="h-24 animate-pulse rounded-xl bg-surface-bg" />}
               {!modalLoading && modalError && (
                 <div className="text-sm text-rose-600">{modalError}</div>
@@ -238,14 +287,14 @@ export default function ThreadsPanel() {
                 (conversation?.messages ?? []).map((msg, idx) => {
                   const timestamp = msg.at ? new Date(msg.at).toLocaleString() : '—';
                   const isOutbound = msg.dir === 'out';
-                  const author = isOutbound ? 'You' : conversation?.contact?.name || activeName || 'Contact';
+                  const author = isOutbound ? 'You' : conversation?.lead?.name || conversation?.contact?.name || activeName || 'Contact';
                   return (
                     <div key={`${msg.at}-${idx}`} className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
                       <div
                         className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm shadow-soft ${
                           isOutbound
-                            ? 'bg-brand-600 text-white rounded-br-sm'
-                            : 'bg-surface-bg text-ink-1 rounded-bl-sm'
+                            ? 'bg-indigo-600 text-white rounded-br-sm'
+                            : 'bg-white text-ink-1 rounded-bl-sm border border-slate-200'
                         }`}
                       >
                         <div className="text-xs font-semibold opacity-80">{author}</div>
@@ -256,6 +305,8 @@ export default function ThreadsPanel() {
                     </div>
                   );
                 })}
+                </div>
+              </div>
             </div>
           </div>
         </div>

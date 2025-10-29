@@ -8,7 +8,8 @@ const CRM_INTEGRATIONS = [
   'hubspot',
   'salesforce',
   // 'pipedrive', - annoying to get token for
-  'zoho-crm'
+  'zoho-crm',
+  'gohighlevel' // ADDED: Support for GoHighLevel (auto shops, multi-location)
 ];
 
 export async function POST(req: NextRequest) {

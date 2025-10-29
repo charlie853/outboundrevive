@@ -32,13 +32,49 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 });
     }
 
-    // Update the existing user record with CRM connection details
+    // Get connection details
     const token = connection.credentials?.access_token;
 
     if (!token) {
       return NextResponse.json({ error: 'No access token found in connection' }, { status: 500 });
     }
 
+    // NEW: Save to crm_connections table (proper schema)
+    // First, deactivate any existing connection for this provider
+    const { error: deactivateError } = await supabaseAdmin
+      .from('crm_connections')
+      .update({ is_active: false })
+      .eq('account_id', accountId)
+      .eq('provider', providerConfigKey)
+      .eq('is_active', true);
+
+    if (deactivateError) {
+      console.warn('Error deactivating old connections:', deactivateError);
+      // Continue anyway - not critical
+    }
+
+    // Insert new connection
+    const { error: insertError } = await supabaseAdmin
+      .from('crm_connections')
+      .insert({
+        account_id: accountId,
+        provider: providerConfigKey,
+        nango_connection_id: connectionId,
+        connection_metadata: {
+          scopes: connection.credentials?.raw?.scope,
+          connection_config: connection.connection_config,
+          created_at: connection.created_at,
+        },
+        is_active: true,
+      });
+
+    if (insertError) {
+      console.error('Error saving to crm_connections:', insertError);
+      return NextResponse.json({ error: 'Failed to save connection' }, { status: 500 });
+    }
+
+    // LEGACY: Also update user_data for backwards compatibility
+    // (Some old code might still reference this)
     const { error: updateError } = await supabaseAdmin
       .from('user_data')
       .update({
@@ -48,9 +84,11 @@ export async function POST(request: NextRequest) {
       .eq('user_id', user.id);
 
     if (updateError) {
-      console.error('Error saving CRM connection:', updateError);
-      return NextResponse.json({ error: 'Failed to save connection' }, { status: 500 });
+      console.warn('Error updating user_data (non-critical):', updateError);
+      // Don't fail - new table is the source of truth now
     }
+
+    console.log(`✅ CRM connection saved: ${providerConfigKey} for account ${accountId}`);
 
     return NextResponse.json({
       success: true,

@@ -9,7 +9,7 @@ type MetricItem = {
   description: string;
 };
 
-export default function KpiCards({ data, className = '' }: { data: Kpis; className?: string }) {
+export default function KpiCards({ data, className = '' }: { data: Kpis & { booked?: number; contacted?: number; optedOut?: number; replyRate?: number; optOutRate?: number }; className?: string }) {
   const items: MetricItem[] = [
     {
       label: 'New Leads',
@@ -18,16 +18,10 @@ export default function KpiCards({ data, className = '' }: { data: Kpis; classNa
       description: 'Total leads added to OutboundRevive in this period'
     },
     {
-      label: 'Messages Sent',
-      value: data.sent,
-      delta: data.deltas.sent,
-      description: 'Total outbound SMS messages sent by the AI'
-    },
-    {
-      label: 'Delivered %',
-      value: Math.round((data.deliveredRate || 0) * 100),
-      delta: data.deltas.deliveredRate,
-      description: 'Percentage of sent messages successfully delivered (excludes failed/invalid numbers)'
+      label: 'Contacted',
+      value: data.contacted ?? 0,
+      delta: 0,
+      description: 'Leads with at least one outbound message sent'
     },
     {
       label: 'Replies',
@@ -35,10 +29,28 @@ export default function KpiCards({ data, className = '' }: { data: Kpis; classNa
       delta: data.deltas.replies,
       description: 'Total inbound messages received from leads'
     },
+    {
+      label: 'Reply Rate',
+      value: Math.round((data.replyRate || 0) * 100),
+      delta: 0,
+      description: 'Percentage of delivered messages that received a reply'
+    },
+    {
+      label: 'Booked',
+      value: data.booked ?? 0,
+      delta: 0,
+      description: 'Leads who scheduled or confirmed an appointment'
+    },
+    {
+      label: 'Opt-Outs',
+      value: data.optedOut ?? 0,
+      delta: 0,
+      description: 'Leads who requested to stop receiving messages (replied PAUSE/STOP)'
+    },
   ];
 
   return (
-    <div className={`grid gap-4 sm:grid-cols-2 lg:grid-cols-4 ${className}`}>
+    <div className={`grid gap-4 sm:grid-cols-2 lg:grid-cols-3 ${className}`}>
       {items.map((k) => (
         <MetricCard key={k.label} item={k} />
       ))}
@@ -69,11 +81,13 @@ function MetricCard({ item }: { item: MetricItem }) {
         </div>
       </div>
       <div className="mt-2 text-3xl font-bold text-slate-900">
-        {item.label === 'Delivered %' ? `${item.value}%` : item.value.toLocaleString()}
+        {(item.label === 'Delivered %' || item.label === 'Reply Rate') ? `${item.value}%` : item.value.toLocaleString()}
       </div>
-      <div className={`mt-1 text-xs font-medium ${item.delta >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}> 
-        {item.delta >= 0 ? '▲' : '▼'} {Math.round(Math.abs(item.delta || 0) * 100)}% vs previous period
-      </div>
+      {item.delta !== 0 && (
+        <div className={`mt-1 text-xs font-medium ${item.delta >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}> 
+          {item.delta >= 0 ? '▲' : '▼'} {Math.round(Math.abs(item.delta || 0) * 100)}% vs previous period
+        </div>
+      )}
     </div>
   );
 }

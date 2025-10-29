@@ -46,31 +46,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const since = sinceISO(req.query.range);
 
-  // FIX: Compute KPIs from actual message tables for accuracy
+  // Compute KPIs from actual message tables for accuracy
   // messagesSent = count of messages_out sent since date
   // deliveredPct = messages_out with provider_status=delivered / messagesSent
-  // replies = count of UNIQUE leads with messages_in since date
+  // replies = count of messages_in since date
   // newLeads = leads created since date
+  // NEW: bookings, contacted, optOuts
 
   const qsNewLeads = `created_at=gte.${encodeURIComponent(since)}`;
   const qsMessagesSent = `created_at=gte.${encodeURIComponent(since)}`;
   const qsDelivered = `provider_status=eq.delivered&created_at=gte.${encodeURIComponent(since)}`;
   const qsInbound = `created_at=gte.${encodeURIComponent(since)}`;
+  const qsBooked = `intent=eq.booked&created_at=gte.${encodeURIComponent(since)}`; // NEW: Messages with "booked" intent
+  const qsContacted = `last_outbound_at=gte.${encodeURIComponent(since)}`; // NEW: Leads with at least one outbound
+  const qsOptedOut = `opted_out=eq.true&updated_at=gte.${encodeURIComponent(since)}`; // NEW: Leads who opted out in this period
 
-  const [newLeads, messagesSent, deliveredCount, inboundCount] = await Promise.all([
+  const [newLeads, messagesSent, deliveredCount, inboundCount, bookedCount, contactedCount, optedOutCount] = await Promise.all([
     count('leads', qsNewLeads),
     count('messages_out', qsMessagesSent),
     count('messages_out', qsDelivered),
     count('messages_in', qsInbound),
+    count('messages_out', qsBooked), // NEW
+    count('leads', qsContacted), // NEW
+    count('leads', qsOptedOut), // NEW
   ]);
 
-  // Replies = unique leads with inbound messages
-  // For now use inbound count as proxy (could be refined to count distinct lead_id)
+  // Replies = inbound message count
   const replies = inboundCount;
 
   const deliveredPct = messagesSent > 0 ? Math.round((deliveredCount / messagesSent) * 100) : 0;
+  const replyRate = deliveredCount > 0 ? Math.round((replies / deliveredCount) * 100) : 0; // NEW
+  const optOutRate = contactedCount > 0 ? Math.round((optedOutCount / contactedCount) * 100) : 0; // NEW
 
-  // Minimal charts so UI renders (can enrich later)
+  // Full KPI payload
   const payload = {
     ok: true,
     kpis: {
@@ -78,6 +86,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       messagesSent,
       deliveredPct,
       replies,
+      // NEW KPIs
+      booked: bookedCount,
+      contacted: contactedCount,
+      optedOut: optedOutCount,
+      replyRate,
+      optOutRate,
     },
     charts: {
       deliveryOverTime: [], // keep arrays present for your components

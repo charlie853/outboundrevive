@@ -71,11 +71,18 @@ const normalisePct = (value: unknown) => {
   return Math.abs(num) > 1 ? num / 100 : num;
 };
 
-const buildKpis = (k: any): Kpis => {
+const buildKpis = (k: any): Kpis & { booked?: number; contacted?: number; optedOut?: number; replyRate?: number; optOutRate?: number } => {
   const newLeads = toNumber(k?.newLeads);
   const messagesSent = toNumber(k?.messagesSent);
   const deliveredPct = normalisePct(k?.deliveredPct) ?? 0;
   const replies = toNumber(k?.replies);
+  
+  // NEW KPIs
+  const booked = toNumber(k?.booked);
+  const contacted = toNumber(k?.contacted);
+  const optedOut = toNumber(k?.optedOut);
+  const replyRate = normalisePct(k?.replyRate) ?? 0;
+  const optOutRate = normalisePct(k?.optOutRate) ?? 0;
 
   return {
     leadsNew: newLeads,
@@ -83,6 +90,11 @@ const buildKpis = (k: any): Kpis => {
     delivered: 0,
     deliveredRate: deliveredPct,
     replies,
+    booked, // NEW
+    contacted, // NEW
+    optedOut, // NEW
+    replyRate, // NEW
+    optOutRate, // NEW
     deltas: { leadsNew: 0, sent: 0, deliveredRate: 0, replies: 0 },
   };
 };

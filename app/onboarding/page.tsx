@@ -1,10 +1,11 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { authenticatedFetch } from '@/lib/api-client';
+import ConnectCrmButton from '@/app/components/ConnectCrmButton';
 
 type State = {
   account_id: string;
-  step: 'welcome'|'profile'|'hours'|'number'|'kb'|'imports'|'done';
+  step: 'welcome'|'profile'|'hours'|'number'|'crm'|'kb'|'imports'|'done';
   business_name?: string|null;
   website?: string|null;
   timezone?: string|null;
@@ -75,18 +76,129 @@ export default function OnboardingPage() {
         </section>
       ) : null}
 
+      {/* NEW: CRM Connection Step */}
+      {s.step === 'crm' ? (
+        <section style={{ border: '1px solid #eee', borderRadius: 10, padding: 16 }}>
+          <h3>Connect Your CRM</h3>
+          <p style={{ color: '#666', marginBottom: 16 }}>
+            Connect your CRM to automatically import leads and keep contact details in sync.
+            Supports HubSpot, Salesforce, Zoho CRM, and GoHighLevel.
+          </p>
+          <div style={{ marginBottom: 12 }}>
+            <ConnectCrmButton />
+          </div>
+          {s.crm_connected && (
+            <div style={{ padding: 12, background: '#e8f5e9', borderRadius: 8, color: '#2e7d32', marginTop: 12 }}>
+              ✓ CRM connected successfully!
+            </div>
+          )}
+          <div style={{ marginTop: 16 }}>
+            <button 
+              onClick={async () => {
+                const r = await authenticatedFetch('/api/ui/onboarding/state', { 
+                  method: 'PUT', 
+                  headers: { 'Content-Type': 'application/json' }, 
+                  body: JSON.stringify({ step: 'kb' }) 
+                });
+                const j = await r.json();
+                if (r.ok) setS(j);
+              }}
+              style={{ padding: '8px 12px', background: '#111', color: '#fff', borderRadius: 8, marginRight: 8 }}
+            >
+              Continue
+            </button>
+            <button 
+              onClick={async () => {
+                const r = await authenticatedFetch('/api/ui/onboarding/state', { 
+                  method: 'PUT', 
+                  headers: { 'Content-Type': 'application/json' }, 
+                  body: JSON.stringify({ step: 'kb', crm_connected: false }) 
+                });
+                const j = await r.json();
+                if (r.ok) setS(j);
+              }}
+              style={{ padding: '8px 12px', border: '1px solid #666', color: '#666', background: 'white', borderRadius: 8 }}
+            >
+              Skip for now
+            </button>
+          </div>
+        </section>
+      ) : null}
+
       {s.step === 'kb' ? (
         <section style={{ border: '1px solid #eee', borderRadius: 10, padding: 16 }}>
-          <h3>Knowledge</h3>
-          <p>Go to Docs → Knowledge to ingest and embed.</p>
-          <a href="/knowledge" style={{ padding: '8px 12px', border: '1px solid #111', borderRadius: 8, textDecoration: 'none' }}>Open Knowledge</a>
+          <h3>Knowledge Base</h3>
+          <p style={{ color: '#666', marginBottom: 16 }}>
+            Upload documents about your business, services, and pricing so the AI can give accurate answers to leads.
+          </p>
+          <a href="/knowledge" style={{ padding: '8px 12px', border: '1px solid #111', borderRadius: 8, textDecoration: 'none', display: 'inline-block' }}>
+            Open Knowledge Base
+          </a>
+          <div style={{ marginTop: 16 }}>
+            <button 
+              onClick={async () => {
+                const r = await authenticatedFetch('/api/ui/onboarding/state', { 
+                  method: 'PUT', 
+                  headers: { 'Content-Type': 'application/json' }, 
+                  body: JSON.stringify({ step: 'imports' }) 
+                });
+                const j = await r.json();
+                if (r.ok) setS(j);
+              }}
+              style={{ padding: '8px 12px', background: '#111', color: '#fff', borderRadius: 8 }}
+            >
+              Continue
+            </button>
+          </div>
         </section>
       ) : null}
 
       {s.step === 'imports' ? (
         <section style={{ border: '1px solid #eee', borderRadius: 10, padding: 16 }}>
-          <h3>Import leads</h3>
-          <a href="/upload" style={{ padding: '8px 12px', border: '1px solid #111', borderRadius: 8, textDecoration: 'none' }}>Upload CSV</a>
+          <h3>Import Leads</h3>
+          <p style={{ color: '#666', marginBottom: 16 }}>
+            Upload a CSV file with your leads, or sync from your connected CRM.
+          </p>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+            <a href="/upload" style={{ padding: '8px 12px', border: '1px solid #111', borderRadius: 8, textDecoration: 'none', display: 'inline-block' }}>
+              Upload CSV
+            </a>
+            {s.crm_connected && (
+              <a href="/integrations" style={{ padding: '8px 12px', border: '1px solid #111', borderRadius: 8, textDecoration: 'none', display: 'inline-block' }}>
+                Sync from CRM
+              </a>
+            )}
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <button 
+              onClick={async () => {
+                const r = await authenticatedFetch('/api/ui/onboarding/state', { 
+                  method: 'PUT', 
+                  headers: { 'Content-Type': 'application/json' }, 
+                  body: JSON.stringify({ step: 'done' }) 
+                });
+                const j = await r.json();
+                if (r.ok) {
+                  setS(j);
+                  // Redirect to dashboard after completion
+                  window.location.href = '/dashboard';
+                }
+              }}
+              style={{ padding: '8px 12px', background: '#111', color: '#fff', borderRadius: 8 }}
+            >
+              Complete Onboarding
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {s.step === 'done' ? (
+        <section style={{ border: '1px solid #eee', borderRadius: 10, padding: 16, textAlign: 'center' }}>
+          <h3 style={{ color: '#2e7d32' }}>✓ Onboarding Complete!</h3>
+          <p style={{ color: '#666', marginBottom: 16 }}>You're all set up and ready to start engaging with leads.</p>
+          <a href="/dashboard" style={{ padding: '12px 24px', background: '#111', color: '#fff', borderRadius: 8, textDecoration: 'none', display: 'inline-block' }}>
+            Go to Dashboard
+          </a>
         </section>
       ) : null}
     </div>
