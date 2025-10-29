@@ -29,3 +29,4 @@ supabase/.temp
 # Local env (do not commit)
 .env*
 .vercel
+tsconfig.tsbuildinfo

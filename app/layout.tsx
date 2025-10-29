@@ -17,11 +17,14 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.PUBLIC_BASE_URL ?? 'http://localhost:3001'),
   title: { default: 'OutboundRevive', template: '%s | OutboundRevive' },
-  description: 'AI SMS that revives cold leads, answers questions, and books time — hands off.',
+  description: 'AI SMS that revives cold leads and books time — hands off.',
   alternates: { canonical: '/' },
+  icons: {
+    icon: '/icon.svg',
+  },
   openGraph: {
     title: 'OutboundRevive',
-    description: 'AI SMS that revives cold leads, answers questions, and books time — hands off.',
+    description: 'AI SMS that revives cold leads and books time — hands off.',
     url: '/',
     siteName: 'OutboundRevive',
     type: 'website'
@@ -29,7 +32,7 @@ export const metadata: Metadata = {
   twitter: {
     card: 'summary_large_image',
     title: 'OutboundRevive',
-    description: 'AI SMS that revives cold leads, answers questions, and books time — hands off.'
+    description: 'AI SMS that revives cold leads and books time — hands off.'
   }
 };
 
@@ -39,9 +42,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-grid bg-indigo-900`}
       >
         <AuthProvider>
           {children}

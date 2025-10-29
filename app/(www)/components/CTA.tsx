@@ -1,19 +1,20 @@
 import Link from "next/link";
+import { ArrowRight } from "lucide-react";
 
-export default function CTA({ idSuffix = "bottom" }: { idSuffix?: string }) {
+export default function CTA() {
   return (
-    <section className="mx-auto max-w-7xl px-4 md:px-6 py-12">
-      <div className="rounded-2xl border border-surface-line bg-surface-card shadow-soft p-6 md:p-8 text-center">
-        <h3 className="text-2xl font-semibold text-ink-1">Ready to see it in action?</h3>
-        <p className="text-ink-2 mt-2">No credit card required.</p>
-        <div className="mt-6">
-          <Link
-            href="/book"
-            className="inline-flex rounded-pill bg-brand-600 px-5 py-3 text-white hover:bg-brand-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
-            data-analytics-id={`cta-demo-${idSuffix}`}
-            aria-label="Get a demo"
-          >
+    <section className="relative py-16">
+      <div className="mx-auto max-w-3xl px-4 md:px-6 text-center">
+        <h2 className="text-3xl md:text-4xl font-bold text-white mb-6">
+          Ready to see it in action?
+        </h2>
+
+        <div className="flex justify-center">
+          <Link 
+            href="/book" 
+            className="btn-shimmer hover-lift tap-active btn-amber btn-pill px-8 py-3 text-base font-semibold inline-flex items-center">
             Get a demo
+            <ArrowRight className="ml-2 h-5 w-5" />
           </Link>
         </div>
       </div>

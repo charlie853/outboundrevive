@@ -1,34 +1,95 @@
-import { CalendarCheck, MessagesSquare, ShieldCheck, Share2, GaugeCircle, UserRoundCheck } from "lucide-react";
-import Link from "next/link";
+"use client";
+import { MessageSquare, Route, Calendar, ShieldCheck, Plug, Activity } from "lucide-react";
+import { motion } from "motion/react";
 
-type Feature = { title: string; description: string; icon: React.ElementType; href?: string };
+/**
+ * Feature Grid Component
+ * 
+ * Displays 6 key product features in a responsive grid layout.
+ * Each card fades in with a stagger effect when scrolled into view.
+ * 
+ * Features:
+ * - Responsive grid (1 col mobile, 2 cols tablet, 3 cols desktop)
+ * - Staggered fade-in animations
+ * - Hover lift effect on cards
+ * - Icon badges with amber accent
+ */
 
-const features: Feature[] = [
-  { title: "Hands-free follow-ups", description: "Automated SMS sequences trigger from your CRM or site forms.", icon: MessagesSquare, href: "/features" },
-  { title: "Smart routing", description: "Replies are detected and assigned to the right owner instantly.", icon: UserRoundCheck, href: "/features" },
-  { title: "Book more, no chasing", description: "Booking nudges convert warm leads while interest is high.", icon: CalendarCheck, href: "/features" },
-  { title: "Compliance built-in", description: "PAUSE/RESUME/HELP keywords, quiet hours, and consent logging out of the box.", icon: ShieldCheck, href: "/features" },
-  { title: "Bring your stack", description: "Connect CRMs and calendars in minutes—no heavy lift.", icon: Share2, href: "/features" },
-  { title: "Real-time visibility", description: "See who replied and who booked—live KPIs, no exports.", icon: GaugeCircle, href: "/features" },
+const features = [
+  {
+    icon: MessageSquare,
+    title: "Hands-free follow-ups",
+    description: "Automated SMS sequences trigger from your CRM or site forms."
+  },
+  {
+    icon: Route,
+    title: "Smart routing",
+    description: "Replies are detected and assigned to the right owner instantly."
+  },
+  {
+    icon: Calendar,
+    title: "Book more, no chasing",
+    description: "Booking nudges convert warm leads while interest is high."
+  },
+  {
+    icon: ShieldCheck,
+    title: "Compliance built-in",
+    description: "PAUSE/RESUME/HELP keywords, quiet hours, and consent logging out of the box."
+  },
+  {
+    icon: Plug,
+    title: "Bring your stack",
+    description: "Connect CRMs and calendars in minutes—no heavy lift."
+  },
+  {
+    icon: Activity,
+    title: "Real-time visibility",
+    description: "See who replied and who booked—live KPIs, no exports."
+  }
 ];
 
 export default function FeatureGrid() {
   return (
-    <section id="how-it-works" className="mx-auto max-w-7xl px-4 md:px-6 py-16">
-      <h2 className="text-3xl font-semibold text-ink-1">What you’ll get</h2>
-      <p className="text-ink-2 mt-2">Short, respectful follow‑ups with guardrails and visibility.</p>
-      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {features.map(({ title, description, icon: I, href }) => (
-          <article key={title} className="rounded-2xl border border-surface-line bg-surface-card p-6 shadow-soft focus-within:ring-2 focus-within:ring-brand-500">
-            <div className="w-10 h-10 rounded-lg bg-brand-100 text-brand-700 flex items-center justify-center">
-              <I className="w-5 h-5" aria-hidden />
+    <section className="relative mx-auto max-w-7xl px-4 md:px-6 py-20">
+      {/* Section header with fade-in animation */}
+      <motion.h2 
+        className="text-4xl md:text-5xl font-bold text-center text-white mb-4"
+        initial={{ opacity: 0, y: 20 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.8 }}>
+        What you'll get
+      </motion.h2>
+      
+      <motion.p 
+        className="text-xl text-gray-300 text-center max-w-3xl mx-auto mb-16"
+        initial={{ opacity: 0, y: 20 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.8, delay: 0.2 }}>
+        Short, respectful follow‑ups with guardrails and visibility.
+      </motion.p>
+
+      {/* Feature cards grid with staggered animation */}
+      <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+        {features.map((feature, idx) => (
+          <motion.article
+            key={feature.title}
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-8% 0px" }}
+            transition={{ duration: 0.4, delay: idx * 0.1 }}
+            className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-[2px] p-8 hover-lift"
+          >
+            {/* Icon badge */}
+            <div className="w-12 h-12 flex items-center justify-center rounded-xl bg-amber-500/10 text-amber-500 mb-6">
+              <feature.icon className="w-6 h-6" />
             </div>
-            <h3 className="mt-4 font-semibold text-ink-1 text-[16px]">{title}</h3>
-            <p className="text-ink-2 text-[14px] mt-1">{description}</p>
-            <div className="mt-3">
-              <Link href={href || "#"} className="text-[14px] underline text-ink-1">Learn more</Link>
-            </div>
-          </article>
+            
+            {/* Feature title and description */}
+            <h3 className="text-xl font-bold text-white mb-3">{feature.title}</h3>
+            <p className="text-base text-gray-300 leading-relaxed">{feature.description}</p>
+          </motion.article>
         ))}
       </div>
     </section>
