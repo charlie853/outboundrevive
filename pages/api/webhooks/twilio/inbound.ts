@@ -87,12 +87,22 @@ async function sentBookingLinkInLast24h(
 ): Promise<boolean> {
   if (!accountId || !toPhone || !bookingUrl) return false;
   try {
+    // First get lead_id from phone
+    const { data: lead } = await supabase
+      .from("leads")
+      .select("id")
+      .eq("account_id", accountId)
+      .eq("phone", toPhone)
+      .maybeSingle();
+    
+    if (!lead?.id) return false;
+
+    // Then query messages_out by lead_id
     const sinceISO = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { data, error } = await supabase
       .from("messages_out")
       .select("body,created_at")
-      .eq("account_id", accountId)
-      .eq("to_phone", toPhone)
+      .eq("lead_id", lead.id)
       .gte("created_at", sinceISO)
       .order("created_at", { ascending: false })
       .limit(20);
@@ -174,19 +184,26 @@ async function generateWithLLM(userText: string) {
     SYS_PROMPT,
     `Brand: ${BRAND}.`,
     `booking_link: ${BOOKING || "(none)"} .`,
-    `Rules recap: For scheduling intent output **exactly** the booking link only (no extra text).`,
-    `For "who is this" output exactly: Charlie from OutboundRevive.`,
-    `Max 320 chars. One message. No canned fallbacks.`
+    `Pricing: Starter $199/100 leads, Growth $499/300 leads, Enterprise custom. When asked about pricing, mention a specific tier (e.g., "starts at $199 for 100 leads") and offer to discuss fit via booking.`,
+    `Rules:`,
+    `- For scheduling intent: output a brief helpful message with the booking link.`,
+    `- For "who is this" ONLY: output exactly "Charlie from OutboundRevive."`,
+    `- For greetings (hi/hello): reply conversationally (e.g., "Hey! Happy to help—what can I answer?")`,
+    `- Max 320 chars. One message. Be specific and helpful, not generic.`,
+    `Examples:`,
+    `"hello" → "Hey! This is Charlie from OutboundRevive. What can I help with?"`,
+    `"who is this" → "Charlie from OutboundRevive."`,
+    `"how much" → "Starts at $199 for 100 leads (Starter plan). Want to discuss your volume? ${BOOKING}"`
   ].filter(Boolean).join("\n");
 
   const body = {
     model: OPENAI_MODEL,
-    temperature: 0.2,
+    temperature: 0.3,
     messages: [
       { role: "system", content: system },
       { role: "user",   content: userText }
     ],
-    max_tokens: 180
+    max_tokens: 200
   };
 
   const r = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -204,32 +221,54 @@ async function generateWithLLM(userText: string) {
 async function persistOut(fromPhone: string, toPhone: string, body: string) {
   if (!SUPABASE_URL || !SRK || !ACCOUNT_ID || !body) return;
 
-  const payload = [{
-    account_id: ACCOUNT_ID,
-    to_phone: fromPhone,
-    from_phone: toPhone,
-    body,
-    sent_by: "ai"
-  }];
+  try {
+    // First lookup lead_id from phone
+    const leadResp = await fetch(
+      `${SUPABASE_URL}/rest/v1/leads?account_id=eq.${ACCOUNT_ID}&phone=eq.${encodeURIComponent(fromPhone)}&select=id`,
+      {
+        headers: {
+          "apikey": SRK,
+          "Authorization": `Bearer ${SRK}`,
+        }
+      }
+    );
+    const leads = await leadResp.json();
+    const leadId = leads?.[0]?.id;
+    
+    if (!leadId) {
+      console.error("persistOut: lead not found for phone", fromPhone);
+      return;
+    }
 
-  const resp = await fetch(`${SUPABASE_URL}/rest/v1/messages_out`, {
-    method: "POST",
-    headers: {
-      "apikey": SRK,
-      "Authorization": `Bearer ${SRK}`,
-      "Content-Type": "application/json",
-      "Prefer": "return=representation"
-    },
-    body: JSON.stringify(payload)
-  });
+    // Now insert with correct schema columns
+    const payload = [{
+      lead_id: leadId,
+      account_id: ACCOUNT_ID,
+      body,
+      sent_by: "ai"
+    }];
 
-  const text = await resp.text();
-  if (!resp.ok) {
-    console.error("messages_out insert failed", resp.status, text);
-    return; // don't throw; we already returned TwiML to Twilio
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/messages_out`, {
+      method: "POST",
+      headers: {
+        "apikey": SRK,
+        "Authorization": `Bearer ${SRK}`,
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const text = await resp.text();
+    if (!resp.ok) {
+      console.error("messages_out insert failed", resp.status, text);
+      return; // don't throw; we already returned TwiML to Twilio
+    }
+
+    console.log("messages_out insert ok:", text);
+  } catch (err) {
+    console.error("persistOut error:", err);
   }
-
-  console.log("messages_out insert ok:", text);
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -262,7 +301,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (STOP_RX.test(text)) {
     try {
-      await supabaseAdmin
+      const { data: updateResult, error: updateErr } = await supabaseAdmin
         .from("leads")
         .update({
           opted_out: true,
@@ -270,12 +309,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           last_inbound_at: new Date().toISOString(),
         })
         .eq("account_id", accountId)
-        .eq("phone", From);
+        .eq("phone", From)
+        .select();
+      
+      if (updateErr) {
+        console.error("lead opt-out update error:", updateErr);
+      } else if (!updateResult || updateResult.length === 0) {
+        console.warn("STOP: no lead matched phone", From, "account", accountId);
+      } else {
+        console.log("STOP: opted out lead", updateResult[0]?.id, "phone", From);
+      }
     } catch (err) {
       console.error("lead opt-out update failed", err);
     }
 
-    const msg = "You’re opted out and won’t receive further messages. Reply START to resume.";
+    const msg = "You're opted out and won't receive further messages. Reply START to resume.";
     await persistOut(From, To, msg);
     const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(msg)}</Message></Response>`;
     res.status(200).setHeader("Content-Type","text/xml").send(twiml);
