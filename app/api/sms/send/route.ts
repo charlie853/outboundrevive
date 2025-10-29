@@ -269,7 +269,23 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
         });
 
         const baseBody = base.trim();
-        const requireFooter = gateCategory === 'reminder';
+        
+        // Footer gating: Add on first message OR 30+ days since last footer OR reminders
+        let requireFooter = gateCategory === 'reminder';
+        if (!requireFooter) {
+          // Check last_footer_at
+          const lastFooterAt = l.last_footer_at;
+          if (!lastFooterAt) {
+            // First message ever - add footer
+            requireFooter = true;
+          } else {
+            // Check if 30+ days since last footer
+            const lastFooterDate = new Date(lastFooterAt);
+            const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+            requireFooter = lastFooterDate < thirtyDaysAgo;
+          }
+        }
+        
         const footerOpts = {
           requireFooter,
           occasionalModulo: 3,
@@ -283,6 +299,7 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
           require_footer: requireFooter,
           occasional_modulo: footerOpts.occasionalModulo,
           sent_count_hint: footerOpts.sentCountHint ?? null,
+          last_footer_at: lastFooterAt || null,
         };
 
         const body = finalBody;
