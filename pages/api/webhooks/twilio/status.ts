@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@supabase/supabase-js';
+import { toE164US } from '@/lib/phone';
 
 const admin = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
@@ -20,8 +21,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const messageSid = MessageSid ? String(MessageSid) : '';
     const messageStatus = MessageStatus ? String(MessageStatus) : '';
     const errorCode = ErrorCode ?? null;
-    const toPhone = typeof twilioTo === 'string' ? twilioTo : null;
-    const fromPhone = typeof twilioFrom === 'string' ? twilioFrom : null;
+    const toPhone = typeof twilioTo === 'string' ? toE164US(twilioTo) : null;
+    const fromPhone = typeof twilioFrom === 'string' ? toE164US(twilioFrom) : null;
 
     if (!account_id || !messageSid) {
       res.status(200).send('<ok/>');

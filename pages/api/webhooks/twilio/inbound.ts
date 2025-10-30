@@ -483,6 +483,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method !== "POST") return res.status(405).end();
 
   const { From, To, Body } = await parseTwilioForm(req);
+  const FromE164 = toE164US(From) || From;
+  const ToE164 = toE164US(To) || To;
   const inboundBody = typeof Body === "string" ? Body : String(Body || "");
   const accountId = ACCOUNT_ID || "11111111-1111-1111-1111-111111111111";
 
@@ -491,12 +493,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   let firstName = "there";
   
   try {
-    console.log("Looking up lead with account_id:", accountId, "phone:", From);
+    console.log("Looking up lead with account_id:", accountId, "phone:", FromE164);
     const { data: lead, error: leadError } = await supabaseAdmin
       .from("leads")
       .select("id,name,opted_out")
       .eq("account_id", accountId)
-      .eq("phone", From)
+      .eq("phone", FromE164)
       .maybeSingle();
     
     if (leadError) {
@@ -531,7 +533,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // === PERSIST INBOUND MESSAGE ===
   // Save every inbound message to messages_in table so it shows in threads
-  await persistIn(leadId, inboundBody, From, To);
+  await persistIn(leadId, inboundBody, FromE164, ToE164);
 
   // === Handle compliance keywords ===
   const text = inboundBody.trim().toLowerCase().replace(/\W+/g, "");
@@ -559,6 +561,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const msg = "You're paused and won't receive further messages. Reply START to resume.";
     await persistOut(leadId, msg, false);
+    // Cancel queued cadence runs for this lead
+    try {
+      await supabaseAdmin
+        .from('cadence_runs')
+        .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancel_reason: 'opt_out' })
+        .eq('lead_id', leadId)
+        .eq('status', 'scheduled');
+    } catch (e) { console.error('cancel cadence_runs on STOP failed', e); }
     const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(msg)}</Message></Response>`;
     return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
   }

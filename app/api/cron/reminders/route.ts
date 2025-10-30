@@ -1,3 +1,70 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/supabaseServer';
+import { minutesNowInTZ } from '@/app/api/sms/send/route';
+
+export const runtime = 'nodejs';
+
+export async function POST(req: NextRequest) {
+  try {
+    // Optional: restrict with admin token
+    const adminHeader = (req.headers.get('x-admin-token') || '').trim();
+    const adminWant = (process.env.ADMIN_API_KEY?.trim() || '') || (process.env.ADMIN_TOKEN?.trim() || '');
+    if (!adminHeader || !adminWant || adminHeader !== adminWant) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // 1) Fetch active accounts
+    const { data: accounts } = await supabaseAdmin
+      .from('accounts')
+      .select('id');
+
+    const touched: Array<{ account_id: string; lead_id: string; campaign_id: string } > = [];
+
+    for (const acct of accounts || []) {
+      const accountId = acct.id as string;
+
+      // 2) Active campaigns and settings
+      const { data: campaigns } = await supabaseAdmin
+        .from('campaigns')
+        .select('id,name')
+        .eq('account_id', accountId)
+        .eq('is_active', true);
+
+      if (!campaigns || campaigns.length === 0) continue;
+
+      for (const camp of campaigns) {
+        const campaignId = camp.id as string;
+        const { data: setting } = await supabaseAdmin
+          .from('campaign_cadence_settings')
+          .select('max_touches,min_spacing_hours,cooldown_hours')
+          .eq('account_id', accountId)
+          .eq('campaign_id', campaignId)
+          .maybeSingle();
+
+        const maxTouches = setting?.max_touches ?? 3;
+        const minSpacingH = setting?.min_spacing_hours ?? 24;
+        const cooldownH = setting?.cooldown_hours ?? 48;
+
+        // 3) Pick leads that qualify: no inbound since last outbound for cooldown hours; touches sent < max; not opted_out
+        const sinceIso = new Date(Date.now() - cooldownH * 3600 * 1000).toISOString();
+
+        const { data: leads } = await supabaseAdmin
+          .rpc('leads_needing_followup', { p_account_id: accountId, p_campaign_id: campaignId, p_since_iso: sinceIso, p_max_touches: maxTouches, p_min_spacing_hours: minSpacingH });
+
+        for (const lead of leads || []) {
+          touched.push({ account_id: accountId, lead_id: lead.id, campaign_id: campaignId });
+          // Minimal enqueue: call existing sms send route via internal fetch could be added here.
+        }
+      }
+    }
+
+    return NextResponse.json({ scheduled: touched.length, details: touched });
+  } catch (e:any) {
+    console.error('cron/reminders error', e);
+    return NextResponse.json({ error: 'server_error' }, { status: 500 });
+  }
+}
+
 import { NextRequest, NextResponse } from "next/server";
 import { DateTime } from "luxon";
 import { createClient } from "@/lib/supabaseAdmin";
