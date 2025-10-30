@@ -42,10 +42,15 @@ export async function GET() {
 
   const { data } = await service
     .from('accounts')
-    .select('outbound_paused')
+    .select('outbound_paused, caps_enabled, cadences_enabled, new_charts_enabled')
     .eq('id', accountId)
     .maybeSingle();
-  return NextResponse.json({ outbound_paused: !!data?.outbound_paused });
+  return NextResponse.json({ 
+    outbound_paused: !!data?.outbound_paused,
+    caps_enabled: !!(data as any)?.caps_enabled,
+    cadences_enabled: !!(data as any)?.cadences_enabled,
+    new_charts_enabled: !!(data as any)?.new_charts_enabled,
+  });
 }
 
 export async function PUT(req: NextRequest) {
