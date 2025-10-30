@@ -129,6 +129,7 @@ export default function MetricsPanel() {
   // Analytics panels
   const { data: heatmap } = useSWR(`/api/analytics/heatmap?range=${range}`, fetcherNoThrow, { refreshInterval: 60000 });
   const { data: carriers } = useSWR(`/api/analytics/carriers?range=${range}`, fetcherNoThrow, { refreshInterval: 60000 });
+  const { data: intents } = useSWR(`/api/analytics/intents?range=${range}`, fetcherNoThrow, { refreshInterval: 60000 });
   const { data: quiet } = useSWR(`/api/analytics/quiet?range=${range}`, fetcherNoThrow, { refreshInterval: 60000 });
   const { data: billing } = useSWR(`/api/billing/status`, fetcherNoThrow, { refreshInterval: 60000 });
 
@@ -427,6 +428,14 @@ export default function MetricsPanel() {
           <h3 className="text-sm font-semibold text-ink-1 mb-2">Quiet Hours</h3>
           <div className="text-xs text-ink-2 mb-2">Blocked sends in range: {Number(quiet?.count || 0)}</div>
           <a className="text-xs underline" href="/followups">Edit quiet hours & windows</a>
+        </div>
+        <div className="rounded-2xl border border-surface-line bg-surface-card p-4">
+          <h3 className="text-sm font-semibold text-ink-1 mb-2">Top Intents</h3>
+          <div className="text-xs text-ink-2 border rounded p-2 max-h-48 overflow-auto">
+          {(Array.isArray(intents?.intents) ? intents.intents : []).map((row: any) => (
+            <div key={row.intent} className="flex justify-between"><span>{row.intent}</span><span>{row.count}</span></div>
+          ))}
+          </div>
         </div>
       </div>
 
