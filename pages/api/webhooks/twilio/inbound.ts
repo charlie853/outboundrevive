@@ -468,30 +468,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   let firstName = "there";
   
   try {
-    const { data: lead } = await supabaseAdmin
+    console.log("Looking up lead with account_id:", accountId, "phone:", From);
+    const { data: lead, error: leadError } = await supabaseAdmin
       .from("leads")
       .select("id,name,opted_out")
       .eq("account_id", accountId)
       .eq("phone", From)
       .maybeSingle();
     
+    if (leadError) {
+      console.error("Lead lookup error:", leadError);
+    }
+    
     if (lead) {
+      console.log("Lead found:", lead.id, lead.name);
       leadId = lead.id;
       firstName = (lead.name || "").split(" ")[0] || "there";
       
       // Check opt-out status
       if (lead.opted_out) {
+        console.log("Lead has opted out, returning empty TwiML");
         res.status(200).setHeader("Content-Type", "text/xml")
           .send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
-    return;
+        return;
       }
+    } else {
+      console.log("No lead found in query result");
     }
   } catch (err) {
-    console.error("lead lookup failed", err);
+    console.error("lead lookup failed with exception:", err);
   }
   
   if (!leadId) {
-    console.error("No lead found for phone", From);
+    console.error("No lead found for phone:", From, "account_id:", accountId);
     const msg = "Thanks for reaching out. We'll get back to you shortly.";
     const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(msg)}</Message></Response>`;
     return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
