@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 type Settings = {
@@ -22,7 +22,7 @@ const btnPrimary = { ...btn, background: '#111', color: '#fff', borderColor: '#1
 const hint = { color: '#666', fontSize: 12 } as const;
 const card = { border: '1px solid #eee', borderRadius: 8, padding: 16, background: '#fff' } as const;
 
-export default function SettingsPage() {
+function SettingsContent() {
   const searchParams = useSearchParams();
   const [s, setS] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -199,5 +199,13 @@ export default function SettingsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: 24 }}><h1>Settings</h1><div>Loading…</div></div>}>
+      <SettingsContent />
+    </Suspense>
   );
 }

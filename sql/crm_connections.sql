@@ -11,11 +11,13 @@ CREATE TABLE IF NOT EXISTS public.crm_connections (
   last_synced_at TIMESTAMPTZ,
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  
-  -- Ensure one active connection per provider per account
-  UNIQUE(account_id, provider, is_active) WHERE is_active = true
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Partial unique constraint: one active connection per provider per account
+CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_connections_active_unique 
+  ON public.crm_connections(account_id, provider) 
+  WHERE is_active = true;
 
 -- Performance indexes
 CREATE INDEX IF NOT EXISTS idx_crm_connections_account ON public.crm_connections(account_id) WHERE is_active = true;

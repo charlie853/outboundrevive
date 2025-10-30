@@ -9,7 +9,7 @@ const CRM_INTEGRATIONS = [
   'salesforce',
   // 'pipedrive', - annoying to get token for
   'zoho-crm',
-  'gohighlevel' // ADDED: Support for GoHighLevel (auto shops, multi-location)
+  // 'gohighlevel' // TODO: Add when we build direct OAuth (Nango doesn't support it)
 ];
 
 export async function POST(req: NextRequest) {

@@ -180,6 +180,8 @@ async function processContactsToLeads(
           crm_id: contact.id,
           crm_source: crmSource,
           crm_url: crmUrl,
+          crm_owner: contact.owner || null,
+          crm_owner_email: contact.owner_email || null,
           last_crm_sync_at: nowIso,
         };
 

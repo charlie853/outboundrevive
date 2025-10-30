@@ -4,6 +4,8 @@ export interface CRMContact {
   phone?: string;
   email?: string;
   company?: string;
+  owner?: string;
+  owner_email?: string;
 }
 
 export interface SyncResult {

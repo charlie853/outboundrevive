@@ -27,5 +27,5 @@ export const SUPPORTED_CRMS: { value: CRMProvider; label: string }[] = [
   { value: 'salesforce', label: 'Salesforce' },
   { value: 'pipedrive', label: 'Pipedrive' },
   { value: 'zoho', label: 'Zoho CRM' },
-  { value: 'gohighlevel', label: 'GoHighLevel' },
+  // { value: 'gohighlevel', label: 'GoHighLevel' }, // TODO: Enable when we build direct OAuth
 ];
