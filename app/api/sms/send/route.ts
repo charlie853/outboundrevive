@@ -225,19 +225,36 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
           console.log(`[REMINDER] Lead ${l.id}: ${convState.unansweredOutboundCount} unanswered, should send: ${convState.shouldSendReminder}`);
         }
 
-        // quiet hours (skip if replyMode=true)
-        if (!isReply && !withinWindow(nowMinLocal, startMin, endMin)) {
-          // Log quiet-hours block
-          try {
-            await supabaseAdmin.from('deliverability_events').insert({
-              message_id: null,
-              lead_id: l.id,
-              type: 'quiet_block',
-              meta_json: { tz, start: cfg?.quiet_start, end: cfg?.quiet_end, now_min_local: nowMinLocal },
-              account_id: accountId,
-            });
-          } catch {}
-          results.push({ id: l.id, phone: l.phone, error: 'quiet_hours' }); continue;
+        // quiet hours (skip if replyMode=true); FL/OK strict enforcement if enabled
+        if (!isReply) {
+          let shouldBlockQuiet = !withinWindow(nowMinLocal, startMin, endMin);
+          if (shouldBlockQuiet) {
+            const npa = npaFromE164(l.phone);
+            if (npa && (FL_NPAS.has(npa) || OK_NPAS.has(npa))) {
+              // Check if FL/OK strict is enabled
+              const { data: prefs } = await supabaseAdmin
+                .from('account_followup_prefs')
+                .select('fl_ok_strict')
+                .eq('account_id', accountId)
+                .maybeSingle();
+              if (prefs?.fl_ok_strict === false) {
+                // FL/OK strict disabled; allow if within extended window (e.g., standard hours)
+                shouldBlockQuiet = false;
+              }
+            }
+          }
+          if (shouldBlockQuiet) {
+            try {
+              await supabaseAdmin.from('deliverability_events').insert({
+                message_id: null,
+                lead_id: l.id,
+                type: 'quiet_block',
+                meta_json: { tz, start: cfg?.quiet_start, end: cfg?.quiet_end, now_min_local: nowMinLocal },
+                account_id: accountId,
+              });
+            } catch {}
+            results.push({ id: l.id, phone: l.phone, error: 'quiet_hours' }); continue;
+          }
         }
 
         // Remove blanket 24h link/message cap (rely on cadence + quiet hours)

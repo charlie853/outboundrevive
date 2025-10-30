@@ -2,6 +2,8 @@
   "trailingSlash": false,
   "crons": [
     { "path": "/api/internal/agent/consume", "schedule": "*/2 * * * *" },
-    { "path": "/api/internal/followups/tick", "schedule": "*/10 * * * *" }
+    { "path": "/api/internal/followups/tick", "schedule": "*/10 * * * *" },
+    { "path": "/api/internal/queue/worker", "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/billing/reset", "schedule": "0 0 1 * *" }
   ]
 }

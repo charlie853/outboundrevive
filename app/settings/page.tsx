@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 
 type Settings = {
   timezone: string;
@@ -22,11 +23,24 @@ const hint = { color: '#666', fontSize: 12 } as const;
 const card = { border: '1px solid #eee', borderRadius: 8, padding: 16, background: '#fff' } as const;
 
 export default function SettingsPage() {
+  const searchParams = useSearchParams();
   const [s, setS] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    const upgrade = searchParams?.get('upgrade');
+    if (upgrade === 'success') {
+      setMsg('Upgrade successful! Your plan has been updated.');
+      // Clear URL param after showing message
+      window.history.replaceState({}, '', '/settings');
+    } else if (upgrade === 'cancel') {
+      setErr('Upgrade was cancelled.');
+      window.history.replaceState({}, '', '/settings');
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     let on = true;

@@ -415,8 +415,8 @@ export default function MetricsPanel() {
                         const pr = await fetch('/api/billing/upgrade/preview').then(r=>r.json()).catch(()=>({plans:[]}));
                         const plan = (Array.isArray(pr?.plans)?pr.plans:[])[1];
                         if (!plan) return;
-                        const sr = await fetch('/api/billing/upgrade/start', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ plan_id: plan.id })}).then(r=>r.json()).catch(()=>({}));
-                        if (sr?.url) window.location.href = sr.url;
+                        const stripe = await fetch('/api/billing/stripe/checkout', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ plan_id: plan.id, account_id: status?.account_id })}).then(r=>r.json()).catch(()=>({}));
+                        if (stripe?.url) window.location.href = stripe.url; else if (stripe?.error) alert('Upgrade unavailable: ' + stripe.error);
                       }} className="underline">Upgrade</button></div>
                     )}
                     {pc100 >= 80 && pc100 < 100 && (
@@ -424,8 +424,8 @@ export default function MetricsPanel() {
                         const pr = await fetch('/api/billing/upgrade/preview').then(r=>r.json()).catch(()=>({plans:[]}));
                         const plan = (Array.isArray(pr?.plans)?pr.plans:[])[1];
                         if (!plan) return;
-                        const sr = await fetch('/api/billing/upgrade/start', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ plan_id: plan.id })}).then(r=>r.json()).catch(()=>({}));
-                        if (sr?.url) window.location.href = sr.url;
+                        const stripe = await fetch('/api/billing/stripe/checkout', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ plan_id: plan.id, account_id: status?.account_id })}).then(r=>r.json()).catch(()=>({}));
+                        if (stripe?.url) window.location.href = stripe.url; else if (stripe?.error) alert('Upgrade unavailable: ' + stripe.error);
                       }} className="underline">Upgrade</button></div>
                     )}
                   </div>
