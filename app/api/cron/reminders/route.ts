@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseServer';
-import { minutesNowInTZ } from '@/app/api/sms/send/route';
 
 export const runtime = 'nodejs';
 
@@ -53,7 +52,28 @@ export async function POST(req: NextRequest) {
 
         for (const lead of leads || []) {
           touched.push({ account_id: accountId, lead_id: lead.id, campaign_id: campaignId });
-          // Minimal enqueue: call existing sms send route via internal fetch could be added here.
+          // Enqueue: call existing sms send route (minimal body; message to be generated upstream by LLM job if integrated)
+          try {
+            const url = new URL((process.env.PUBLIC_BASE_URL || '').replace(/\/$/, ''));
+            url.pathname = '/api/sms/send';
+            await fetch(url.toString(), {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-admin-token': (process.env.ADMIN_API_KEY || process.env.ADMIN_TOKEN || ''),
+              },
+              body: JSON.stringify({
+                account_id: accountId,
+                lead_id: lead.id,
+                body: '',
+                replyMode: false,
+                gate_context: 'reminder',
+                reminder_seq: (touched.length + 1) || 1,
+              }),
+            });
+          } catch (e) {
+            console.error('enqueue reminder failed', e);
+          }
         }
       }
     }

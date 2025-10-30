@@ -587,6 +587,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
   }
 
+  if (text === "start") {
+    try {
+      await supabaseAdmin
+        .from('leads')
+        .update({ opted_out: false, last_inbound_at: new Date().toISOString(), last_reply_body: inboundBody })
+        .eq('id', leadId);
+    } catch (e) { console.error('START update failed', e); }
+    const msg = "You're resumed. How can I help with scheduling or questions?";
+    await persistOut(leadId, msg, false);
+    const twiml = `<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Message>${escapeXml(msg)}</Message></Response>`;
+    return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
+  }
+
   // === Check quiet hours & daily caps (non-reply mode) ===
   // For inbound replies, we skip these checks
   const isInboundReply = true; // This is an inbound webhook, so it's always a reply context

@@ -86,4 +86,50 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_messages_in_thread ON public.messages_in(account_id, lead_id, created_at, id);
 CREATE INDEX IF NOT EXISTS idx_messages_out_thread ON public.messages_out(account_id, lead_id, created_at, id);
 
+-- Helper RPC: select leads needing follow-up per campaign (safe to create)
+-- Parameters: p_account_id uuid, p_campaign_id uuid, p_since_iso timestamptz, p_max_touches int, p_min_spacing_hours int
+-- Note: keeps logic simple and index-friendly
+CREATE OR REPLACE FUNCTION public.leads_needing_followup(
+  p_account_id uuid,
+  p_campaign_id uuid,
+  p_since_iso timestamptz,
+  p_max_touches int,
+  p_min_spacing_hours int
+) RETURNS TABLE (id uuid)
+LANGUAGE sql
+AS $$
+  WITH touches AS (
+    SELECT lead_id, COUNT(*) AS sent_count,
+           MAX(sent_at) AS last_touch_at
+    FROM public.cadence_runs
+    WHERE account_id = p_account_id
+      AND campaign_id = p_campaign_id
+      AND status = 'sent'
+    GROUP BY lead_id
+  ),
+  last_msgs AS (
+    SELECT l.id AS lead_id,
+           l.last_inbound_at,
+           l.last_sent_at
+    FROM public.leads l
+    WHERE l.account_id = p_account_id
+      AND COALESCE(l.opted_out, false) = false
+  )
+  SELECT lm.lead_id AS id
+  FROM last_msgs lm
+  LEFT JOIN touches t ON t.lead_id = lm.lead_id
+  WHERE
+    -- conversation died: no inbound since last outbound, and last outbound older than cooldown (p_since_iso computed by caller)
+    (lm.last_sent_at IS NOT NULL
+     AND (lm.last_inbound_at IS NULL OR lm.last_inbound_at < lm.last_sent_at)
+     AND lm.last_sent_at < p_since_iso)
+    -- touches under max
+    AND COALESCE(t.sent_count, 0) < GREATEST(p_max_touches, 0)
+    -- spacing since last touch
+    AND (
+      t.last_touch_at IS NULL
+      OR t.last_touch_at < (now() - make_interval(hours => GREATEST(p_min_spacing_hours,0)))
+    )
+$$;
+
 
