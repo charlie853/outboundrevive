@@ -20,13 +20,7 @@ const OK_NPAS = new Set(['405', '539', '580', '918']);
 
 // === Load System Prompt (no caching - always fresh) ===
 function loadSystemPrompt(): string {
-  // 1. Try env first
-  if (process.env.SMS_SYSTEM_PROMPT) {
-    console.log("Using SMS_SYSTEM_PROMPT from env");
-    return process.env.SMS_SYSTEM_PROMPT;
-  }
-  
-  // 2. Try file (reload every time for latest changes)
+  // 1. Try file first (version-controlled source of truth)
   try {
     const filePath = path.join(process.cwd(), "prompts", "sms_system_prompt.md");
     const content = fs.readFileSync(filePath, "utf8");
@@ -34,8 +28,16 @@ function loadSystemPrompt(): string {
     return content;
   } catch (err) {
     console.error("Failed to load system prompt from file:", err);
-    return "You are Charlie from OutboundRevive. Be brief, helpful, and book appointments.";
   }
+  
+  // 2. Fallback to env if file not found
+  if (process.env.SMS_SYSTEM_PROMPT) {
+    console.log("Using SMS_SYSTEM_PROMPT from env (fallback)");
+    return process.env.SMS_SYSTEM_PROMPT;
+  }
+  
+  // 3. Final fallback
+  return "You are Charlie from OutboundRevive. Be brief, helpful, and book appointments.";
 }
 
 // === Template Variable Substitution ===
