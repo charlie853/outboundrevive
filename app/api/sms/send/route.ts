@@ -392,10 +392,23 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
                 .from('tenant_billing')
                 .update({ warn_80_sent: true, updated_at: nowIso })
                 .eq('account_id', accountId);
-              console.warn(`[caps] 80% threshold reached for account ${accountId}`);
+              console.warn(JSON.stringify({
+                event: 'cap_warning_80pct',
+                account_id: accountId,
+                segments_used: nextUsed,
+                monthly_cap: bill.monthly_cap_segments,
+                pct: Math.round(pct * 100),
+                timestamp: nowIso,
+              }));
             }
             if (nextUsed > bill.monthly_cap_segments) {
-              console.warn(`[caps] account ${accountId} exceeded monthly cap (${nextUsed}/${bill.monthly_cap_segments})`);
+              console.warn(JSON.stringify({
+                event: 'cap_exceeded',
+                account_id: accountId,
+                segments_used: nextUsed,
+                monthly_cap: bill.monthly_cap_segments,
+                timestamp: nowIso,
+              }));
             }
           }
         } catch (capErr) {
