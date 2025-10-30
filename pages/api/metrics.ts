@@ -44,39 +44,74 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return;
   }
 
+  // Extract account_id from query or use default for backward compat
+  const accountId = (Array.isArray(req.query.account_id) ? req.query.account_id[0] : req.query.account_id) || process.env.DEFAULT_ACCOUNT_ID || '11111111-1111-1111-1111-111111111111';
   const since = sinceISO(req.query.range);
 
+  // Helper: append account_id to query strings
+  const withAccount = (qs: string) => `${qs}&account_id=eq.${encodeURIComponent(accountId)}`;
+
   // Compute KPIs from actual message tables for accuracy
-  // messagesSent = count of messages_out sent since date
-  // deliveredPct = messages_out with provider_status=delivered / messagesSent
-  // replies = count of messages_in since date
-  // newLeads = leads created since date
-  // NEW: bookings, contacted, optOuts
+  const qsNewLeads = withAccount(`created_at=gte.${encodeURIComponent(since)}`);
+  const qsMessagesSent = withAccount(`created_at=gte.${encodeURIComponent(since)}`);
+  const qsDelivered = withAccount(`provider_status=eq.delivered&created_at=gte.${encodeURIComponent(since)}`);
+  const qsSent = withAccount(`provider_status=in.(sent,delivered)&created_at=gte.${encodeURIComponent(since)}`);
+  const qsInbound = withAccount(`created_at=gte.${encodeURIComponent(since)}`);
+  const qsBooked = withAccount(`intent=eq.booked&created_at=gte.${encodeURIComponent(since)}`);
+  const qsContacted = withAccount(`last_outbound_at=gte.${encodeURIComponent(since)}`);
+  const qsOptedOut = withAccount(`opted_out=eq.true&updated_at=gte.${encodeURIComponent(since)}`);
+  const qsSegmentsIn = withAccount(`created_at=gte.${encodeURIComponent(since)}&segments=not.is.null`);
+  const qsSegmentsOut = withAccount(`created_at=gte.${encodeURIComponent(since)}&segments=not.is.null`);
 
-  const qsNewLeads = `created_at=gte.${encodeURIComponent(since)}`;
-  const qsMessagesSent = `created_at=gte.${encodeURIComponent(since)}`;
-  const qsDelivered = `provider_status=eq.delivered&created_at=gte.${encodeURIComponent(since)}`;
-  const qsInbound = `created_at=gte.${encodeURIComponent(since)}`;
-  const qsBooked = `intent=eq.booked&created_at=gte.${encodeURIComponent(since)}`; // NEW: Messages with "booked" intent
-  const qsContacted = `last_outbound_at=gte.${encodeURIComponent(since)}`; // NEW: Leads with at least one outbound
-  const qsOptedOut = `opted_out=eq.true&updated_at=gte.${encodeURIComponent(since)}`; // NEW: Leads who opted out in this period
+  // Replies: unique lead_ids with at least one inbound
+  const repliesCount = await fetch(`${URL}/rest/v1/messages_in?select=lead_id&${qsInbound}`, {
+    headers: { apikey: KEY, Authorization: `Bearer ${KEY}`, Prefer: 'count=exact' },
+    signal: AbortSignal.timeout(5000),
+  }).then(async r => {
+    if (!r.ok) return 0;
+    const data = await r.json().catch(() => []);
+    const unique = new Set((data as Array<{ lead_id: string }>).map(x => x.lead_id));
+    return unique.size;
+  }).catch(() => 0);
 
-  const [newLeads, messagesSent, deliveredCount, inboundCount, bookedCount, contactedCount, optedOutCount] = await Promise.all([
+  // Segments: sum from both tables
+  const [segmentsIn, segmentsOut] = await Promise.all([
+    fetch(`${URL}/rest/v1/messages_in?select=segments&${qsSegmentsIn}`, {
+      headers: { apikey: KEY, Authorization: `Bearer ${KEY}` },
+      signal: AbortSignal.timeout(5000),
+    }).then(async r => {
+      if (!r.ok) return 0;
+      const data = await r.json().catch(() => []);
+      return (data as Array<{ segments: number }>).reduce((acc, row) => acc + (row.segments || 0), 0);
+    }).catch(() => 0),
+    fetch(`${URL}/rest/v1/messages_out?select=segments&${qsSegmentsOut}`, {
+      headers: { apikey: KEY, Authorization: `Bearer ${KEY}` },
+      signal: AbortSignal.timeout(5000),
+    }).then(async r => {
+      if (!r.ok) return 0;
+      const data = await r.json().catch(() => []);
+      return (data as Array<{ segments: number }>).reduce((acc, row) => acc + (row.segments || 0), 0);
+    }).catch(() => 0),
+  ]);
+  const segmentsTotal = segmentsIn + segmentsOut;
+
+  const [newLeads, messagesSent, deliveredCount, sentCount, bookedCount, contactedCount, optedOutCount] = await Promise.all([
     count('leads', qsNewLeads),
     count('messages_out', qsMessagesSent),
     count('messages_out', qsDelivered),
-    count('messages_in', qsInbound),
-    count('messages_out', qsBooked), // NEW
-    count('leads', qsContacted), // NEW
-    count('leads', qsOptedOut), // NEW
+    count('messages_out', qsSent),
+    count('messages_out', qsBooked),
+    count('leads', qsContacted),
+    count('leads', qsOptedOut),
   ]);
 
-  // Replies = inbound message count
-  const replies = inboundCount;
+  // Replies = unique leads with at least one inbound
+  const replies = repliesCount;
 
-  const deliveredPct = messagesSent > 0 ? Math.round((deliveredCount / messagesSent) * 100) : 0;
-  const replyRate = deliveredCount > 0 ? Math.round((replies / deliveredCount) * 100) : 0; // NEW
-  const optOutRate = contactedCount > 0 ? Math.round((optedOutCount / contactedCount) * 100) : 0; // NEW
+  // Delivered% = delivered / sent (exclude queued)
+  const deliveredPct = sentCount > 0 ? Math.round((deliveredCount / sentCount) * 100) : 0;
+  const replyRate = deliveredCount > 0 ? Math.round((replies / deliveredCount) * 100) : 0;
+  const optOutRate = contactedCount > 0 ? Math.round((optedOutCount / contactedCount) * 100) : 0;
 
   // Full KPI payload
   const payload = {
@@ -86,26 +121,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       messagesSent,
       deliveredPct,
       replies,
-      // NEW KPIs
       booked: bookedCount,
       contacted: contactedCount,
       optedOut: optedOutCount,
       replyRate,
       optOutRate,
+      segments: segmentsTotal, // NEW: Segments KPI (in+out)
     },
     charts: {
-      deliveryOverTime: [], // keep arrays present for your components
+      deliveryOverTime: [],
       repliesPerDay: [],
     },
   };
 
   const nowISO = new Date().toISOString();
-  const failed = Math.max(0, messagesSent - deliveredCount);
+  const failed = Math.max(0, sentCount - deliveredCount);
   payload.charts.deliveryOverTime = [
     {
       date: nowISO,
       delivered: deliveredCount,
-      sent: messagesSent,
+      sent: sentCount,
       failed,
     },
   ];
