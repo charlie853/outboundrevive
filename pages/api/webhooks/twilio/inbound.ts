@@ -413,28 +413,28 @@ async function persistOut(leadId: string, body: string, needsFooterFlag: boolean
     const finalBody = needsFooterFlag && !body.includes("Reply PAUSE")
       ? `${body} Reply PAUSE to stop`
       : body;
-    
-    const payload = [{
-      lead_id: leadId,
-      account_id: ACCOUNT_ID,
-      body: finalBody,
-      sent_by: "ai"
-    }];
 
-    const resp = await fetch(`${SUPABASE_URL}/rest/v1/messages_out`, {
-      method: "POST",
-      headers: {
-        "apikey": SRK,
-        "Authorization": `Bearer ${SRK}`,
-        "Content-Type": "application/json",
-        "Prefer": "return=representation"
-      },
-      body: JSON.stringify(payload)
-    });
+  const payload = [{
+      lead_id: leadId,
+    account_id: ACCOUNT_ID,
+      body: finalBody,
+    sent_by: "ai"
+  }];
+
+  const resp = await fetch(`${SUPABASE_URL}/rest/v1/messages_out`, {
+    method: "POST",
+    headers: {
+      "apikey": SRK,
+      "Authorization": `Bearer ${SRK}`,
+      "Content-Type": "application/json",
+      "Prefer": "return=representation"
+    },
+    body: JSON.stringify(payload)
+  });
 
     if (!resp.ok) {
-      const text = await resp.text();
-      console.error("messages_out insert failed", resp.status, text);
+  const text = await resp.text();
+    console.error("messages_out insert failed", resp.status, text);
       return;
     }
 
@@ -617,8 +617,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // === Post-process ===
   let finalMessage = postProcessMessage(llmOutput.message, BOOKING_LINK, linkGateHit);
   
-  // Apply footer if needed
-  const shouldAddFooter = needsFooterFlag || llmOutput.needs_footer;
+  // Apply footer if needed - ONLY use server-side logic (ignore LLM needs_footer)
+  // Server handles 30-day gating via needsFooterFlag
+  const shouldAddFooter = needsFooterFlag;
 
   // === Log & persist ===
   console.log(JSON.stringify({
