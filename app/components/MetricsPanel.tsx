@@ -59,6 +59,7 @@ const fetcher = (url: string) =>
     }
     return res.json();
   });
+const fetcherNoThrow = (url: string) => fetch(url, { cache: 'no-store' }).then((r) => r.json()).catch(() => ({}));
 
 const toNumber = (value: unknown, fallback = 0) => {
   const n = Number(value);
@@ -117,6 +118,13 @@ export default function MetricsPanel() {
     revalidateOnFocus: true,
     shouldRetryOnError: (err) => err?.status !== 401,
   });
+
+  // Feature flags (caps/cadences/new_charts)
+  const { data: status } = useSWR('/api/ui/account/status', fetcherNoThrow, {
+    refreshInterval: 60000,
+    revalidateOnFocus: true,
+  });
+  const newChartsEnabled: boolean = !!status?.new_charts_enabled;
 
   console.debug('METRICS payload', data);
 
@@ -318,19 +326,17 @@ export default function MetricsPanel() {
         <KpiCards data={kpis} className="mt-4" />
       )}
 
-      {/* Time Series Charts
-          TODO: Make interactive with hover tooltips, add 7-day rolling average overlay
-      */}
-      <div className="grid gap-6 md:grid-cols-2">
+      {/* Time Series Charts (feature-flagged modern theming) */}
+      <div className={newChartsEnabled ? 'grid gap-6 md:grid-cols-2 [&>*]:ring-1 [&>*]:ring-indigo-200 [&>*]:rounded-2xl [&>*]:shadow-lg' : 'grid gap-6 md:grid-cols-2'}>
         {delivery.length >= 1 ? (
-          <DeliveryChart days={deliveryPoints} />
+          <DeliveryChart days={deliveryPoints} /* modern={newChartsEnabled} */ />
         ) : (
           <div className="rounded-2xl border border-surface-line bg-surface-card p-4 text-sm text-ink-2 shadow-soft">
             No delivery data yet. Send your first campaign to see stats here.
           </div>
         )}
         {repliesS.length >= 1 ? (
-          <RepliesChart days={replyPoints} />
+          <RepliesChart days={replyPoints} /* modern={newChartsEnabled} */ />
         ) : (
           <div className="rounded-2xl border border-surface-line bg-surface-card p-4 text-sm text-ink-2 shadow-soft">
             No replies yet. Once leads respond, you'll see engagement trends here.
