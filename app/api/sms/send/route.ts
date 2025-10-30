@@ -227,6 +227,16 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
 
         // quiet hours (skip if replyMode=true)
         if (!isReply && !withinWindow(nowMinLocal, startMin, endMin)) {
+          // Log quiet-hours block
+          try {
+            await supabaseAdmin.from('deliverability_events').insert({
+              message_id: null,
+              lead_id: l.id,
+              type: 'quiet_block',
+              meta_json: { tz, start: cfg?.quiet_start, end: cfg?.quiet_end, now_min_local: nowMinLocal },
+              account_id: accountId,
+            });
+          } catch {}
           results.push({ id: l.id, phone: l.phone, error: 'quiet_hours' }); continue;
         }
 

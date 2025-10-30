@@ -129,6 +129,8 @@ export default function MetricsPanel() {
   // Analytics panels
   const { data: heatmap } = useSWR(`/api/analytics/heatmap?range=${range}`, fetcherNoThrow, { refreshInterval: 60000 });
   const { data: carriers } = useSWR(`/api/analytics/carriers?range=${range}`, fetcherNoThrow, { refreshInterval: 60000 });
+  const { data: quiet } = useSWR(`/api/analytics/quiet?range=${range}`, fetcherNoThrow, { refreshInterval: 60000 });
+  const { data: billing } = useSWR(`/api/billing/status`, fetcherNoThrow, { refreshInterval: 60000 });
 
   // Simple canvas heatmap (PNG exportable without extra deps)
   const heatmapRef = useRef<HTMLCanvasElement | null>(null);
@@ -384,6 +386,48 @@ export default function MetricsPanel() {
             No replies yet. Once leads respond, you'll see engagement trends here.
           </div>
         )}
+      </div>
+
+      {/* Caps progress + quiet hours widget */}
+      <div className="grid gap-6 md:grid-cols-2">
+        <div className="rounded-2xl border border-surface-line bg-surface-card p-4">
+          <h3 className="text-sm font-semibold text-ink-1 mb-2">Monthly SMS Cap</h3>
+          {billing?.monthly_cap_segments ? (
+            <div>
+              <div className="text-xs text-ink-2 mb-1">Plan: {billing?.plan_tier || 'unknown'}</div>
+              {(() => {
+                const used = Number(billing?.segments_used || 0);
+                const cap = Number(billing?.monthly_cap_segments || 0);
+                const pct = cap > 0 ? Math.min(1, used / cap) : 0;
+                const pc100 = Math.round(pct * 100);
+                const bar = (
+                  <div className="w-full h-2 bg-surface-bg rounded">
+                    <div className={`h-2 rounded ${pc100 >= 100 ? 'bg-rose-500' : pc100 >= 80 ? 'bg-amber-500' : 'bg-indigo-500'}`} style={{ width: `${pc100}%` }} />
+                  </div>
+                );
+                return (
+                  <div className="space-y-2">
+                    {bar}
+                    <div className="text-xs text-ink-2">{used} / {cap} segments ({pc100}%)</div>
+                    {pc100 >= 100 && (
+                      <div className="text-xs text-rose-600">Cap reached — outbound paused. <a className="underline" href="/settings">Upgrade</a></div>
+                    )}
+                    {pc100 >= 80 && pc100 < 100 && (
+                      <div className="text-xs text-amber-600">Approaching cap — consider upgrading. <a className="underline" href="/settings">Upgrade</a></div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          ) : (
+            <div className="text-sm text-ink-2">Billing info unavailable.</div>
+          )}
+        </div>
+        <div className="rounded-2xl border border-surface-line bg-surface-card p-4">
+          <h3 className="text-sm font-semibold text-ink-1 mb-2">Quiet Hours</h3>
+          <div className="text-xs text-ink-2 mb-2">Blocked sends in range: {Number(quiet?.count || 0)}</div>
+          <a className="text-xs underline" href="/followups">Edit quiet hours & windows</a>
+        </div>
       </div>
 
       {/* Analytics Panels: Heatmap and Carrier/Error breakdown */}
