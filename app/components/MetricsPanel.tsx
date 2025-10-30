@@ -33,7 +33,7 @@
  * - Consider recharts or tremor for richer visualizations
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import KpiCards from '@/app/(app)/dashboard/components/KpiCards';
@@ -125,6 +125,48 @@ export default function MetricsPanel() {
     revalidateOnFocus: true,
   });
   const newChartsEnabled: boolean = !!status?.new_charts_enabled;
+
+  // Analytics panels
+  const { data: heatmap } = useSWR(`/api/analytics/heatmap?range=${range}`, fetcherNoThrow, { refreshInterval: 60000 });
+  const { data: carriers } = useSWR(`/api/analytics/carriers?range=${range}`, fetcherNoThrow, { refreshInterval: 60000 });
+
+  // Simple canvas heatmap (PNG exportable without extra deps)
+  const heatmapRef = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const buckets: number[][] = Array.isArray(heatmap?.heatmap) ? heatmap.heatmap : [];
+    const canvas = heatmapRef.current;
+    if (!canvas || !buckets.length) return;
+    const rows = buckets.length; const cols = buckets[0].length || 24;
+    const cell = 16; const pad = 24; // px
+    canvas.width = cols * cell + pad * 2;
+    canvas.height = rows * cell + pad * 2 + 16;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    const max = Math.max(1, ...buckets.flat());
+    // axes labels
+    const dows = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    ctx.fillStyle = '#111'; ctx.font = '12px sans-serif';
+    dows.forEach((d, r) => ctx.fillText(d, 4, pad + r*cell + 12));
+    for (let h = 0; h < cols; h += 3) ctx.fillText(String(h).padStart(2,'0'), pad + h*cell, 14);
+    // cells
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const v = buckets[r][c] || 0;
+        const t = v / max;
+        const col = Math.floor(255 - t * 180);
+        ctx.fillStyle = `rgb(${col}, ${col}, 255)`;
+        ctx.fillRect(pad + c*cell, pad + r*cell, cell-1, cell-1);
+      }
+    }
+  }, [heatmap]);
+
+  const exportHeatmapPng = () => {
+    const canvas = heatmapRef.current; if (!canvas) return;
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url; a.download = `replies-heatmap-${range}.png`; a.click();
+  };
 
   console.debug('METRICS payload', data);
 
@@ -342,6 +384,45 @@ export default function MetricsPanel() {
             No replies yet. Once leads respond, you'll see engagement trends here.
           </div>
         )}
+      </div>
+
+      {/* Analytics Panels: Heatmap and Carrier/Error breakdown */}
+      <div className="grid gap-6 md:grid-cols-2">
+        <div className="rounded-2xl border border-surface-line bg-surface-card p-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-ink-1">Reply Heatmap (hour × day)</h3>
+            <button onClick={exportHeatmapPng} className="text-xs px-2 py-1 rounded bg-indigo-600 text-white">Export PNG</button>
+          </div>
+          {Array.isArray(heatmap?.heatmap) && heatmap.heatmap.length ? (
+            <canvas ref={heatmapRef} style={{ width: '100%', maxWidth: 560 }} />
+          ) : (
+            <div className="text-sm text-ink-2">No data yet.</div>
+          )}
+        </div>
+        <div className="rounded-2xl border border-surface-line bg-surface-card p-4">
+          <h3 className="text-sm font-semibold text-ink-1 mb-2">Carrier/Error Breakdown</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-xs font-medium text-ink-2 mb-1">Regions</div>
+              <div className="text-xs text-ink-2 border rounded p-2 max-h-48 overflow-auto">
+              {(Array.isArray(carriers?.breakdown) ? carriers.breakdown : []).map((row: any) => (
+                <div key={row.region} className="flex justify-between">
+                  <span>{row.region}</span>
+                  <span>{row.delivered}/{row.sent + row.delivered + row.failed} (failed {row.failed})</span>
+                </div>
+              ))}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs font-medium text-ink-2 mb-1">Top Error Codes</div>
+              <div className="text-xs text-ink-2 border rounded p-2 max-h-48 overflow-auto">
+              {(Array.isArray(carriers?.errors) ? carriers.errors : []).map((row: any) => (
+                <div key={row.code} className="flex justify-between"><span>{row.code}</span><span>{row.count}</span></div>
+              ))}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Funnel Visualization
