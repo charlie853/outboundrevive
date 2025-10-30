@@ -4,6 +4,8 @@ import { supabaseAdmin } from '@/lib/supabaseServer';
 import { requireAccountAccess } from '@/lib/account';
 import { addFooter } from '@/lib/messagingCompliance';
 import { getConversationState } from '@/lib/conversation-state';
+import { countSegments } from '@/lib/messaging/segments';
+import { getBookingUrl } from '@/lib/config';
 
 export const runtime = 'nodejs';
 
@@ -153,7 +155,7 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
     const startMin   = parseHHMM(cfg?.quiet_start || '08:00') ?? 8*60;
     const endMin     = parseHHMM(cfg?.quiet_end   || '21:00') ?? 21*60;
     const acctBrand  = brand || cfg?.brand || 'OutboundRevive';
-    const bookingUrl = cfg?.booking_link || '';
+    const bookingUrl = (await getBookingUrl(accountId)) || cfg?.booking_link || '';
     const paused     = !!cfg?.paused;
     const blackout   = Array.isArray(cfg?.blackout_dates) ? cfg!.blackout_dates as string[] : [];
     const chanStatus = (cfg?.sms_channel_status || 'unverified').toLowerCase();
@@ -227,10 +229,7 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
           results.push({ id: l.id, phone: l.phone, error: 'quiet_hours' }); continue;
         }
 
-        // 24h cap (skip if replyMode=true)
-        if (!isReply && hoursSince(l.last_sent_at) < 24) {
-          results.push({ id: l.id, phone: l.phone, error: '24h_cap' }); continue;
-        }
+        // Remove blanket 24h link/message cap (rely on cadence + quiet hours)
 
         // FL/OK state cap ≤3/24h (skip if replyMode=true)
         const npa = npaFromE164(l.phone);
@@ -238,6 +237,21 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
           const c = await countsInLast24h(l.id);
           if (c >= 3) { results.push({ id: l.id, phone: l.phone, error: 'state_24h_cap' }); continue; }
         }
+
+        // Cap enforcement: hard stop when monthly cap reached (allow inbound replies only)
+        try {
+          const { data: bill } = await supabaseAdmin
+            .from('tenant_billing')
+            .select('monthly_cap_segments, segments_used')
+            .eq('account_id', accountId)
+            .maybeSingle();
+          if (bill && typeof bill.monthly_cap_segments === 'number' && !isReply) {
+            if ((bill.segments_used || 0) >= bill.monthly_cap_segments) {
+              results.push({ id: l.id, phone: l.phone, error: 'monthly_cap_reached' });
+              continue;
+            }
+          }
+        } catch {}
 
         // compute gate info for logging
         const quietOk = isReply || withinWindow(nowMinLocal, startMin, endMin);
@@ -309,7 +323,7 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
         } as const;
         const finalBody = addFooter(baseBody, footerOpts);
         const footerApplied = finalBody !== baseBody;
-        if (finalBody.length > 160) { results.push({ id: l.id, phone: l.phone, error: 'too_long_with_footer' }); continue; }
+        if (finalBody.length > 320) { results.push({ id: l.id, phone: l.phone, error: 'too_long_with_footer' }); continue; }
         gateLog.footer = {
           applied: footerApplied,
           require_footer: requireFooter,
@@ -319,6 +333,7 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
         };
 
         const body = finalBody;
+        const segments = countSegments(body);
 
         // send (dry or real)
         type ProviderStatus = 'queued' | 'sent' | 'delivered' | 'failed';
@@ -358,6 +373,35 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
 
         await supabaseAdmin.from('leads').update(leadUpdate).eq('id', l.id).eq('account_id', accountId);
 
+        // Update tenant_billing segments_used and emit 80% warning once per cycle
+        try {
+          const { data: bill } = await supabaseAdmin
+            .from('tenant_billing')
+            .select('monthly_cap_segments, segments_used, warn_80_sent')
+            .eq('account_id', accountId)
+            .maybeSingle();
+          if (bill && typeof bill.monthly_cap_segments === 'number') {
+            const nextUsed = (bill.segments_used || 0) + segments;
+            await supabaseAdmin
+              .from('tenant_billing')
+              .update({ segments_used: nextUsed, updated_at: nowIso })
+              .eq('account_id', accountId);
+            const pct = bill.monthly_cap_segments > 0 ? nextUsed / bill.monthly_cap_segments : 0;
+            if (pct >= 0.8 && !bill.warn_80_sent) {
+              await supabaseAdmin
+                .from('tenant_billing')
+                .update({ warn_80_sent: true, updated_at: nowIso })
+                .eq('account_id', accountId);
+              console.warn(`[caps] 80% threshold reached for account ${accountId}`);
+            }
+            if (nextUsed > bill.monthly_cap_segments) {
+              console.warn(`[caps] account ${accountId} exceeded monthly cap (${nextUsed}/${bill.monthly_cap_segments})`);
+            }
+          }
+        } catch (capErr) {
+          console.error('tenant_billing update failed', capErr);
+        }
+
         // Persist with AI context (intent/source/template) and blueprint_version_id (prefers aiMeta override, falls back to activeBlueprintVersionId)
         const { data: inserted, error: logErr } = await supabaseAdmin
           .from('messages_out')
@@ -375,6 +419,7 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
             failed_at: null,
             gate_log: gateLog,
             account_id: accountId,
+            segments,
             // provenance
             sent_by: baseSentBy,
             operator_id: operator_id ?? null,

@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { supabaseAdmin } from "@/lib/supabaseServer";
+import { countSegments } from "@/lib/messaging/segments";
+import { toE164US } from "@/lib/phone";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -386,6 +388,7 @@ async function persistIn(leadId: string, body: string, fromPhone: string, toPhon
   if (!leadId || !body) return;
 
   try {
+    const segments = countSegments(body || "");
     const { error } = await supabaseAdmin
       .from("messages_in")
       .insert({
@@ -394,13 +397,31 @@ async function persistIn(leadId: string, body: string, fromPhone: string, toPhon
         body,
         provider_from: fromPhone,
         provider_to: toPhone,
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        segments
       });
 
     if (error) {
       console.error("messages_in insert failed:", error);
     } else {
       console.log("messages_in insert ok for lead", leadId);
+      // Increment tenant_billing.segments_used for inbound, counting toward cap
+      try {
+        const nowIso = new Date().toISOString();
+        const { data: bill } = await supabaseAdmin
+          .from('tenant_billing')
+          .select('segments_used')
+          .eq('account_id', ACCOUNT_ID)
+          .maybeSingle();
+        if (bill) {
+          await supabaseAdmin
+            .from('tenant_billing')
+            .update({ segments_used: (bill.segments_used || 0) + segments, updated_at: nowIso })
+            .eq('account_id', ACCOUNT_ID);
+        }
+      } catch (capErr) {
+        console.error('tenant_billing inbound update failed', capErr);
+      }
     }
   } catch (err) {
     console.error("persistIn error:", err);
@@ -415,12 +436,14 @@ async function persistOut(leadId: string, body: string, needsFooterFlag: boolean
     const finalBody = needsFooterFlag && !body.includes("Reply PAUSE")
       ? `${body} Reply PAUSE to stop`
       : body;
+    const segments = countSegments(finalBody);
 
   const payload = [{
       lead_id: leadId,
     account_id: ACCOUNT_ID,
       body: finalBody,
-    sent_by: "ai"
+    sent_by: "ai",
+    segments
   }];
 
   const resp = await fetch(`${SUPABASE_URL}/rest/v1/messages_out`, {
@@ -490,7 +513,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.log("Lead has opted out, returning empty TwiML");
         res.status(200).setHeader("Content-Type", "text/xml")
           .send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
-        return;
+    return;
       }
     } else {
       console.log("No lead found in query result");
