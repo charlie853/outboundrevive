@@ -79,11 +79,12 @@ export async function PUT(req: NextRequest) {
     quiet_start,
     quiet_end,
     timezone,
+    fl_ok_strict,
   } = body ?? {};
 
   // Basic validation
   if (
-    [freq_max_per_day, freq_max_per_week, min_gap_minutes, quiet_start, quiet_end, timezone].some(
+    [freq_max_per_day, freq_max_per_week, min_gap_minutes, quiet_start, quiet_end, timezone, fl_ok_strict].some(
       (v) => v === undefined
     )
   ) {
@@ -102,6 +103,7 @@ export async function PUT(req: NextRequest) {
         quiet_start,
         quiet_end,
         timezone,
+        fl_ok_strict,
       },
       { onConflict: 'account_id' }
     )

@@ -12,6 +12,7 @@ type Prefs = {
   quiet_start: string;
   quiet_end: string;
   timezone: string;
+  fl_ok_strict?: boolean;
   updated_at?: string;
 };
 
@@ -86,6 +87,9 @@ function PageInner() {
 
           <label>Timezone</label>
           <input style={input} value={prefs.timezone} onChange={(e) => setPrefs({ ...(prefs as Prefs), timezone: e.target.value })} placeholder="America/New_York" />
+
+          <label>FL/OK Stricter Quiet Hours</label>
+          <input type="checkbox" checked={!!prefs.fl_ok_strict} onChange={(e) => setPrefs({ ...(prefs as Prefs), fl_ok_strict: !!e.target.checked })} />
 
           <div />
           <div style={{ display: 'flex', gap: 8 }}>

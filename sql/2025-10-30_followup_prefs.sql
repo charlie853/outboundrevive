@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS public.account_followup_prefs (
   quiet_start text NOT NULL DEFAULT '06:00',
   quiet_end text NOT NULL DEFAULT '22:00',
   timezone text NOT NULL DEFAULT 'America/New_York',
+  fl_ok_strict boolean NOT NULL DEFAULT true,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
