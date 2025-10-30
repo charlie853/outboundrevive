@@ -1,18 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabaseServer';
 
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   try {
-    // Optional: restrict with admin token
     const adminHeader = (req.headers.get('x-admin-token') || '').trim();
     const adminWant = (process.env.ADMIN_API_KEY?.trim() || '') || (process.env.ADMIN_TOKEN?.trim() || '');
     if (!adminHeader || !adminWant || adminHeader !== adminWant) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Delegate to canonical followups engine
     const base = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
     const r = await fetch(`${base}/api/internal/followups/tick`, {
       method: 'POST',
@@ -24,7 +21,7 @@ export async function POST(req: NextRequest) {
     });
     const jr = await r.json().catch(() => ({}));
     return NextResponse.json({ ok: true, delegated: true, result: jr });
-  } catch (e:any) {
+  } catch (e: any) {
     console.error('cron/reminders error', e);
     return NextResponse.json({ error: 'server_error' }, { status: 500 });
   }
