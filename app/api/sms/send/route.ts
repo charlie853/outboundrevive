@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabaseServer';
 import { requireAccountAccess } from '@/lib/account';
 import { addFooter } from '@/lib/messagingCompliance';
 import { getConversationState } from '@/lib/conversation-state';
+import { supabaseAdmin as db } from '@/lib/supabaseServer';
 import { countSegments } from '@/lib/messaging/segments';
 import { getBookingUrl } from '@/lib/config';
 
@@ -341,6 +342,29 @@ const activeBlueprintVersionId = (cfg?.active_blueprint_version_id ?? bpv?.id) |
         const nowIso = new Date().toISOString();
         let provider_status: ProviderStatus = 'queued';
         let sid: string = '';
+        // If queue_enabled for this account, enqueue instead of direct send when not a reply
+        try {
+          const { data: acctFlags } = await db
+            .from('accounts')
+            .select('queue_enabled')
+            .eq('id', accountId)
+            .maybeSingle();
+          const queueEnabled = !!acctFlags?.queue_enabled;
+          if (queueEnabled && !isReply) {
+            const enqueueUrl = new URL((process.env.PUBLIC_BASE_URL || req.nextUrl.origin).replace(/\/$/, ''));
+            enqueueUrl.pathname = '/api/internal/queue/enqueue';
+            const er = await fetch(enqueueUrl.toString(), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-admin-token': (process.env.ADMIN_API_KEY || process.env.ADMIN_TOKEN || '') },
+              body: JSON.stringify({ account_id: accountId, lead_id: l.id, body })
+            });
+            if (er.ok) {
+              results.push({ id: l.id, phone: l.phone, sid: undefined });
+              continue; // skip direct send
+            }
+          }
+        } catch {}
+
         if (dryRun) {
           sid = 'SIM' + Math.random().toString(36).slice(2, 14).toUpperCase();
           provider_status = 'queued';
