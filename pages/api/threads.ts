@@ -31,10 +31,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const timer = setTimeout(() => ac.abort(), 5000);
   try {
     // Remove the restrictive 'or' filter - show all leads, not just those with messages
+    // Note: last_inbound_at and last_outbound_at don't exist on leads table - we'll compute from messages
     const qs = new URLSearchParams({
-      select: 'id,phone,name,last_reply_body,last_reply_at,last_sent_at,opted_out,lead_type,crm_owner,last_inbound_at,last_outbound_at,appointment_set_at,booked,created_at',
+      select: 'id,phone,name,last_reply_body,last_reply_at,last_sent_at,opted_out,lead_type,crm_owner,appointment_set_at,booked,created_at',
       account_id: `eq.${encodeURIComponent(accountId)}`,
-      order: 'last_reply_at.desc.nullslast,last_sent_at.desc.nullslast,last_inbound_at.desc.nullslast,last_outbound_at.desc.nullslast,created_at.desc',
+      order: 'last_reply_at.desc.nullslast,last_sent_at.desc.nullslast,created_at.desc',
       limit: String(limit * 3), // fetch a few extra, we'll de-dup in code
     });
 
@@ -116,10 +117,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const lastReplyAt = row.last_reply_at ? Date.parse(row.last_reply_at) : 0;
       const lastSentAt  = row.last_sent_at  ? Date.parse(row.last_sent_at)  : 0;
-      const lastInboundAt = row.last_inbound_at ? Date.parse(row.last_inbound_at) : 0;
-      const lastOutboundAt = row.last_outbound_at ? Date.parse(row.last_outbound_at) : 0;
       const createdAt = row.created_at ? Date.parse(row.created_at) : 0;
-      const lastAtMs = Math.max(lastReplyAt, lastSentAt, lastInboundAt, lastOutboundAt, createdAt);
+      // Note: last_inbound_at and last_outbound_at don't exist on leads - using last_reply_at and last_sent_at instead
+      const lastAtMs = Math.max(lastReplyAt, lastSentAt, createdAt);
       const lastAtISO = lastAtMs > 0 ? new Date(lastAtMs).toISOString() : null;
       
       // Use last_reply_body if available, otherwise show nothing (not "No messages yet")
