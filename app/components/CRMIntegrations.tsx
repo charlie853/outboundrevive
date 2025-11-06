@@ -66,8 +66,10 @@ export default function CRMIntegrations({
   const handleConnectCRM = async () => {
     try {
       setIsConnecting(true);
+      console.log('[CRM] Starting connect flow...');
 
       // Get session token first (Nango uses session tokens, not public keys)
+      console.log('[CRM] Fetching session token from /api/crm/session-token...');
       const tokenResponse = await authenticatedFetch('/api/crm/session-token', {
         method: 'POST',
         headers: {
@@ -75,69 +77,95 @@ export default function CRMIntegrations({
         },
       });
 
+      console.log('[CRM] Token response status:', tokenResponse.status, tokenResponse.ok);
+
       if (!tokenResponse.ok) {
         const errorData = await tokenResponse.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to get session token');
+        const errorMsg = errorData.error || `Failed to get session token (${tokenResponse.status})`;
+        console.error('[CRM] Session token error:', errorData);
+        throw new Error(errorMsg);
       }
 
-      const { sessionToken } = await tokenResponse.json();
+      const tokenData = await tokenResponse.json();
+      console.log('[CRM] Token data received:', { hasToken: !!tokenData.sessionToken });
+      
+      const { sessionToken } = tokenData;
       
       if (!sessionToken) {
+        console.error('[CRM] No session token in response:', tokenData);
         throw new Error('No session token received from server');
       }
 
+      console.log('[CRM] Opening Nango Connect UI with session token...');
+      
       // Open Nango Connect UI with session token
-      const connect = nango.openConnectUI({
-        themeOverride: "light",
-        sessionToken: sessionToken, // Set token immediately
-        onEvent: async (event) => {
-          console.log('[CRM] Nango event:', event.type, event.payload);
-          
-          if (event.type === 'close') {
-            setIsConnecting(false);
-            // User closed the popup - not necessarily an error
-          } else if (event.type === 'connect') {
-            try {
-              // Save the connection to database
-              const response = await authenticatedFetch('/api/crm/connect', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  connectionId: event.payload.connectionId,
-                  providerConfigKey: event.payload.providerConfigKey,
-                }),
-              });
-
-              if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || 'Failed to save CRM connection');
-              }
-
-              // Update CRM status and refresh
-              await checkCRMStatus();
-              onConnect?.(event.payload.connectionId, event.payload.providerConfigKey);
+      // The sessionToken parameter should trigger the popup
+      try {
+        const connect = nango.openConnectUI({
+          themeOverride: "light",
+          sessionToken: sessionToken,
+          onEvent: async (event) => {
+            console.log('[CRM] Nango event received:', event.type, event.payload);
+            
+            if (event.type === 'close') {
+              console.log('[CRM] Popup closed by user');
               setIsConnecting(false);
-            } catch (error) {
-              console.error('Error saving CRM connection:', error);
-              const errorMsg = error instanceof Error ? error.message : 'Connection established but failed to save. Please try again.';
+              // User closed the popup - not necessarily an error
+            } else if (event.type === 'connect') {
+              console.log('[CRM] Connection successful:', event.payload);
+              try {
+                // Save the connection to database
+                const response = await authenticatedFetch('/api/crm/connect', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    connectionId: event.payload.connectionId,
+                    providerConfigKey: event.payload.providerConfigKey,
+                  }),
+                });
+
+                if (!response.ok) {
+                  const errorData = await response.json().catch(() => ({}));
+                  throw new Error(errorData.error || 'Failed to save CRM connection');
+                }
+
+                console.log('[CRM] Connection saved to database');
+                // Update CRM status and refresh
+                await checkCRMStatus();
+                onConnect?.(event.payload.connectionId, event.payload.providerConfigKey);
+                setIsConnecting(false);
+              } catch (error) {
+                console.error('[CRM] Error saving CRM connection:', error);
+                const errorMsg = error instanceof Error ? error.message : 'Connection established but failed to save. Please try again.';
+                onError?.(errorMsg);
+                setIsConnecting(false);
+              }
+            } else if (event.type === 'error') {
+              console.error('[CRM] Nango error event:', event.payload);
+              const errorMsg = event.payload?.error || 'An error occurred during connection';
               onError?.(errorMsg);
               setIsConnecting(false);
             }
-          } else if (event.type === 'error') {
-            console.error('[CRM] Nango error event:', event.payload);
-            const errorMsg = event.payload?.error || 'An error occurred during connection';
-            onError?.(errorMsg);
-            setIsConnecting(false);
-          }
-        },
-      });
+          },
+        });
+        
+        console.log('[CRM] openConnectUI called, connect object:', connect);
+        
+        // If openConnectUI doesn't immediately open, it might return a promise or need explicit trigger
+        if (connect && typeof connect.then === 'function') {
+          await connect;
+        }
+      } catch (uiError) {
+        console.error('[CRM] Error opening Connect UI:', uiError);
+        throw new Error(`Failed to open Connect UI: ${uiError instanceof Error ? uiError.message : 'Unknown error'}`);
+      }
     } catch (error) {
       setIsConnecting(false);
       const errorMessage = error instanceof Error ? error.message : 'Failed to connect to CRM';
+      console.error('[CRM] Connection error:', error);
       onError?.(errorMessage);
-      console.error('CRM connection error:', error);
     }
   };
 
