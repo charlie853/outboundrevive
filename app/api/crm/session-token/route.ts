@@ -14,8 +14,8 @@ const CRM_INTEGRATIONS = [
 
 // Helper to create Supabase client from Authorization header (for client-side calls)
 function supabaseUserClientFromReq(req: NextRequest) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const url = process.env.SUPABASE_URL!;
+  const anon = process.env.SUPABASE_ANON_KEY!;
   const auth = req.headers.get('authorization') || '';
   const m = auth.match(/^Bearer\s+(.+)$/i);
   const headers: Record<string, string> = {};
@@ -29,7 +29,7 @@ function supabaseUserClientFromReq(req: NextRequest) {
 
 // Service role client for user_data lookup
 const svc = () => createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 );
