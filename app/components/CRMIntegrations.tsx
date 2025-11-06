@@ -96,20 +96,13 @@ export default function CRMIntegrations({
         throw new Error('No session token received from server');
       }
 
-      console.log('[CRM] Opening Nango Connect UI with session token...');
+      console.log('[CRM] Opening Nango Connect UI...');
       
-      // Create a new Nango instance with the session token for this connection
-      // The Nango SDK might need the session token at initialization time
-      const host = process.env.NEXT_PUBLIC_NANGO_HOST || 'https://api.nango.dev';
-      const nangoWithToken = new Nango({
-        host: host,
-        connectSessionToken: sessionToken, // Pass session token during initialization
-      });
-      
-      // Open Nango Connect UI with session token
+      // According to Nango docs: Open UI first, then set session token
+      // Pattern: openConnectUI() → setSessionToken()
       try {
         console.log('[CRM] Calling openConnectUI...');
-        const connect = nangoWithToken.openConnectUI({
+        const connect = nango.openConnectUI({
           themeOverride: "light",
           onEvent: async (event) => {
             console.log('[CRM] Nango event received:', event.type, event.payload);
@@ -160,9 +153,14 @@ export default function CRMIntegrations({
         
         console.log('[CRM] openConnectUI called, connect object:', connect);
         
-        // If openConnectUI doesn't immediately open, it might return a promise or need explicit trigger
-        if (connect && typeof connect.then === 'function') {
-          await connect;
+        // Set the session token AFTER opening the UI (Nango pattern)
+        console.log('[CRM] Setting session token on connect object...');
+        if (connect && typeof connect.setSessionToken === 'function') {
+          connect.setSessionToken(sessionToken);
+          console.log('[CRM] Session token set, popup should open now');
+        } else {
+          console.error('[CRM] Connect object does not have setSessionToken method:', connect);
+          throw new Error('Failed to set session token - connect object invalid');
         }
       } catch (uiError) {
         console.error('[CRM] Error opening Connect UI:', uiError);
