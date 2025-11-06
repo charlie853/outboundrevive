@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
+import { useAuth } from '@/lib/auth-context';
+import { authenticatedFetch } from '@/lib/api-client';
 import ContactPanel from './ContactPanel';
 
 const fetcher = (url: string) =>
-  fetch(url, { cache: 'no-store' }).then(async (res) => {
+  authenticatedFetch(url, { cache: 'no-store' }).then(async (res) => {
     if (!res.ok) {
       const err: any = new Error(`http ${res.status}`);
       err.status = res.status;
@@ -13,7 +15,7 @@ const fetcher = (url: string) =>
     }
     return res.json();
   });
-const fetcherNoThrow = (url: string) => fetch(url, { cache: 'no-store' }).then((r) => r.json()).catch(() => ({}));
+const fetcherNoThrow = (url: string) => authenticatedFetch(url, { cache: 'no-store' }).then((r) => r.json()).catch(() => ({}));
 
 type ThreadRow = {
   phone?: string | null;
@@ -74,14 +76,19 @@ const formatPhone = (phone: string | null | undefined) => {
 };
 
 export default function ThreadsPanel() {
-  // Get account_id from status endpoint
-  const { data: status } = useSWR('/api/ui/account/status', fetcherNoThrow, {
+  const { user } = useAuth();
+  
+  // Get account_id from user metadata (like /api/ui/leads does) or from status endpoint
+  const accountId = (user?.user_metadata as any)?.account_id as string | undefined;
+  
+  // Fallback: try status endpoint if not in metadata
+  const { data: status } = useSWR(accountId ? null : '/api/ui/account/status', fetcherNoThrow, {
     refreshInterval: 60000,
   });
-  const accountId = status?.account_id;
+  const finalAccountId = accountId || status?.account_id;
 
   const { data, error, isLoading, mutate } = useSWR<{ ok: boolean; threads?: ThreadRow[] }>(
-    accountId ? `/api/threads?limit=20&account_id=${encodeURIComponent(accountId)}` : null,
+    finalAccountId ? `/api/threads?limit=20&account_id=${encodeURIComponent(finalAccountId)}` : null,
     fetcher,
     {
       refreshInterval: 30000,
@@ -91,7 +98,10 @@ export default function ThreadsPanel() {
   );
 
   console.debug('THREADS payload', data);
-  console.debug('THREADS accountId:', accountId);
+  console.debug('THREADS user:', user?.id);
+  console.debug('THREADS accountId from metadata:', accountId);
+  console.debug('THREADS accountId from status:', status?.account_id);
+  console.debug('THREADS finalAccountId:', finalAccountId);
   console.debug('THREADS error:', error);
   console.debug('THREADS isLoading:', isLoading);
 

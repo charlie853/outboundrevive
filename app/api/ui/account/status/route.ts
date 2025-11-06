@@ -9,12 +9,13 @@ export const dynamic = 'force-dynamic';
 async function supabaseUserClientFromReq() {
   const c = await cookies();
   const h = await headers();
+  const authHeader = h.get('authorization') || '';
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: { get: (n: string) => c.get(n)?.value },
-      global: { headers: { Authorization: h.get('authorization') ?? '' } }
+      global: { headers: authHeader ? { Authorization: authHeader } : {} }
     }
   );
 }
