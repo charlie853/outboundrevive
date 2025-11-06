@@ -11,9 +11,22 @@ const fetcher = (url: string) =>
     if (!res.ok) {
       const err: any = new Error(`http ${res.status}`);
       err.status = res.status;
-      throw err;
+      // For threads API, if it's not 401, don't throw - just return empty result
+      // The threads API uses service role and shouldn't return 401 anyway
+      if (res.status === 401) {
+        throw err;
+      }
+      // For other errors, return ok: true with empty data so UI doesn't break
+      return { ok: true, threads: [], error: `http_${res.status}` };
     }
     return res.json();
+  }).catch((err) => {
+    // Only throw if it's a 401, otherwise return empty result
+    if (err?.status === 401) {
+      throw err;
+    }
+    console.debug('[THREADS] fetcher error (non-401):', err);
+    return { ok: true, threads: [], error: 'fetch_error' };
   });
 const fetcherNoThrow = (url: string) => 
   authenticatedFetch(url, { cache: 'no-store' })
