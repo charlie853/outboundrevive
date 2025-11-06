@@ -102,8 +102,7 @@ NEXT_PUBLIC_NANGO_HOST=https://api.nango.dev  # Optional, defaults to this
 ### **How to Set in Vercel:**
 ```bash
 npx vercel env add NANGO_SECRET_KEY production
-npx vercel env add NEXT_PUBLIC_NANGO_PUBLIC_KEY production
-npx vercel env add NEXT_PUBLIC_NANGO_HOST production
+npx vercel env add NEXT_PUBLIC_NANGO_HOST production  # Optional
 ```
 
 ---
