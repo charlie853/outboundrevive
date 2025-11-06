@@ -37,16 +37,11 @@ export default function CRMIntegrations({
   const [previewData, setPreviewData] = useState<CRMContact[]>([]);
   const [crmStatus, setCrmStatus] = useState<CRMStatus>({ connected: false, provider: null });
   const [nango] = useState(() => {
-    // Initialize Nango with public key and host from environment
-    const publicKey = process.env.NEXT_PUBLIC_NANGO_PUBLIC_KEY;
+    // Nango no longer uses public keys (deprecated) - we use session tokens instead
+    // Just initialize with host (optional, defaults to https://api.nango.dev)
     const host = process.env.NEXT_PUBLIC_NANGO_HOST || 'https://api.nango.dev';
     
-    if (!publicKey) {
-      console.error('[CRM] NEXT_PUBLIC_NANGO_PUBLIC_KEY is not set. Nango popup will not work.');
-    }
-    
     return new Nango({
-      publicKey: publicKey || '',
       host: host,
     });
   });
@@ -72,13 +67,7 @@ export default function CRMIntegrations({
     try {
       setIsConnecting(true);
 
-      // Check if Nango is properly configured
-      const publicKey = process.env.NEXT_PUBLIC_NANGO_PUBLIC_KEY;
-      if (!publicKey) {
-        throw new Error('Nango is not configured. Please set NEXT_PUBLIC_NANGO_PUBLIC_KEY environment variable.');
-      }
-
-      // Get session token first
+      // Get session token first (Nango uses session tokens, not public keys)
       const tokenResponse = await authenticatedFetch('/api/crm/session-token', {
         method: 'POST',
         headers: {
