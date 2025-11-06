@@ -65,28 +65,49 @@ export async function POST(req: NextRequest) {
     const userId = user.id;
     const email = user.email || undefined;
 
-    console.log('Creating Nango session for authenticated user:', { accountId, userId, email });
+    console.log('[session-token] Creating Nango session for authenticated user:', { accountId, userId, email });
+    console.log('[session-token] NANGO_SECRET_KEY is set:', !!process.env.NANGO_SECRET_KEY);
+    console.log('[session-token] NANGO_SECRET_KEY length:', process.env.NANGO_SECRET_KEY?.length);
+    console.log('[session-token] Allowed integrations:', CRM_INTEGRATIONS);
 
-    const response = await nango.createConnectSession({
-      end_user: {
-        id: userId,
-        email: email || undefined,
-        display_name: email || userId,
-        tags: { accountId }
-      },
-      allowed_integrations: CRM_INTEGRATIONS,
-    });
+    try {
+      const response = await nango.createConnectSession({
+        end_user: {
+          id: userId,
+          email: email || undefined,
+          display_name: email || userId,
+          tags: { accountId }
+        },
+        allowed_integrations: CRM_INTEGRATIONS,
+      });
 
-    return NextResponse.json({
-      sessionToken: response.data.token
-    });
+      console.log('[session-token] Nango session created successfully');
+      return NextResponse.json({
+        sessionToken: response.data.token
+      });
+    } catch (nangoError: any) {
+      console.error('[session-token] Nango API error:', {
+        message: nangoError.message,
+        response: nangoError.response?.data,
+        status: nangoError.response?.status,
+        stack: nangoError.stack?.split('\n').slice(0, 3)
+      });
+      
+      return NextResponse.json(
+        { 
+          error: 'Failed to create session token',
+          details: nangoError.response?.data || nangoError.message || 'Unknown Nango error'
+        },
+        { status: 500 }
+      );
+    }
   } catch (error: any) {
-    console.error('Error creating Nango session token:', JSON.stringify(error));
+    console.error('[session-token] Unexpected error:', error);
     
     return NextResponse.json(
       { 
-        error: 'Failed to create session token',
-        details: error.response?.data || error.message
+        error: 'Internal server error',
+        details: error.message || 'Unknown error'
       },
       { status: 500 }
     );
