@@ -1,23 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { createServerClient } from '@supabase/ssr';
-import { cookies, headers } from 'next/headers';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-async function supabaseUserClientFromReq() {
-  const c = await cookies();
-  const h = await headers();
-  const authHeader = h.get('authorization') || '';
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: { get: (n: string) => c.get(n)?.value },
-      global: { headers: authHeader ? { Authorization: authHeader } : {} }
-    }
-  );
+// Use the same pattern as /api/ui/leads - read Authorization from request headers
+function supabaseUserClientFromReq(req: NextRequest) {
+  const url = process.env.SUPABASE_URL!;
+  const anon = process.env.SUPABASE_ANON_KEY!;
+  const auth = req.headers.get('authorization') || '';
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  const headers: Record<string, string> = {};
+  if (m && m[1]) headers.Authorization = `Bearer ${m[1]}`;
+  const supabase = createClient(url, anon, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    global: { headers }
+  });
+  return { supabase };
 }
 
 function svc() {
@@ -33,10 +32,10 @@ async function getAccountIdForUser(service: any, userId: string) {
   return data?.account_id as string | undefined;
 }
 
-export async function GET() {
-  const supa = await supabaseUserClientFromReq();
-  const { data: ures } = await supa.auth.getUser();
-  if (!ures?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+export async function GET(req: NextRequest) {
+  const { supabase } = supabaseUserClientFromReq(req);
+  const { data: ures, error: uerr } = await supabase.auth.getUser();
+  if (uerr || !ures?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   
   // Try user_metadata first (like /api/ui/leads does), then fall back to user_data table
   let accountId = (ures.user.user_metadata as any)?.account_id as string | undefined;
@@ -61,11 +60,16 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
-  const supa = await supabaseUserClientFromReq();
-  const { data: ures } = await supa.auth.getUser();
-  if (!ures?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const service = svc();
-  const accountId = await getAccountIdForUser(service, ures.user.id);
+  const { supabase } = supabaseUserClientFromReq(req);
+  const { data: ures, error: uerr } = await supabase.auth.getUser();
+  if (uerr || !ures?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  
+  // Try user_metadata first, then fall back to user_data table
+  let accountId = (ures.user.user_metadata as any)?.account_id as string | undefined;
+  if (!accountId) {
+    const service = svc();
+    accountId = await getAccountIdForUser(service, ures.user.id);
+  }
   if (!accountId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
