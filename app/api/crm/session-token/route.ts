@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
     let accountId = (user.user_metadata as any)?.account_id as string | undefined;
     if (!accountId) {
       const service = svc();
-      accountId = await getAccountIdForUser(service, user.id);
+      accountId = (await getAccountIdForUser(service, user.id)) || undefined;
     }
     
     if (!accountId) {
