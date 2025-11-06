@@ -79,16 +79,18 @@ export default function ThreadsPanel() {
   const { user } = useAuth();
   
   // Get account_id from user metadata (like /api/ui/leads does) or from status endpoint
-  const accountId = (user?.user_metadata as any)?.account_id as string | undefined;
+  const accountIdFromMetadata = (user?.user_metadata as any)?.account_id as string | undefined;
   
-  // Fallback: try status endpoint if not in metadata
-  const { data: status } = useSWR(accountId ? null : '/api/ui/account/status', fetcherNoThrow, {
+  // Always try status endpoint to get account_id (it will use metadata first, then fallback to user_data)
+  const { data: status } = useSWR('/api/ui/account/status', fetcherNoThrow, {
     refreshInterval: 60000,
   });
-  const finalAccountId = accountId || status?.account_id;
+  const finalAccountId = accountIdFromMetadata || status?.account_id;
 
+  // Make threads API call - it will use default account_id if not provided, but we prefer to pass it
+  const threadsUrl = `/api/threads?limit=20${finalAccountId ? `&account_id=${encodeURIComponent(finalAccountId)}` : ''}`;
   const { data, error, isLoading, mutate } = useSWR<{ ok: boolean; threads?: ThreadRow[] }>(
-    finalAccountId ? `/api/threads?limit=20&account_id=${encodeURIComponent(finalAccountId)}` : null,
+    threadsUrl,
     fetcher,
     {
       refreshInterval: 30000,
