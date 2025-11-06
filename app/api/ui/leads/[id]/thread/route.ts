@@ -39,7 +39,7 @@ export async function GET(
       // NEW: Fetch lead enrichment details
       supabase
         .from('leads')
-        .select('id, name, phone, email, company, role, lead_type, crm_source, crm_url, crm_owner, crm_owner_email, status, opted_out, last_inbound_at, last_outbound_at')
+        .select('id, name, phone, email, company, role, lead_type, crm_source, crm_url, crm_owner, crm_owner_email, status, opted_out, last_inbound_at, last_sent_at')
         .eq('id', leadId)
         .single(),
     ]);
