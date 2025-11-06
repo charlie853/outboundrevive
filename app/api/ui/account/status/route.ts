@@ -36,8 +36,13 @@ export async function GET() {
   const supa = await supabaseUserClientFromReq();
   const { data: ures } = await supa.auth.getUser();
   if (!ures?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const service = svc();
-  const accountId = await getAccountIdForUser(service, ures.user.id);
+  
+  // Try user_metadata first (like /api/ui/leads does), then fall back to user_data table
+  let accountId = (ures.user.user_metadata as any)?.account_id as string | undefined;
+  if (!accountId) {
+    const service = svc();
+    accountId = await getAccountIdForUser(service, ures.user.id);
+  }
   if (!accountId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const { data } = await service
