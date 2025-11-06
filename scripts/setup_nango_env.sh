@@ -8,12 +8,12 @@ echo "Setting up Nango environment variables in Vercel..."
 echo ""
 echo "You'll need:"
 echo "  1. NANGO_SECRET_KEY (from Nango dashboard - Settings → Secret Key)"
-echo "  2. NEXT_PUBLIC_NANGO_PUBLIC_KEY (from Nango dashboard - Settings → Public Key)"
-echo "  3. NANGO_HOST (usually https://api.nango.dev)"
+echo "  2. NANGO_HOST (optional, usually https://api.nango.dev)"
+echo ""
+echo "Note: Public keys are deprecated. Nango now uses session tokens (handled automatically)."
 echo ""
 
 read -p "Enter NANGO_SECRET_KEY: " NANGO_SECRET_KEY
-read -p "Enter NEXT_PUBLIC_NANGO_PUBLIC_KEY (starts with pk_): " NEXT_PUBLIC_NANGO_PUBLIC_KEY
 read -p "Enter NANGO_HOST [https://api.nango.dev]: " NANGO_HOST
 NANGO_HOST=${NANGO_HOST:-https://api.nango.dev}
 
@@ -24,11 +24,6 @@ echo "Setting environment variables..."
 echo "$NANGO_SECRET_KEY" | npx vercel env add NANGO_SECRET_KEY production
 echo "$NANGO_SECRET_KEY" | npx vercel env add NANGO_SECRET_KEY preview
 echo "$NANGO_SECRET_KEY" | npx vercel env add NANGO_SECRET_KEY development
-
-# Public key (client-side, safe to expose)
-echo "$NEXT_PUBLIC_NANGO_PUBLIC_KEY" | npx vercel env add NEXT_PUBLIC_NANGO_PUBLIC_KEY production
-echo "$NEXT_PUBLIC_NANGO_PUBLIC_KEY" | npx vercel env add NEXT_PUBLIC_NANGO_PUBLIC_KEY preview
-echo "$NEXT_PUBLIC_NANGO_PUBLIC_KEY" | npx vercel env add NEXT_PUBLIC_NANGO_PUBLIC_KEY development
 
 # Host (both server and client)
 echo "$NANGO_HOST" | npx vercel env add NANGO_HOST production

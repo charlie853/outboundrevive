@@ -94,9 +94,10 @@ Add these to Vercel (or `.env.local` for local dev):
 ### **Required:**
 ```bash
 NANGO_SECRET_KEY=sk_...              # From Nango dashboard
-NEXT_PUBLIC_NANGO_PUBLIC_KEY=pk_...  # From Nango dashboard
 NEXT_PUBLIC_NANGO_HOST=https://api.nango.dev  # Optional, defaults to this
 ```
+
+**Note:** Public keys are deprecated. Nango now uses session tokens (automatically handled by `/api/crm/session-token`).
 
 ### **How to Set in Vercel:**
 ```bash
