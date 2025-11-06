@@ -270,9 +270,9 @@ export default function ThreadsPanel() {
             </div>
           </div>
         )}
-      {error && !isUnauthorized && (
+      {error && threadsErrorStatus !== 401 && (
         <div className="flex items-center gap-3 text-sm text-rose-700">
-          Couldn’t load threads.
+          Couldn't load threads.
           <button
             type="button"
             onClick={() => mutate()}
