@@ -91,6 +91,9 @@ export default function ThreadsPanel() {
   );
 
   console.debug('THREADS payload', data);
+  console.debug('THREADS accountId:', accountId);
+  console.debug('THREADS error:', error);
+  console.debug('THREADS isLoading:', isLoading);
 
   const threads = useMemo(() => {
     const raw = Array.isArray(data?.threads) ? data.threads : [];

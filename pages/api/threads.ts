@@ -21,6 +21,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit ?? '20'), 10)));
   const accountId = (Array.isArray(req.query.account_id) ? req.query.account_id[0] : req.query.account_id) || process.env.DEFAULT_ACCOUNT_ID || '11111111-1111-1111-1111-111111111111';
+  
+  console.log('[threads] Request:', { limit, accountId, query: req.query });
 
   // Pull all leads for this account (not just those with messages)
   // Order by most recent activity (reply, send, inbound, outbound, or created_at)
@@ -36,7 +38,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       limit: String(limit * 3), // fetch a few extra, we'll de-dup in code
     });
 
-    const r = await fetch(`${URL}/rest/v1/leads?${qs.toString()}`, {
+    const queryUrl = `${URL}/rest/v1/leads?${qs.toString()}`;
+    console.log('[threads] Query URL:', queryUrl.replace(KEY, '***'));
+
+    const r = await fetch(queryUrl, {
       signal: ac.signal,
       headers: {
         apikey: KEY,
@@ -55,6 +60,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const rows: any[] = await r.json().catch(() => []);
     
     console.log(`[threads] Found ${rows.length} leads for account ${accountId}`);
+    if (rows.length === 0) {
+      console.log('[threads] No leads found - checking if account_id is correct');
+      // Debug: Try to see if there are any leads at all for this account
+      const debugQs = new URLSearchParams({
+        select: 'id,phone,name,account_id',
+        account_id: `eq.${encodeURIComponent(accountId)}`,
+        limit: '5',
+      });
+      const debugRes = await fetch(`${URL}/rest/v1/leads?${debugQs.toString()}`, {
+        headers: { apikey: KEY, Authorization: `Bearer ${KEY}` },
+        signal: AbortSignal.timeout(3000),
+      }).catch(() => null);
+      if (debugRes?.ok) {
+        const debugRows = await debugRes.json().catch(() => []);
+        console.log('[threads] Debug query result:', { count: debugRows.length, sample: debugRows[0] });
+      }
+    } else {
+      console.log('[threads] Sample lead:', { id: rows[0]?.id, phone: rows[0]?.phone, name: rows[0]?.name });
+    }
     
     // Fetch latest appointment status for each lead (to get booking status)
     const leadIds = [...new Set(rows.map(r => r.id).filter(Boolean))];
