@@ -238,14 +238,16 @@ export default function ThreadsPanel() {
     setModalLoading(false);
   };
 
-  // Check for 401 errors - but only show banner if we actually got a 401 response
+  // Check for 401 errors - but only show banner if threads API actually returned 401
+  // The threads API uses service role so it shouldn't return 401, but check anyway
   const threadsErrorStatus = (error as any)?.status;
   const statusErrorStatus = (statusError as any)?.status;
-  const isUnauthorized = threadsErrorStatus === 401 || statusErrorStatus === 401;
   
-  // Only show banner if we have a real 401 error AND we're not just loading
-  // Don't show if status endpoint fails but threads still works (status is optional)
-  const showBanner = isUnauthorized && !isLoading && (threadsErrorStatus === 401);
+  // Only show banner if:
+  // 1. Threads API explicitly returned 401 (not just any error)
+  // 2. We're not still loading
+  // 3. We don't have data (if we have data, don't show banner even if there was an error)
+  const showBanner = threadsErrorStatus === 401 && !isLoading && !data?.ok && !data?.threads;
 
   return (
     <section className="space-y-4">
@@ -263,8 +265,9 @@ export default function ThreadsPanel() {
         {showBanner && (
           <div className="mb-3 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
             {THREADS_BANNER}
-            {error && <div className="mt-1 text-xs text-amber-600">Error: {String(error)}</div>}
-            {data && !data.ok && <div className="mt-1 text-xs text-amber-600">Response: {JSON.stringify(data)}</div>}
+            <div className="mt-1 text-xs text-amber-600">
+              Debug: threadsError={String(threadsErrorStatus)}, isLoading={String(isLoading)}, hasData={String(!!data?.ok)}, hasThreads={String(!!data?.threads?.length)}
+            </div>
           </div>
         )}
       {error && !isUnauthorized && (
