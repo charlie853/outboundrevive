@@ -101,9 +101,10 @@ export default function ThreadsPanel() {
 
   console.debug('THREADS payload', data);
   console.debug('THREADS user:', user?.id);
-  console.debug('THREADS accountId from metadata:', accountId);
+  console.debug('THREADS accountId from metadata:', accountIdFromMetadata);
   console.debug('THREADS accountId from status:', status?.account_id);
   console.debug('THREADS finalAccountId:', finalAccountId);
+  console.debug('THREADS threadsUrl:', threadsUrl);
   console.debug('THREADS error:', error);
   console.debug('THREADS isLoading:', isLoading);
 
