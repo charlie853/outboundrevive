@@ -46,6 +46,7 @@ export async function GET() {
     .eq('id', accountId)
     .maybeSingle();
   return NextResponse.json({ 
+    account_id: accountId, // NEW: Include account_id in response
     outbound_paused: !!data?.outbound_paused,
     caps_enabled: !!(data as any)?.caps_enabled,
     cadences_enabled: !!(data as any)?.cadences_enabled,

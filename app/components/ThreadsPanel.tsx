@@ -13,6 +13,7 @@ const fetcher = (url: string) =>
     }
     return res.json();
   });
+const fetcherNoThrow = (url: string) => fetch(url, { cache: 'no-store' }).then((r) => r.json()).catch(() => ({}));
 
 type ThreadRow = {
   phone?: string | null;
@@ -73,8 +74,14 @@ const formatPhone = (phone: string | null | undefined) => {
 };
 
 export default function ThreadsPanel() {
+  // Get account_id from status endpoint
+  const { data: status } = useSWR('/api/ui/account/status', fetcherNoThrow, {
+    refreshInterval: 60000,
+  });
+  const accountId = status?.account_id;
+
   const { data, error, isLoading, mutate } = useSWR<{ ok: boolean; threads?: ThreadRow[] }>(
-    `/api/threads?limit=20`,
+    accountId ? `/api/threads?limit=20&account_id=${encodeURIComponent(accountId)}` : null,
     fetcher,
     {
       refreshInterval: 30000,

@@ -47,11 +47,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (!r.ok) {
       const text = await r.text().catch(() => '');
-      res.status(200).json({ ok: true, threads: [], note: `rest_error: ${text.slice(0,200)}` });
+      console.error('[threads] Supabase query failed:', text.slice(0, 500));
+      res.status(200).json({ ok: true, threads: [], note: `rest_error: ${text.slice(0,200)}`, accountId });
       return;
     }
 
     const rows: any[] = await r.json().catch(() => []);
+    
+    console.log(`[threads] Found ${rows.length} leads for account ${accountId}`);
     
     // Fetch latest appointment status for each lead (to get booking status)
     const leadIds = [...new Set(rows.map(r => r.id).filter(Boolean))];
@@ -140,9 +143,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .slice(0, limit)
       .map(({ lastAtMs, ...t }) => t);
 
-    res.status(200).json({ ok: true, threads });
-  } catch {
-    res.status(200).json({ ok: true, threads: [] });
+    console.log(`[threads] Returning ${threads.length} threads for account ${accountId}`);
+    res.status(200).json({ ok: true, threads, accountId, debug: { totalLeads: rows.length, threadsReturned: threads.length } });
+  } catch (e: any) {
+    console.error('[threads] Error:', e?.message || e);
+    res.status(200).json({ ok: true, threads: [], error: e?.message || 'Unknown error' });
   } finally {
     clearTimeout(timer);
   }
