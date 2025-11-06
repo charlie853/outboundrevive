@@ -264,11 +264,12 @@ export default function ThreadsPanel() {
 
   // The threads API always returns HTTP 200 (even on errors it returns { ok: true, threads: [] })
   // and uses service role key, so it should never return 401.
-  // Disable the banner entirely since it's not needed for this API.
+  // However, if the fetcher throws a 401 error (e.g., from network/auth middleware), show banner
   const threadsErrorStatus = (error as any)?.status;
   
-  // Banner disabled - threads API doesn't require authentication
-  const showBanner = false;
+  // Only show banner if we explicitly got a 401 from the threads API fetch
+  // This should be rare since the API uses service role, but keep it for edge cases
+  const showBanner = threadsErrorStatus === 401 && !isLoading;
 
   return (
     <section className="space-y-4">
