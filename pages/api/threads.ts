@@ -22,17 +22,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit ?? '20'), 10)));
   const accountId = (Array.isArray(req.query.account_id) ? req.query.account_id[0] : req.query.account_id) || process.env.DEFAULT_ACCOUNT_ID || '11111111-1111-1111-1111-111111111111';
 
-  // Pull rows that have either a reply or a send timestamp.
-  // Order by reply desc then send desc; we'll compute a final lastAt in code.
+  // Pull all leads for this account (not just those with messages)
+  // Order by most recent activity (reply, send, inbound, outbound, or created_at)
   // NEW: Include enrichment fields (opted_out, lead_type, crm_owner, last_inbound_at, last_outbound_at, appointment_set_at, booked)
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), 5000);
   try {
+    // Remove the restrictive 'or' filter - show all leads, not just those with messages
     const qs = new URLSearchParams({
-      select: 'id,phone,name,last_reply_body,last_reply_at,last_sent_at,opted_out,lead_type,crm_owner,last_inbound_at,last_outbound_at,appointment_set_at,booked',
-      or: '(last_reply_at.not.is.null,last_sent_at.not.is.null)',
+      select: 'id,phone,name,last_reply_body,last_reply_at,last_sent_at,opted_out,lead_type,crm_owner,last_inbound_at,last_outbound_at,appointment_set_at,booked,created_at',
       account_id: `eq.${encodeURIComponent(accountId)}`,
-      order: 'last_reply_at.desc.nullslast,last_sent_at.desc.nullslast',
+      order: 'last_reply_at.desc.nullslast,last_sent_at.desc.nullslast,last_inbound_at.desc.nullslast,last_outbound_at.desc.nullslast,created_at.desc',
       limit: String(limit * 3), // fetch a few extra, we'll de-dup in code
     });
 
@@ -91,8 +91,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const lastSentAt  = row.last_sent_at  ? Date.parse(row.last_sent_at)  : 0;
       const lastInboundAt = row.last_inbound_at ? Date.parse(row.last_inbound_at) : 0;
       const lastOutboundAt = row.last_outbound_at ? Date.parse(row.last_outbound_at) : 0;
-      const lastAtMs = Math.max(lastReplyAt, lastSentAt, lastInboundAt, lastOutboundAt);
+      const createdAt = row.created_at ? Date.parse(row.created_at) : 0;
+      const lastAtMs = Math.max(lastReplyAt, lastSentAt, lastInboundAt, lastOutboundAt, createdAt);
       const lastAtISO = lastAtMs > 0 ? new Date(lastAtMs).toISOString() : null;
+      
+      // Use last_reply_body if available, otherwise show nothing (not "No messages yet")
+      const lastMessage = row.last_reply_body || null;
 
       // Determine booking status
       const appt = row.id ? appointmentsMap.get(row.id) : null;
@@ -111,7 +115,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           id: row.id ?? null,
           phone,
           name: row.name ?? null,
-          lastMessage: row.last_reply_body ?? null,
+          lastMessage: lastMessage ?? row.last_reply_body ?? null,
           lastAt: lastAtISO,
           // NEW: Enrichment fields
           opted_out: row.opted_out ?? false,
@@ -123,7 +127,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           lead_id: row.id ?? null,
           lead_phone: phone,
           lead_name: row.name ?? null,
-          last_message: row.last_reply_body ?? null,
+          last_message: lastMessage ?? row.last_reply_body ?? null,
           last_at: lastAtISO,
           lastAtMs,
         });
