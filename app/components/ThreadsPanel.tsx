@@ -15,7 +15,20 @@ const fetcher = (url: string) =>
     }
     return res.json();
   });
-const fetcherNoThrow = (url: string) => authenticatedFetch(url, { cache: 'no-store' }).then((r) => r.json()).catch(() => ({}));
+const fetcherNoThrow = (url: string) => 
+  authenticatedFetch(url, { cache: 'no-store' })
+    .then((r) => {
+      if (!r.ok && r.status === 401) {
+        // Return error object for 401 so we can detect it, but don't throw
+        return { error: 'unauthorized', status: 401 };
+      }
+      return r.json();
+    })
+    .catch((err) => {
+      // Return empty object on other errors - status endpoint is optional
+      console.debug('[THREADS] fetcherNoThrow error (non-blocking):', err);
+      return {};
+    });
 
 type ThreadRow = {
   phone?: string | null;
@@ -83,10 +96,17 @@ export default function ThreadsPanel() {
   const accountIdFromMetadata = (user?.user_metadata as any)?.account_id as string | undefined;
   
   // Always try status endpoint to get account_id (it will use metadata first, then fallback to user_data)
+  // Use fetcherNoThrow so status errors don't break the threads call
   const { data: status, error: statusError } = useSWR('/api/ui/account/status', fetcherNoThrow, {
     refreshInterval: 60000,
+    shouldRetryOnError: false, // Don't retry status endpoint - it's optional
   });
   const finalAccountId = accountIdFromMetadata || status?.account_id;
+  
+  // Log status errors but don't let them block threads
+  if (statusError) {
+    console.debug('[THREADS] Status endpoint error (non-blocking):', statusError);
+  }
 
   // Make threads API call - it will use default account_id if not provided, but we prefer to pass it
   // Always call threads API, even if account_id isn't available (it will use default)
@@ -205,9 +225,14 @@ export default function ThreadsPanel() {
     setModalLoading(false);
   };
 
-  const isUnauthorized = (error as any)?.status === 401 || (statusError as any)?.status === 401;
-  // Only show banner for actual 401 errors, not for empty data or other errors
-  const showBanner = isUnauthorized;
+  // Check for 401 errors - but only show banner if we actually got a 401 response
+  const threadsErrorStatus = (error as any)?.status;
+  const statusErrorStatus = (statusError as any)?.status;
+  const isUnauthorized = threadsErrorStatus === 401 || statusErrorStatus === 401;
+  
+  // Only show banner if we have a real 401 error AND we're not just loading
+  // Don't show if status endpoint fails but threads still works (status is optional)
+  const showBanner = isUnauthorized && !isLoading && (threadsErrorStatus === 401);
 
   return (
     <section className="space-y-4">
