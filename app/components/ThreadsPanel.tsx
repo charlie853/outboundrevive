@@ -238,16 +238,16 @@ export default function ThreadsPanel() {
     setModalLoading(false);
   };
 
-  // Check for 401 errors - but only show banner if threads API actually returned 401
-  // The threads API uses service role so it shouldn't return 401, but check anyway
+  // The threads API always returns HTTP 200 (even on errors it returns { ok: true, threads: [] })
+  // So we'll never get a 401 HTTP status. The banner should only show if:
+  // 1. We explicitly get a 401 error from the fetcher (which shouldn't happen)
+  // 2. AND we have no data at all
+  // Since the API uses service role, this should never happen, but keep the check for safety
   const threadsErrorStatus = (error as any)?.status;
-  const statusErrorStatus = (statusError as any)?.status;
   
-  // Only show banner if:
-  // 1. Threads API explicitly returned 401 (not just any error)
-  // 2. We're not still loading
-  // 3. We don't have data (if we have data, don't show banner even if there was an error)
-  const showBanner = threadsErrorStatus === 401 && !isLoading && !data?.ok && !data?.threads;
+  // Only show banner if we explicitly got a 401 AND have no data
+  // This should never happen since threads API uses service role and always returns 200
+  const showBanner = threadsErrorStatus === 401 && !isLoading && (!data || (!data.ok && !data.threads?.length));
 
   return (
     <section className="space-y-4">
@@ -262,11 +262,12 @@ export default function ThreadsPanel() {
             Refresh
           </button>
         </div>
+        {/* Banner should never show since threads API uses service role and always returns 200 */}
         {showBanner && (
           <div className="mb-3 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
             {THREADS_BANNER}
             <div className="mt-1 text-xs text-amber-600">
-              Debug: threadsError={String(threadsErrorStatus)}, isLoading={String(isLoading)}, hasData={String(!!data?.ok)}, hasThreads={String(!!data?.threads?.length)}
+              If you see this, there may be an authentication issue. Please refresh the page.
             </div>
           </div>
         )}
