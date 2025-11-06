@@ -171,7 +171,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(200).json({ ok: true, threads, accountId, debug: { totalLeads: rows.length, threadsReturned: threads.length } });
   } catch (e: any) {
     console.error('[threads] Error:', e?.message || e);
-    res.status(200).json({ ok: true, threads: [], error: e?.message || 'Unknown error' });
+    // Always return ok: true with empty threads on error, not ok: false
+    res.status(200).json({ ok: true, threads: [], error: e?.message || 'Unknown error', accountId });
   } finally {
     clearTimeout(timer);
   }

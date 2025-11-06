@@ -202,7 +202,8 @@ export default function ThreadsPanel() {
   };
 
   const isUnauthorized = (error as any)?.status === 401;
-  const showBanner = (data?.ok === false && !error) || isUnauthorized;
+  // Only show banner if we have an error response, not if data is just empty
+  const showBanner = (error && isUnauthorized) || (data && data.ok === false && !error);
 
   return (
     <section className="space-y-4">
@@ -218,8 +219,10 @@ export default function ThreadsPanel() {
           </button>
         </div>
         {showBanner && (
-          <div className="text-sm text-amber-700">
+          <div className="mb-3 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
             {THREADS_BANNER}
+            {error && <div className="mt-1 text-xs text-amber-600">Error: {String(error)}</div>}
+            {data && !data.ok && <div className="mt-1 text-xs text-amber-600">Response: {JSON.stringify(data)}</div>}
           </div>
         )}
       {error && !isUnauthorized && (
