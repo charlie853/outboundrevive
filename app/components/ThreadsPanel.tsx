@@ -82,12 +82,13 @@ export default function ThreadsPanel() {
   const accountIdFromMetadata = (user?.user_metadata as any)?.account_id as string | undefined;
   
   // Always try status endpoint to get account_id (it will use metadata first, then fallback to user_data)
-  const { data: status } = useSWR('/api/ui/account/status', fetcherNoThrow, {
+  const { data: status, error: statusError } = useSWR('/api/ui/account/status', fetcherNoThrow, {
     refreshInterval: 60000,
   });
   const finalAccountId = accountIdFromMetadata || status?.account_id;
 
   // Make threads API call - it will use default account_id if not provided, but we prefer to pass it
+  // Always call threads API, even if account_id isn't available (it will use default)
   const threadsUrl = `/api/threads?limit=20${finalAccountId ? `&account_id=${encodeURIComponent(finalAccountId)}` : ''}`;
   const { data, error, isLoading, mutate } = useSWR<{ ok: boolean; threads?: ThreadRow[] }>(
     threadsUrl,
@@ -103,10 +104,12 @@ export default function ThreadsPanel() {
   console.debug('THREADS user:', user?.id);
   console.debug('THREADS accountId from metadata:', accountIdFromMetadata);
   console.debug('THREADS accountId from status:', status?.account_id);
+  console.debug('THREADS statusError:', statusError);
   console.debug('THREADS finalAccountId:', finalAccountId);
   console.debug('THREADS threadsUrl:', threadsUrl);
   console.debug('THREADS error:', error);
   console.debug('THREADS isLoading:', isLoading);
+  console.debug('THREADS data?.ok:', data?.ok);
 
   const threads = useMemo(() => {
     const raw = Array.isArray(data?.threads) ? data.threads : [];
@@ -201,9 +204,9 @@ export default function ThreadsPanel() {
     setModalLoading(false);
   };
 
-  const isUnauthorized = (error as any)?.status === 401;
-  // Only show banner if we have an error response, not if data is just empty
-  const showBanner = (error && isUnauthorized) || (data && data.ok === false && !error);
+  const isUnauthorized = (error as any)?.status === 401 || (statusError as any)?.status === 401;
+  // Only show banner for actual 401 errors, not for empty data or other errors
+  const showBanner = isUnauthorized;
 
   return (
     <section className="space-y-4">
