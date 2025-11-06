@@ -204,10 +204,18 @@ export default function ThreadsPanel() {
     }
 
     try {
-      const response = await fetch(endpoint);
-      const json: ConversationPayload & { error?: string } = await response
-        .json()
-        .catch(() => ({ ok: false }));
+      // Use authenticatedFetch for consistency (though endpoint uses service role)
+      const response = await authenticatedFetch(endpoint, { cache: 'no-store' });
+      
+      let json: ConversationPayload & { error?: string };
+      try {
+        json = await response.json();
+      } catch (parseErr) {
+        console.warn('[THREADS_PANEL] JSON parse error', parseErr);
+        setModalError('Failed to parse conversation data. Please try again.');
+        setModalLoading(false);
+        return;
+      }
 
       // Handle both old format (messages) and new format (items)
       const messagesList = json?.items ?? json?.messages ?? [];
@@ -220,12 +228,28 @@ export default function ThreadsPanel() {
         });
         if (json.lead?.name) setActiveName(json.lead.name);
         else if (json.contact?.name) setActiveName(json.contact.name);
+        setModalError(null);
       } else {
-        setModalError(THREADS_BANNER);
+        // More specific error messages
+        if (response.status === 401) {
+          setModalError(THREADS_BANNER);
+        } else if (response.status === 404) {
+          setModalError('Conversation not found. This lead may have been deleted.');
+        } else if (json?.error) {
+          setModalError(`Error: ${json.error}`);
+        } else {
+          setModalError(`Failed to load conversation (${response.status}). Please try again.`);
+        }
+        console.warn('[THREADS_PANEL] conversation fetch failed', { status: response.status, json });
       }
     } catch (err: unknown) {
-      console.warn('[THREADS_PANEL] conversation fetch failed', err);
-      setModalError(THREADS_BANNER);
+      console.warn('[THREADS_PANEL] conversation fetch exception', err);
+      // Check if it's a network error or auth error
+      if ((err as any)?.status === 401) {
+        setModalError(THREADS_BANNER);
+      } else {
+        setModalError('Network error. Please check your connection and try again.');
+      }
     } finally {
       setModalLoading(false);
     }
