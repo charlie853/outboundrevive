@@ -43,10 +43,10 @@ import Funnel from '@/app/(app)/dashboard/components/Funnel';
 import type { DayPoint, Kpis } from '@/lib/types/metrics';
 
 const WINDOW_OPTIONS = [
-  { label: '7D', value: '7d' as const },
   { label: '24H', value: '24h' as const },
+  { label: '7D', value: '7d' as const },
   { label: '1M', value: '30d' as const },
-  // TODO: Add custom range option with date picker
+  { label: 'All Time', value: 'all' as const },
 ];
 type WindowKey = (typeof WINDOW_OPTIONS)[number]['value'];
 

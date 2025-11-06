@@ -23,6 +23,14 @@ type ThreadRow = {
   last_message?: string | null;
   lastAt?: string | null;
   last_at?: string | null;
+  // NEW: Enrichment fields
+  id?: string | null;
+  lead_id?: string | null;
+  opted_out?: boolean;
+  lead_type?: string | null;
+  crm_owner?: string | null;
+  booking_status?: string | null;
+  last_activity?: string | null;
   [key: string]: unknown;
 };
 
@@ -213,22 +221,62 @@ export default function ThreadsPanel() {
               const phone = thread?.phone ?? thread?.lead_phone ?? '';
               const name = thread?.name ?? thread?.lead_name ?? phone;
               const last = thread?.lastMessage ?? thread?.last_message ?? '';
-              const at = thread?.lastAt ?? thread?.last_at ?? null;
+              const at = thread?.lastAt ?? thread?.last_at ?? thread?.last_activity ?? null;
               const displayName = name || formatPhone(phone);
               const lastTimestamp = at ? new Date(at).toLocaleString() : '—';
               const itemKey = `${phone || 'unknown'}-${at || 'na'}-${idx}`;
+              
+              // NEW: Status pills
+              const optedOut = thread?.opted_out ?? false;
+              const bookingStatus = thread?.booking_status ?? null;
+              const leadType = thread?.lead_type ?? null;
+              const owner = thread?.crm_owner ?? null;
 
               return (
-                <li key={itemKey} className="flex items-center justify-between gap-4 py-3">
-                  <div>
-                    <div className="text-sm font-medium text-ink-1">{displayName}</div>
+                <li key={itemKey} className={`flex items-center justify-between gap-4 py-3 ${optedOut ? 'opacity-60' : ''}`}>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <div className="text-sm font-medium text-ink-1">{displayName}</div>
+                      {/* NEW: Status pills */}
+                      {optedOut && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 border border-red-200">
+                          Opted Out
+                        </span>
+                      )}
+                      {bookingStatus && (
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                          bookingStatus === 'booked' || bookingStatus === 'kept' 
+                            ? 'bg-green-100 text-green-800 border border-green-200'
+                            : bookingStatus === 'canceled' || bookingStatus === 'no_show'
+                            ? 'bg-gray-100 text-gray-800 border border-gray-200'
+                            : 'bg-blue-100 text-blue-800 border border-blue-200'
+                        }`}>
+                          {bookingStatus === 'booked' ? 'Booked' : 
+                           bookingStatus === 'kept' ? 'Kept' :
+                           bookingStatus === 'canceled' ? 'Canceled' :
+                           bookingStatus === 'no_show' ? 'No Show' :
+                           bookingStatus === 'rescheduled' ? 'Rescheduled' :
+                           bookingStatus}
+                        </span>
+                      )}
+                      {leadType && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 border border-purple-200">
+                          {leadType === 'new' ? 'New Lead' : leadType === 'old' ? 'Old Lead' : leadType}
+                        </span>
+                      )}
+                      {owner && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200">
+                          {owner}
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xs text-ink-3">{lastTimestamp}</div>
                     <div className="text-sm text-ink-2 line-clamp-2">{last || '—'}</div>
                   </div>
                   <button
                     type="button"
                     onClick={() => openThread(thread)}
-                    className="rounded-lg border border-surface-line px-3 py-2 text-sm text-ink-1 transition-colors hover:bg-surface-bg"
+                    className="rounded-lg border border-surface-line px-3 py-2 text-sm text-ink-1 transition-colors hover:bg-surface-bg flex-shrink-0"
                   >
                     View
                   </button>
