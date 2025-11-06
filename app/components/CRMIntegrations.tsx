@@ -98,12 +98,19 @@ export default function CRMIntegrations({
 
       console.log('[CRM] Opening Nango Connect UI with session token...');
       
+      // Create a new Nango instance with the session token for this connection
+      // The Nango SDK might need the session token at initialization time
+      const host = process.env.NEXT_PUBLIC_NANGO_HOST || 'https://api.nango.dev';
+      const nangoWithToken = new Nango({
+        host: host,
+        connectSessionToken: sessionToken, // Pass session token during initialization
+      });
+      
       // Open Nango Connect UI with session token
-      // The sessionToken parameter should trigger the popup
       try {
-        const connect = nango.openConnectUI({
+        console.log('[CRM] Calling openConnectUI...');
+        const connect = nangoWithToken.openConnectUI({
           themeOverride: "light",
-          sessionToken: sessionToken,
           onEvent: async (event) => {
             console.log('[CRM] Nango event received:', event.type, event.payload);
             
