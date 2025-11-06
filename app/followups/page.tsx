@@ -53,10 +53,6 @@ function PageInner() {
       setPrefs(j);
       setToast('Saved');
       setTimeout(() => setToast(null), 1500);
-      // reflect via dry-run
-      await fetch('/api/ui/followups/run', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dry_run: false })
-      });
     } catch (e: any) {
       setError(e?.message || 'Save failed');
     } finally { setSaving(false); }
