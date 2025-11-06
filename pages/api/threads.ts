@@ -54,7 +54,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!r.ok) {
       const text = await r.text().catch(() => '');
       console.error('[threads] Supabase query failed:', text.slice(0, 500));
-      res.status(200).json({ ok: true, threads: [], note: `rest_error: ${text.slice(0,200)}`, accountId });
+      // Always return ok: true with empty threads, not ok: false, so UI doesn't show error banner
+      res.status(200).json({ ok: true, threads: [], note: `rest_error: ${text.slice(0,200)}`, accountId, error: 'query_failed' });
       return;
     }
 
