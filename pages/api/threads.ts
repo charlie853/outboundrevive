@@ -151,6 +151,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           crm_owner: row.crm_owner ?? null,
           booking_status: bookingStatus,
           last_activity: lastAtISO, // max of all activity timestamps
+          last_reply_at: row.last_reply_at ?? null, // NEW: Last reply timestamp for column
           // aliases (in case UI expects these)
           lead_id: row.id ?? null,
           lead_phone: phone,

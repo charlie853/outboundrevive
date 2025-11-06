@@ -34,6 +34,7 @@ type ThreadRow = {
   crm_owner?: string | null;
   booking_status?: string | null;
   last_activity?: string | null;
+  last_reply_at?: string | null; // NEW: Last reply timestamp
   [key: string]: unknown;
 };
 
@@ -245,74 +246,109 @@ export default function ThreadsPanel() {
           <div className="text-sm text-ink-2">No recent conversations.</div>
         )}
         {!error && !isLoading && threads.length > 0 && (
-          <ul className="divide-y divide-surface-line">
-            {threads.map((thread, idx) => {
-              const phone = thread?.phone ?? thread?.lead_phone ?? '';
-              const name = thread?.name ?? thread?.lead_name ?? phone;
-              const last = thread?.lastMessage ?? thread?.last_message ?? '';
-              const at = thread?.lastAt ?? thread?.last_at ?? thread?.last_activity ?? null;
-              const displayName = name || formatPhone(phone);
-              const lastTimestamp = at ? new Date(at).toLocaleString() : '—';
-              const itemKey = `${phone || 'unknown'}-${at || 'na'}-${idx}`;
-              
-              // NEW: Status pills
-              const optedOut = thread?.opted_out ?? false;
-              const bookingStatus = thread?.booking_status ?? null;
-              const leadType = thread?.lead_type ?? null;
-              const owner = thread?.crm_owner ?? null;
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-surface-line">
+                  <th className="text-left py-2 px-3 font-medium text-ink-2">Name</th>
+                  <th className="text-left py-2 px-3 font-medium text-ink-2">Opted Out</th>
+                  <th className="text-left py-2 px-3 font-medium text-ink-2">Booked</th>
+                  <th className="text-left py-2 px-3 font-medium text-ink-2">Last Reply</th>
+                  <th className="text-left py-2 px-3 font-medium text-ink-2">Lead Type</th>
+                  <th className="text-left py-2 px-3 font-medium text-ink-2">Owner</th>
+                  <th className="text-left py-2 px-3 font-medium text-ink-2">Last Message</th>
+                  <th className="text-right py-2 px-3 font-medium text-ink-2">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-surface-line">
+                {threads.map((thread, idx) => {
+                  const phone = thread?.phone ?? thread?.lead_phone ?? '';
+                  const name = thread?.name ?? thread?.lead_name ?? phone;
+                  const last = thread?.lastMessage ?? thread?.last_message ?? '';
+                  const at = thread?.lastAt ?? thread?.last_at ?? thread?.last_activity ?? null;
+                  const displayName = name || formatPhone(phone);
+                  const lastTimestamp = at ? new Date(at).toLocaleString() : '—';
+                  const itemKey = `${phone || 'unknown'}-${at || 'na'}-${idx}`;
+                  
+                  // Status fields
+                  const optedOut = thread?.opted_out ?? false;
+                  const bookingStatus = thread?.booking_status ?? null;
+                  const leadType = thread?.lead_type ?? null;
+                  const owner = thread?.crm_owner ?? null;
+                  const lastReplyAt = thread?.last_reply_at ? new Date(thread.last_reply_at).toLocaleString() : null;
 
-              return (
-                <li key={itemKey} className={`flex items-center justify-between gap-4 py-3 ${optedOut ? 'opacity-60' : ''}`}>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <div className="text-sm font-medium text-ink-1">{displayName}</div>
-                      {/* NEW: Status pills */}
-                      {optedOut && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 border border-red-200">
-                          Opted Out
+                  // Format booking status
+                  const bookingDisplay = bookingStatus 
+                    ? (bookingStatus === 'booked' ? 'Booked' : 
+                       bookingStatus === 'kept' ? 'Kept' :
+                       bookingStatus === 'canceled' ? 'Canceled' :
+                       bookingStatus === 'no_show' ? 'No Show' :
+                       bookingStatus === 'rescheduled' ? 'Rescheduled' :
+                       bookingStatus)
+                    : 'Not booked';
+
+                  // Format lead type
+                  const leadTypeDisplay = leadType 
+                    ? (leadType === 'new' ? 'New Lead' : 
+                       leadType === 'old' ? 'Old Lead' : 
+                       leadType)
+                    : '—';
+
+                  return (
+                    <tr 
+                      key={itemKey} 
+                      className={`hover:bg-surface-bg/50 ${optedOut ? 'opacity-60' : ''}`}
+                    >
+                      <td className="py-2 px-3">
+                        <div className="font-medium text-ink-1">{displayName}</div>
+                        <div className="text-xs text-ink-3">{formatPhone(phone)}</div>
+                      </td>
+                      <td className="py-2 px-3">
+                        <span className={optedOut ? 'text-red-600 font-medium' : 'text-ink-3'}>
+                          {optedOut ? 'Yes' : 'No'}
                         </span>
-                      )}
-                      {bookingStatus && (
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                          bookingStatus === 'booked' || bookingStatus === 'kept' 
-                            ? 'bg-green-100 text-green-800 border border-green-200'
+                      </td>
+                      <td className="py-2 px-3">
+                        <span className={
+                          bookingStatus === 'booked' || bookingStatus === 'kept'
+                            ? 'text-green-600 font-medium'
                             : bookingStatus === 'canceled' || bookingStatus === 'no_show'
-                            ? 'bg-gray-100 text-gray-800 border border-gray-200'
-                            : 'bg-blue-100 text-blue-800 border border-blue-200'
-                        }`}>
-                          {bookingStatus === 'booked' ? 'Booked' : 
-                           bookingStatus === 'kept' ? 'Kept' :
-                           bookingStatus === 'canceled' ? 'Canceled' :
-                           bookingStatus === 'no_show' ? 'No Show' :
-                           bookingStatus === 'rescheduled' ? 'Rescheduled' :
-                           bookingStatus}
+                            ? 'text-gray-600'
+                            : 'text-ink-3'
+                        }>
+                          {bookingDisplay}
                         </span>
-                      )}
-                      {leadType && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 border border-purple-200">
-                          {leadType === 'new' ? 'New Lead' : leadType === 'old' ? 'Old Lead' : leadType}
-                        </span>
-                      )}
-                      {owner && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200">
-                          {owner}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-ink-3">{lastTimestamp}</div>
-                    <div className="text-sm text-ink-2 line-clamp-2">{last || '—'}</div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => openThread(thread)}
-                    className="rounded-lg border border-surface-line px-3 py-2 text-sm text-ink-1 transition-colors hover:bg-surface-bg flex-shrink-0"
-                  >
-                    View
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+                      </td>
+                      <td className="py-2 px-3 text-xs text-ink-3">
+                        {lastReplyAt || '—'}
+                      </td>
+                      <td className="py-2 px-3 text-ink-2">
+                        {leadTypeDisplay}
+                      </td>
+                      <td className="py-2 px-3 text-ink-2">
+                        {owner || '—'}
+                      </td>
+                      <td className="py-2 px-3">
+                        <div className="text-ink-2 line-clamp-1 max-w-xs" title={last || undefined}>
+                          {last || '—'}
+                        </div>
+                        <div className="text-xs text-ink-3 mt-0.5">{lastTimestamp}</div>
+                      </td>
+                      <td className="py-2 px-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => openThread(thread)}
+                          className="rounded-lg border border-surface-line px-3 py-1.5 text-xs text-ink-1 transition-colors hover:bg-surface-bg"
+                        >
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
