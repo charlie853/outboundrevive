@@ -2,7 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Nango } from '@nangohq/node';
 import { createClient } from '@supabase/supabase-js';
 
-const nango = new Nango({ secretKey: process.env.NANGO_SECRET_KEY! });
+// Initialize Nango - will be created per request to avoid stale config
+function getNangoClient() {
+  const secretKey = process.env.NANGO_SECRET_KEY;
+  if (!secretKey) {
+    throw new Error('NANGO_SECRET_KEY environment variable is not set');
+  }
+  // Clean the secret key - remove any whitespace or quotes
+  const cleanKey = secretKey.trim().replace(/['"]/g, '');
+  return new Nango({ 
+    secretKey: cleanKey,
+    host: process.env.NANGO_HOST || 'https://api.nango.dev'
+  });
+}
 
 const CRM_INTEGRATIONS = [
   'hubspot',
@@ -68,10 +80,12 @@ export async function POST(req: NextRequest) {
     console.log('[session-token] Creating Nango session for authenticated user:', { accountId, userId, email });
     console.log('[session-token] NANGO_SECRET_KEY is set:', !!process.env.NANGO_SECRET_KEY);
     console.log('[session-token] NANGO_SECRET_KEY length:', process.env.NANGO_SECRET_KEY?.length);
+    console.log('[session-token] NANGO_HOST:', process.env.NANGO_HOST || 'https://api.nango.dev');
     console.log('[session-token] Allowed integrations:', CRM_INTEGRATIONS);
 
     try {
-      const response = await nango.createConnectSession({
+      const nangoClient = getNangoClient();
+      const response = await nangoClient.createConnectSession({
         end_user: {
           id: userId,
           email: email || undefined,
