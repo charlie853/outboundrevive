@@ -102,8 +102,9 @@ export async function POST(req: NextRequest) {
     } catch (nangoError: any) {
       console.error('[session-token] Nango API error:', {
         message: nangoError.message,
-        response: nangoError.response?.data,
         status: nangoError.response?.status,
+        response: nangoError.response?.data,
+        responseJson: JSON.stringify(nangoError.response?.data, null, 2),
         stack: nangoError.stack?.split('\n').slice(0, 3)
       });
       

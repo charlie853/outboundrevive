@@ -98,10 +98,10 @@ export default function LoginForm() {
             <p className="text-sm text-gray-600">
               Don't have an account?{' '}
               <a
-                href="/auth/signup"
+                href="/book"
                 className="font-medium text-indigo-600 hover:text-indigo-500"
               >
-                Sign up
+                Schedule a walkthrough
               </a>
             </p>
           </div>
