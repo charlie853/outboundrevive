@@ -7,12 +7,16 @@ export async function GET(request: NextRequest) {
     const { user, accountId, error } = await getUserAndAccountFromRequest(request, { requireUser: true });
 
     if (!user || error) {
+      console.error('[crm/status] Unauthorized:', error);
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     if (!accountId) {
+      console.warn('[crm/status] No account ID for user:', user.id);
       return NextResponse.json({ connected: false, provider: null });
     }
+
+    console.log('[crm/status] Checking CRM connection for account:', accountId);
 
     const { data: connection, error: connectionError } = await supabaseAdmin
       .from('crm_connections')
@@ -27,7 +31,14 @@ export async function GET(request: NextRequest) {
       console.error('[crm/status] Error fetching CRM connection:', connectionError);
     }
 
+    console.log('[crm/status] Connection query result:', { connection, error: connectionError });
+
     if (connection && connection.is_active) {
+      console.log('[crm/status] Active CRM connection found:', {
+        provider: connection.provider,
+        connectionId: connection.nango_connection_id,
+        lastSynced: connection.last_synced_at,
+      });
       return NextResponse.json({
         connected: true,
         provider: connection.provider,
@@ -35,6 +46,8 @@ export async function GET(request: NextRequest) {
         connectionId: connection.nango_connection_id || null,
       });
     }
+
+    console.log('[crm/status] No active connection in crm_connections, checking legacy user_data...');
 
     const { data: userData, error: userDataError } = await supabaseAdmin
       .from('user_data')

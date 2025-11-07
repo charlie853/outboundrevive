@@ -11,19 +11,29 @@ export async function POST(request: NextRequest) {
   try {
     const { user, accountId, error } = await getUserAndAccountFromRequest(request, { requireUser: true });
     if (!user || error) {
+      console.error('[crm/connect] Unauthorized:', error);
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     if (!accountId) {
+      console.error('[crm/connect] No account ID for user:', user.id);
       return NextResponse.json({ error: 'No account found for user' }, { status: 400 });
     }
 
     const { connectionId, providerConfigKey } = await request.json();
 
+    console.log('[crm/connect] Received connection request:', {
+      userId: user.id,
+      accountId,
+      connectionId,
+      providerConfigKey,
+    });
+
     if (!connectionId || !providerConfigKey) {
       return NextResponse.json({ error: 'Missing connectionId or providerConfigKey' }, { status: 400 });
     }
 
+    console.log('[crm/connect] Fetching connection from Nango...');
     const connection = await nango.getConnection(providerConfigKey, connectionId);
 
     if (!connection) {
@@ -36,6 +46,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No access token found in connection' }, { status: 500 });
     }
 
+    console.log('[crm/connect] Deactivating old connections for account:', accountId);
     const { error: deactivateError } = await supabaseAdmin
       .from('crm_connections')
       .update({ is_active: false })
@@ -47,7 +58,8 @@ export async function POST(request: NextRequest) {
       console.warn('[crm/connect] Error deactivating old connections:', deactivateError);
     }
 
-    const { error: insertError } = await supabaseAdmin
+    console.log('[crm/connect] Inserting new connection to crm_connections...');
+    const { data: insertedConnection, error: insertError } = await supabaseAdmin
       .from('crm_connections')
       .insert({
         account_id: accountId,
@@ -59,12 +71,16 @@ export async function POST(request: NextRequest) {
           created_at: connection.created_at,
         },
         is_active: true,
-      });
+      })
+      .select()
+      .single();
 
     if (insertError) {
       console.error('[crm/connect] Error saving to crm_connections:', insertError);
       return NextResponse.json({ error: 'Failed to save connection' }, { status: 500 });
     }
+
+    console.log('[crm/connect] Connection inserted successfully:', insertedConnection);
 
     const { error: updateError } = await supabaseAdmin
       .from('user_data')
@@ -79,33 +95,37 @@ export async function POST(request: NextRequest) {
       console.warn('[crm/connect] Error updating user_data (non-critical):', updateError);
     }
 
-    console.log(`✅ CRM connection saved: ${providerConfigKey} for account ${accountId}`);
+    console.log(`✅ CRM connection saved: ${providerConfigKey} for account ${accountId}, connection ID: ${connectionId}`);
 
     // Run an initial sync in the background but don't block the response
-    executeCrmSync({
-      accountId,
-      provider: providerConfigKey as CRMProvider,
-      connectionId,
-      strategy: 'append',
-    })
-      .then(({ result }) => {
-        console.log('✅ Initial CRM sync completed', {
-          accountId,
-          provider: providerConfigKey,
-          created: result?.created,
-          updated: result?.updated,
-          skipped: result?.skipped,
-          total: result?.total,
-        });
+    // Use setTimeout to ensure this happens AFTER the response is sent
+    setTimeout(() => {
+      executeCrmSync({
+        accountId,
+        provider: providerConfigKey as CRMProvider,
+        connectionId,
+        strategy: 'append',
       })
-      .catch((err) => {
-        console.error('❌ Initial CRM sync failed', err);
-      });
+        .then(({ result }) => {
+          console.log('✅ Initial CRM sync completed', {
+            accountId,
+            provider: providerConfigKey,
+            created: result?.created,
+            updated: result?.updated,
+            skipped: result?.skipped,
+            total: result?.total,
+          });
+        })
+        .catch((err) => {
+          console.error('❌ Initial CRM sync failed', err);
+        });
+    }, 100);
 
     return NextResponse.json({
       success: true,
       provider: providerConfigKey,
       connectionId,
+      message: 'CRM connection saved successfully. Syncing contacts in the background...',
     });
   } catch (error) {
     console.error('Error handling CRM connection:', error);
