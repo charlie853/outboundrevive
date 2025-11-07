@@ -5,7 +5,17 @@ import { executeCrmSync } from '@/lib/crm/sync-service';
 import { CRMProvider } from '@/lib/crm/types';
 import { getUserAndAccountFromRequest } from '@/lib/api/supabase-auth';
 
-const nango = new Nango({ secretKey: process.env.NANGO_SECRET_KEY! });
+// Create a clean Nango instance without any custom headers
+function createNangoClient() {
+  const secretKey = process.env.NANGO_SECRET_KEY;
+  if (!secretKey) {
+    throw new Error('NANGO_SECRET_KEY not configured');
+  }
+  return new Nango({ 
+    secretKey: secretKey.trim(),
+    host: process.env.NANGO_HOST || 'https://api.nango.dev'
+  });
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -34,6 +44,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('[crm/connect] Fetching connection from Nango...');
+    const nango = createNangoClient();
     const connection = await nango.getConnection(providerConfigKey, connectionId);
 
     if (!connection) {
