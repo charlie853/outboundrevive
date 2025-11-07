@@ -19,9 +19,7 @@ function getNangoClient() {
 const CRM_INTEGRATIONS = [
   'hubspot',
   'salesforce',
-  // 'pipedrive', - annoying to get token for
-  'zoho-crm',
-  // 'gohighlevel' // TODO: Add when we build direct OAuth (Nango doesn't support it)
+  // Add more integrations once configured in Nango
 ];
 
 // Helper to create Supabase client from Authorization header (for client-side calls)
