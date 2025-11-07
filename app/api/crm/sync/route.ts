@@ -1,38 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
 import { executeCrmSync, loadActiveCrmConnection } from '@/lib/crm/sync-service';
 import { SyncStrategy, CRMProvider } from '@/lib/crm/types';
 import { supabaseAdmin } from '@/lib/supabaseServer';
-
-function supabaseUserClientFromReq(req: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll: () => {
-          const cookies: { name: string; value: string }[] = [];
-          req.cookies.getAll().forEach((c) => cookies.push({ name: c.name, value: c.value }));
-          return cookies;
-        },
-        setAll: () => {},
-      },
-      global: {
-        headers: {
-          Authorization: req.headers.get('Authorization') || '',
-        },
-      },
-    }
-  );
-}
+import { getUserAndAccountFromRequest } from '@/lib/api/supabase-auth';
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = supabaseUserClientFromReq(request);
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    
-    if (userError || !user) {
-      console.error('[crm/sync] Unauthorized:', userError);
+    const { user, accountId, error } = await getUserAndAccountFromRequest(request, { requireUser: true });
+
+    if (!user || error) {
+      console.error('[crm/sync] Unauthorized:', error?.message || 'No user');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -43,17 +20,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid strategy' }, { status: 400 });
     }
 
-    // Get account ID from user metadata or user_data table
-    let accountId = (user.user_metadata as any)?.account_id as string | undefined;
-    if (!accountId) {
-      const { data: userData } = await supabaseAdmin
-        .from('user_data')
-        .select('account_id')
-        .eq('user_id', user.id)
-        .maybeSingle();
-      accountId = userData?.account_id;
-    }
-    
     if (!accountId) {
       return NextResponse.json({ error: 'No account found' }, { status: 400 });
     }
@@ -70,7 +36,7 @@ export async function POST(request: NextRequest) {
         .maybeSingle();
 
       if (legacyError && legacyError.code !== 'PGRST116') {
-        console.warn('Legacy CRM lookup failed:', legacyError);
+        console.warn('[crm/sync] Legacy CRM lookup failed:', legacyError);
       }
 
       if (legacy?.nango_token && legacy?.crm) {

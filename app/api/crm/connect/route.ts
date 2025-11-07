@@ -1,18 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Nango } from '@nangohq/node';
-import { getAuthenticatedUser } from '@/lib/auth-utils';
 import { supabaseAdmin } from '@/lib/supabaseServer';
-import { getCurrentUserAccountId } from '@/lib/account';
 import { executeCrmSync } from '@/lib/crm/sync-service';
 import { CRMProvider } from '@/lib/crm/types';
+import { getUserAndAccountFromRequest } from '@/lib/api/supabase-auth';
 
 const nango = new Nango({ secretKey: process.env.NANGO_SECRET_KEY! });
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) {
+    const { user, accountId, error } = await getUserAndAccountFromRequest(request, { requireUser: true });
+    if (!user || error) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    if (!accountId) {
+      return NextResponse.json({ error: 'No account found for user' }, { status: 400 });
     }
 
     const { connectionId, providerConfigKey } = await request.json();
@@ -21,28 +24,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing connectionId or providerConfigKey' }, { status: 400 });
     }
 
-    // Get the user's account ID
-    const accountId = await getCurrentUserAccountId();
-    if (!accountId) {
-      return NextResponse.json({ error: 'No account found for user' }, { status: 400 });
-    }
-
-    // Get the connection details from Nango
     const connection = await nango.getConnection(providerConfigKey, connectionId);
 
     if (!connection) {
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 });
     }
 
-    // Get connection details
     const token = connection.credentials?.access_token;
 
     if (!token) {
       return NextResponse.json({ error: 'No access token found in connection' }, { status: 500 });
     }
 
-    // NEW: Save to crm_connections table (proper schema)
-    // First, deactivate any existing connection for this provider
     const { error: deactivateError } = await supabaseAdmin
       .from('crm_connections')
       .update({ is_active: false })
@@ -51,11 +44,9 @@ export async function POST(request: NextRequest) {
       .eq('is_active', true);
 
     if (deactivateError) {
-      console.warn('Error deactivating old connections:', deactivateError);
-      // Continue anyway - not critical
+      console.warn('[crm/connect] Error deactivating old connections:', deactivateError);
     }
 
-    // Insert new connection
     const { error: insertError } = await supabaseAdmin
       .from('crm_connections')
       .insert({
@@ -71,35 +62,33 @@ export async function POST(request: NextRequest) {
       });
 
     if (insertError) {
-      console.error('Error saving to crm_connections:', insertError);
+      console.error('[crm/connect] Error saving to crm_connections:', insertError);
       return NextResponse.json({ error: 'Failed to save connection' }, { status: 500 });
     }
 
-    // LEGACY: Also update user_data for backwards compatibility
-    // (Some old code might still reference this)
     const { error: updateError } = await supabaseAdmin
       .from('user_data')
       .update({
         nango_token: token,
         crm: providerConfigKey,
+        account_id: accountId,
       })
       .eq('user_id', user.id);
 
     if (updateError) {
-      console.warn('Error updating user_data (non-critical):', updateError);
-      // Don't fail - new table is the source of truth now
+      console.warn('[crm/connect] Error updating user_data (non-critical):', updateError);
     }
 
     console.log(`✅ CRM connection saved: ${providerConfigKey} for account ${accountId}`);
 
-    // Kick off an asynchronous background sync so leads are available immediately
-    queueMicrotask(() => {
-      executeCrmSync({
-        accountId,
-        provider: providerConfigKey as CRMProvider,
-        connectionId,
-        strategy: 'append',
-      }).then(({ result }) => {
+    // Run an initial sync in the background but don't block the response
+    executeCrmSync({
+      accountId,
+      provider: providerConfigKey as CRMProvider,
+      connectionId,
+      strategy: 'append',
+    })
+      .then(({ result }) => {
         console.log('✅ Initial CRM sync completed', {
           accountId,
           provider: providerConfigKey,
@@ -108,10 +97,10 @@ export async function POST(request: NextRequest) {
           skipped: result?.skipped,
           total: result?.total,
         });
-      }).catch((err) => {
+      })
+      .catch((err) => {
         console.error('❌ Initial CRM sync failed', err);
       });
-    });
 
     return NextResponse.json({
       success: true,

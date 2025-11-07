@@ -1,25 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedUser } from '@/lib/auth-utils';
 import { supabaseAdmin } from '@/lib/supabaseServer';
-import { getCurrentUserAccountId } from '@/lib/account';
+import { getUserAndAccountFromRequest } from '@/lib/api/supabase-auth';
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) {
+    const { user, accountId, error } = await getUserAndAccountFromRequest(request, { requireUser: true });
+
+    if (!user || error) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get the user's account ID
-    const accountId = await getCurrentUserAccountId();
     if (!accountId) {
       return NextResponse.json({ connected: false, provider: null });
     }
 
-    // Check crm_connections table (new source of truth)
     const { data: connection, error: connectionError } = await supabaseAdmin
       .from('crm_connections')
-      .select('provider, is_active, last_synced_at')
+      .select('provider, is_active, last_synced_at, nango_connection_id')
       .eq('account_id', accountId)
       .eq('is_active', true)
       .order('created_at', { ascending: false })
@@ -27,8 +24,7 @@ export async function GET(request: NextRequest) {
       .maybeSingle();
 
     if (connectionError && connectionError.code !== 'PGRST116') {
-      console.error('Error fetching CRM connection:', connectionError);
-      // Fall through to legacy check
+      console.error('[crm/status] Error fetching CRM connection:', connectionError);
     }
 
     if (connection && connection.is_active) {
@@ -36,10 +32,10 @@ export async function GET(request: NextRequest) {
         connected: true,
         provider: connection.provider,
         lastSyncedAt: connection.last_synced_at || null,
+        connectionId: connection.nango_connection_id || null,
       });
     }
 
-    // Legacy: Check user_data table for backwards compatibility
     const { data: userData, error: userDataError } = await supabaseAdmin
       .from('user_data')
       .select('nango_token, crm')
@@ -47,7 +43,7 @@ export async function GET(request: NextRequest) {
       .maybeSingle();
 
     if (userDataError && userDataError.code !== 'PGRST116') {
-      console.error('Error fetching user CRM status:', userDataError);
+      console.error('[crm/status] Error fetching user CRM status:', userDataError);
     }
 
     const hasLegacyConnection = !!(userData?.nango_token && userData?.crm);
@@ -57,7 +53,7 @@ export async function GET(request: NextRequest) {
       provider: userData?.crm || null,
     });
   } catch (error) {
-    console.error('Error checking CRM status:', error);
+    console.error('[crm/status] Error checking CRM status:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
