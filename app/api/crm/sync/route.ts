@@ -1,14 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedUser } from '@/lib/auth-utils';
-import { getCurrentUserAccountId } from '@/lib/account';
+import { createServerClient } from '@supabase/ssr';
 import { executeCrmSync, loadActiveCrmConnection } from '@/lib/crm/sync-service';
 import { SyncStrategy, CRMProvider } from '@/lib/crm/types';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 
+function supabaseUserClientFromReq(req: NextRequest) {
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll: () => {
+          const cookies: { name: string; value: string }[] = [];
+          req.cookies.getAll().forEach((c) => cookies.push({ name: c.name, value: c.value }));
+          return cookies;
+        },
+        setAll: () => {},
+      },
+      global: {
+        headers: {
+          Authorization: req.headers.get('Authorization') || '',
+        },
+      },
+    }
+  );
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) {
+    const supabase = supabaseUserClientFromReq(request);
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError || !user) {
+      console.error('[crm/sync] Unauthorized:', userError);
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -19,7 +43,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid strategy' }, { status: 400 });
     }
 
-    const accountId = await getCurrentUserAccountId();
+    // Get account ID from user metadata or user_data table
+    let accountId = (user.user_metadata as any)?.account_id as string | undefined;
+    if (!accountId) {
+      const { data: userData } = await supabaseAdmin
+        .from('user_data')
+        .select('account_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      accountId = userData?.account_id;
+    }
+    
     if (!accountId) {
       return NextResponse.json({ error: 'No account found' }, { status: 400 });
     }
