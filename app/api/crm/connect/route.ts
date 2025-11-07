@@ -3,6 +3,8 @@ import { Nango } from '@nangohq/node';
 import { getAuthenticatedUser } from '@/lib/auth-utils';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 import { getCurrentUserAccountId } from '@/lib/account';
+import { executeCrmSync } from '@/lib/crm/sync-service';
+import { CRMProvider } from '@/lib/crm/types';
 
 const nango = new Nango({ secretKey: process.env.NANGO_SECRET_KEY! });
 
@@ -89,6 +91,27 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`✅ CRM connection saved: ${providerConfigKey} for account ${accountId}`);
+
+    // Kick off an asynchronous background sync so leads are available immediately
+    queueMicrotask(() => {
+      executeCrmSync({
+        accountId,
+        provider: providerConfigKey as CRMProvider,
+        connectionId,
+        strategy: 'append',
+      }).then(({ result }) => {
+        console.log('✅ Initial CRM sync completed', {
+          accountId,
+          provider: providerConfigKey,
+          created: result?.created,
+          updated: result?.updated,
+          skipped: result?.skipped,
+          total: result?.total,
+        });
+      }).catch((err) => {
+        console.error('❌ Initial CRM sync failed', err);
+      });
+    });
 
     return NextResponse.json({
       success: true,

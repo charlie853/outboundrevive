@@ -1,9 +1,9 @@
-import { CRMAdapter, CRMContact, SyncResult, SyncStrategy } from './types';
+import { CRMAdapter, CRMContact, SyncStrategy } from './types';
 
 export class PipedriveAdapter implements CRMAdapter {
   private baseUrl = 'https://api.pipedrive.com/v1';
 
-  async syncContacts(token: string, strategy: SyncStrategy): Promise<CRMContact[]> {
+  async syncContacts(token: string, _strategy: SyncStrategy, _context?: { connection?: any }): Promise<CRMContact[]> {
     try {
       const contacts = await this.fetchAllContacts(token);
       return contacts;
@@ -50,6 +50,13 @@ export class PipedriveAdapter implements CRMAdapter {
             email: person.email?.[0]?.value || undefined,
             phone: person.phone?.[0]?.value || undefined,
             company: person.org_name || undefined,
+            owner: person.owner_name || undefined,
+            owner_id: person.owner_id ? String(person.owner_id) : undefined,
+            status: person.label || undefined,
+            stage: person.label || undefined,
+            description: person.note || person.last_note?.content || undefined,
+            last_activity_at: person.last_activity_date || undefined,
+            raw: person,
           });
         }
       }

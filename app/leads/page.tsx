@@ -22,6 +22,13 @@ type Lead = {
   error_code?: number | null;
   last_message_sid?: string | null;
   appointment_set_at?: string | null;
+  crm_owner?: string | null;
+  crm_owner_email?: string | null;
+  crm_status?: string | null;
+  crm_stage?: string | null;
+  crm_description?: string | null;
+  crm_last_activity_at?: string | null;
+  company?: string | null;
 };
 
 type ThreadItem = {
@@ -35,6 +42,7 @@ type ThreadItem = {
 
 const th: React.CSSProperties = { textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid #e5e5e5', fontWeight: 600, fontSize: 13, color: '#374151' };
 const td: React.CSSProperties = { padding: '8px 10px', borderBottom: '1px solid #e5e5e5', fontSize: 13, color: '#111827' };
+const tdNote: React.CSSProperties = { ...td, maxWidth: 240, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
 const btn: React.CSSProperties = { padding: '8px 12px', borderWidth: 1, borderStyle: 'solid', borderColor: '#d1d5db', borderRadius: 8, background: '#f9fafb', color: '#374151', cursor: 'pointer' };
 const btnPrimary: React.CSSProperties = { ...btn, background: '#4f46e5', color: '#ffffff', borderColor: '#4f46e5' };
 const hint: React.CSSProperties = { color: '#6b7280', fontSize: 12 };
@@ -299,8 +307,9 @@ function LeadsPageContent() {
         userEmail={user?.email || "unknown@example.com"}
         organizationId="demo-org"
         onConnect={(connectionId, provider) => {
-          setFeedback(`Connected to ${provider} (ID: ${connectionId})`);
-          setTimeout(() => setFeedback(null), 3000);
+          setFeedback(`Connected to ${provider}. Syncing leads…`);
+          setTimeout(() => setFeedback(null), 4000);
+          setTimeout(() => load(), 4500);
         }}
         onSync={(results) => {
           setFeedback(`Synced ${results.processed} contacts: ${results.created} new, ${results.updated} updated`);
@@ -336,6 +345,9 @@ function LeadsPageContent() {
             <th style={th}><input type="checkbox" aria-label="Select all" checked={allSelected} onChange={toggleAll} /></th>
             <th style={th}>Name</th>
             <th style={th}>Phone</th>
+            <th style={th}>Owner</th>
+            <th style={th}>CRM Status</th>
+            <th style={th}>Notes</th>
             <th style={th}>Status</th>
             <th style={th}>Replied</th>
             <th style={th}>Intent</th>
@@ -346,16 +358,27 @@ function LeadsPageContent() {
         </thead>
         <tbody>
           {loading ? (
-            <tr><td colSpan={9} style={{ ...td, textAlign: 'center' }}>Loading…</td></tr>
+            <tr><td colSpan={11} style={{ ...td, textAlign: 'center' }}>Loading…</td></tr>
           ) : data.length === 0 ? (
-            <tr><td colSpan={9} style={{ ...td, textAlign: 'center' }}>No leads yet. <a href="/upload">Upload CSV</a> or Connect CRM.</td></tr>
+            <tr><td colSpan={11} style={{ ...td, textAlign: 'center' }}>No leads yet. <a href="/upload">Upload CSV</a> or Connect CRM.</td></tr>
           ) : data.map((l) => {
             const isBooked = !!l.appointment_set_at;
+            const crmStatus = l.crm_status || l.crm_stage || '—';
+            const crmNotes = l.crm_description ? (l.crm_description.length > 80 ? `${l.crm_description.slice(0, 77)}…` : l.crm_description) : '—';
             return (
               <tr key={l.id} style={l.opted_out ? { opacity: 0.55 } : undefined}>
                 <td style={td}><input type="checkbox" checked={!!selected[l.id]} onChange={() => toggle(l.id)} /></td>
-                <td style={td}>{l.name || '—'}</td>
+                <td style={td}>
+                  <div>{l.name || '—'}</div>
+                  {l.company && <div style={{ fontSize: 11, color: '#6b7280' }}>{l.company}</div>}
+                </td>
                 <td style={td}>{l.phone} {l.opted_out && <span style={{ marginLeft: 8, fontSize: 11, color: '#dc2626' }}>OPTED OUT</span>}</td>
+                <td style={td}>
+                  {l.crm_owner || '—'}
+                  {l.crm_owner_email && <div style={{ fontSize: 11, color: '#6b7280' }}>{l.crm_owner_email}</div>}
+                </td>
+                <td style={td}>{crmStatus}</td>
+                <td style={tdNote} title={l.crm_description || undefined}>{crmNotes}</td>
                 <td style={td}>{l.status}</td>
                 <td style={td}>{l.replied ? '✅' : '—'}</td>
                 <td style={td}>{l.intent || '—'}</td>

@@ -85,7 +85,8 @@ export async function GET(_req: NextRequest) {
         id,name,phone,status,replied,intent,created_at,
         sent_at,last_message_sid,delivery_status,error_code,
         opted_out,step,last_step_at,last_reply_at,last_reply_body,
-        appointment_set_at
+        appointment_set_at,crm_owner,crm_owner_email,crm_status,crm_stage,
+        crm_description,crm_last_activity_at,company
       `)
       .eq('account_id', accountId) // Filter by account
       .order('created_at', { ascending: false })

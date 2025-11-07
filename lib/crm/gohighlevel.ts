@@ -13,7 +13,7 @@ import { CRMAdapter, CRMContact, SyncStrategy } from './types';
 export class GoHighLevelAdapter implements CRMAdapter {
   private baseUrl = 'https://rest.gohighlevel.com/v1';
 
-  async syncContacts(token: string, strategy: SyncStrategy): Promise<CRMContact[]> {
+  async syncContacts(token: string, _strategy: SyncStrategy, _context?: { connection?: any }): Promise<CRMContact[]> {
     try {
       const contacts = await this.fetchAllContacts(token);
       return contacts;
@@ -64,6 +64,15 @@ export class GoHighLevelAdapter implements CRMAdapter {
             email: contact.email || undefined,
             phone: contact.phone || undefined,
             company: contact.companyName || contact.businessName || undefined,
+            owner: contact.assignedTo || contact.assignedUserName || undefined,
+            owner_id: contact.assignedToId ? String(contact.assignedToId) : undefined,
+            status: contact.leadStatus || contact.contactStatus || undefined,
+            stage: contact.pipelineStage || undefined,
+            description:
+              contact.notes ||
+              (Array.isArray(contact.tags) ? contact.tags.join(', ') : undefined),
+            last_activity_at: contact.updatedAt || contact.lastActivityDate || undefined,
+            raw: contact,
           });
         }
       }

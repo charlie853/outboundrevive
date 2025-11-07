@@ -1,9 +1,9 @@
-import { CRMAdapter, CRMContact, SyncResult, SyncStrategy } from './types';
+import { CRMAdapter, CRMContact, SyncStrategy } from './types';
 
 export class ZohoAdapter implements CRMAdapter {
   private baseUrl = 'https://www.zohoapis.com/crm/v4';
 
-  async syncContacts(token: string, strategy: SyncStrategy): Promise<CRMContact[]> {
+  async syncContacts(token: string, _strategy: SyncStrategy, _context?: { connection?: any }): Promise<CRMContact[]> {
     try {
       const contacts = await this.fetchAllContacts(token);
       return contacts;
@@ -39,7 +39,7 @@ export class ZohoAdapter implements CRMAdapter {
     let hasMore = true;
 
     while (hasMore) {
-      const url = `${this.baseUrl}/Contacts?fields=First_Name,Last_Name,Email,Phone,Account_Name&page=${page}&per_page=${perPage}`;
+      const url = `${this.baseUrl}/Contacts?fields=First_Name,Last_Name,Email,Phone,Mobile,Account_Name,Owner,Lead_Source,Description,Last_Activity_Time,Stage&page=${page}&per_page=${perPage}`;
 
       const response = await fetch(url, {
         headers: {
@@ -67,7 +67,15 @@ export class ZohoAdapter implements CRMAdapter {
             name,
             email: contact.Email || undefined,
             phone: contact.Phone || undefined,
-            company: contact.Account_Name || undefined,
+            company: (contact.Account_Name && contact.Account_Name.name) || contact.Account_Name || undefined,
+            owner: (contact.Owner && contact.Owner.name) || undefined,
+            owner_email: (contact.Owner && contact.Owner.email) || undefined,
+            owner_id: (contact.Owner && contact.Owner.id && String(contact.Owner.id)) || undefined,
+            status: contact.Stage || contact.Lead_Source || undefined,
+            stage: contact.Stage || undefined,
+            description: contact.Description || undefined,
+            last_activity_at: contact.Last_Activity_Time || undefined,
+            raw: contact,
           });
         }
       }

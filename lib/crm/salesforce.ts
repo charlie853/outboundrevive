@@ -1,11 +1,10 @@
 import { CRMAdapter, CRMContact, SyncResult, SyncStrategy } from './types';
 
 export class SalesforceAdapter implements CRMAdapter {
-  private baseUrl = 'https://login.salesforce.com'; // Will be dynamic based on instance
-
-  async syncContacts(token: string, strategy: SyncStrategy): Promise<CRMContact[]> {
+  async syncContacts(token: string, _strategy: SyncStrategy, context?: { connection?: any }): Promise<CRMContact[]> {
     try {
-      const contacts = await this.fetchAllContacts(token);
+      const instanceUrl = this.resolveInstanceUrl(token, context);
+      const contacts = await this.fetchAllContacts(token, instanceUrl);
       return contacts;
     } catch (error) {
       console.error('Salesforce sync error:', error);
@@ -13,53 +12,81 @@ export class SalesforceAdapter implements CRMAdapter {
     }
   }
 
-  async disconnect(token: string): Promise<void> {
+  async disconnect(_token: string): Promise<void> {
     // Salesforce token revocation would go here if needed
     // For now, just removing from database is sufficient
   }
 
-  private async fetchAllContacts(token: string): Promise<CRMContact[]> {
-    // First, we need to get the instance URL from the token info
-    const instanceUrl = await this.getInstanceUrl(token);
-    const contacts: CRMContact[] = [];
+  private resolveInstanceUrl(token: string, context?: { connection?: any }): string {
+    const connection = context?.connection;
+    const fromConnection =
+      connection?.credentials?.raw?.instance_url ||
+      connection?.connection_config?.instance_url ||
+      connection?.metadata?.instance_url;
 
-    const soql = `SELECT Id, FirstName, LastName, Email, Phone, Account.Name FROM Contact WHERE Email != null OR Phone != null LIMIT 2000`;
-    const url = `${instanceUrl}/services/data/v58.0/query/?q=${encodeURIComponent(soql)}`;
-
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Salesforce API error: ${response.status} ${response.statusText}`);
+    if (fromConnection) {
+      return fromConnection;
     }
 
-    const data = await response.json();
+    return this.getInstanceUrl(token);
+  }
 
-    for (const record of data.records || []) {
-      const name = [record.FirstName, record.LastName].filter(Boolean).join(' ').trim();
+  private async fetchAllContacts(token: string, instanceUrl: string): Promise<CRMContact[]> {
+    const contacts: CRMContact[] = [];
+    let nextUrl: string | null = `${instanceUrl}/services/data/v58.0/query/?q=${encodeURIComponent(
+      `SELECT Id, FirstName, LastName, Company, Email, Phone, MobilePhone, Owner.Name, Owner.Email, Status, Description, LastActivityDate 
+       FROM Lead 
+       WHERE (Email != null OR Phone != null OR MobilePhone != null) AND IsConverted = false`
+    )}`;
 
-      if (name && (record.Email || record.Phone)) {
+    while (nextUrl) {
+      const response = await fetch(nextUrl, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Salesforce API error: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+
+      for (const record of data.records || []) {
+        const name = [record.FirstName, record.LastName].filter(Boolean).join(' ').trim() || record.Company;
+        const phone = record.Phone || record.MobilePhone || undefined;
+        const email = record.Email || undefined;
+
+        if (!name || (!phone && !email)) {
+          continue;
+        }
+
         contacts.push({
           id: record.Id,
           name,
-          email: record.Email || undefined,
-          phone: record.Phone || undefined,
-          company: record.Account?.Name || undefined,
+          email,
+          phone,
+          company: record.Company || undefined,
+          owner: record.Owner?.Name || undefined,
+          owner_email: record.Owner?.Email || undefined,
+          status: record.Status || undefined,
+          stage: record.Status || undefined,
+          description: record.Description || undefined,
+          last_activity_at: record.LastActivityDate || undefined,
+          raw: record,
         });
       }
+
+      nextUrl = data.nextRecordsUrl ? `${instanceUrl}${data.nextRecordsUrl}` : null;
     }
 
     return contacts;
   }
 
-  private async getInstanceUrl(token: string): Promise<string> {
-    // In a real implementation, this would be stored during OAuth or retrieved from token introspection
-    // For now, return a default
-    return 'https://yourinstance.salesforce.com';
+  private getInstanceUrl(_token: string): string {
+    // Fallback to login domain if instance could not be determined.
+    // Many Salesforce orgs require the real instance URL; callers should prefer providing it via connection metadata.
+    return 'https://login.salesforce.com';
   }
-
 }
