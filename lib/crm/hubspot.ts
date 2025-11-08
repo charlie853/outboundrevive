@@ -99,8 +99,20 @@ export class HubSpotAdapter implements CRMAdapter {
         const phone = props.phone || undefined;
         const email = props.email || undefined;
 
-        if (!name || (!phone && !email)) {
+        // Skip contacts without a name
+        if (!name) {
+          console.log('[HubSpot] Skipping contact without name:', contact.id);
           continue;
+        }
+
+        // Log contacts without phone for debugging
+        if (!phone && !email) {
+          console.log('[HubSpot] Skipping contact without phone or email:', { id: contact.id, name });
+          continue;
+        }
+
+        if (!phone) {
+          console.log('[HubSpot] Contact has email but no phone (will skip during sync):', { id: contact.id, name, email });
         }
 
         const ownerId = props.hubspot_owner_id ? String(props.hubspot_owner_id) : undefined;
