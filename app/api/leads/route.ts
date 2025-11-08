@@ -1,7 +1,7 @@
 // app/api/leads/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseServer';
-import { requireAccountAccess } from '@/lib/account';
+import { getUserAndAccountFromRequest } from '@/lib/api/supabase-auth';
 
 export const runtime = 'nodejs';
 
@@ -22,9 +22,8 @@ type IncomingLead = { name?: string; phone?: string; email?: string };
 // ---- POST /api/leads  (bulk JSON upsert) ---------------------
 export async function POST(req: NextRequest) {
   try {
-    // Check authentication and get account ID
-    const accountId = await requireAccountAccess();
-    if (!accountId) {
+    const { accountId, error } = await getUserAndAccountFromRequest(req, { requireUser: true });
+    if (!accountId || error) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -69,17 +68,14 @@ export async function POST(req: NextRequest) {
 }
 
 // ---- GET /api/leads  (list) ---------------------------------
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
   try {
-    console.log('=== API /leads GET ===');
-    // Check authentication and get account ID
-    const accountId = await requireAccountAccess();
-    console.log('Account ID result:', accountId);
-    if (!accountId) {
+    const { accountId, error } = await getUserAndAccountFromRequest(req, { requireUser: true });
+    if (!accountId || error) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error: listError } = await supabaseAdmin
       .from('leads')
       .select(`
         id,name,phone,status,replied,intent,created_at,
@@ -92,9 +88,9 @@ export async function GET(_req: NextRequest) {
       .order('created_at', { ascending: false })
       .limit(200);
 
-    if (error) {
-      console.error('Supabase list error:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (listError) {
+      console.error('Supabase list error:', listError);
+      return NextResponse.json({ error: listError.message }, { status: 500 });
     }
     return NextResponse.json({ data: data ?? [] });
   } catch (e) {
@@ -112,9 +108,8 @@ export async function PATCH(req: NextRequest) {
   }
 
   try {
-    // Also check account access for admin operations
-    const accountId = await requireAccountAccess();
-    if (!accountId) {
+    const { accountId, error } = await getUserAndAccountFromRequest(req, { requireUser: true });
+    if (!accountId || error) {
       return NextResponse.json({ error: 'Unauthorized - no account access' }, { status: 401 });
     }
 
@@ -154,8 +149,8 @@ export async function PATCH(req: NextRequest) {
 // ---- DELETE /api/leads (delete selected) ----------------------
 export async function DELETE(req: NextRequest) {
   try {
-    const accountId = await requireAccountAccess();
-    if (!accountId) {
+    const { accountId, error } = await getUserAndAccountFromRequest(req, { requireUser: true });
+    if (!accountId || error) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
