@@ -50,14 +50,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No valid phone numbers after normalization' }, { status: 400 });
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error: upsertError } = await supabaseAdmin
       .from('leads')
       .upsert(cleaned, { onConflict: 'phone' })
       .select();
 
-    if (error) {
-      console.error('Supabase insert error:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (upsertError) {
+      console.error('Supabase insert error:', upsertError);
+      return NextResponse.json({ error: upsertError.message }, { status: 500 });
     }
 
     return NextResponse.json({ inserted: data?.length ?? 0, sample: data?.slice(0, 3) ?? [] });
@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
         appointment_set_at,crm_owner,crm_owner_email,crm_status,crm_stage,
         crm_description,crm_last_activity_at,company,intro_sent_at
       `)
-      .eq('account_id', accountId) // Filter by account
+      .eq('account_id', accountId)
       .order('created_at', { ascending: false })
       .limit(200);
 
@@ -131,7 +131,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     // Update only leads that belong to the user's account
-    const { data, error } = await supabaseAdmin
+    const { data, error: updateError } = await supabaseAdmin
       .from('leads')
       .update(update)
       .eq('id', id)
@@ -139,7 +139,7 @@ export async function PATCH(req: NextRequest) {
       .select()
       .maybeSingle();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
     return NextResponse.json(data);
   } catch (e:any) {
     return NextResponse.json({ error: e?.message || 'Invalid JSON' }, { status: 400 });
@@ -163,14 +163,14 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'No lead IDs provided' }, { status: 400 });
     }
 
-    const { count, error } = await supabaseAdmin
+    const { count, error: deleteError } = await supabaseAdmin
       .from('leads')
       .delete({ count: 'exact' })
       .in('id', ids)
       .eq('account_id', accountId);
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (deleteError) {
+      return NextResponse.json({ error: deleteError.message }, { status: 500 });
     }
 
     return NextResponse.json({ ok: true, deleted: count ?? 0 });
