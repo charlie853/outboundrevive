@@ -29,6 +29,7 @@ type Lead = {
   crm_description?: string | null;
   crm_last_activity_at?: string | null;
   company?: string | null;
+  intro_sent_at?: string | null;
 };
 
 type ThreadItem = {
@@ -63,6 +64,7 @@ function LeadsPageContent() {
   const [data, setData] = useState<Lead[]>([]);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [sending, setSending] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState(
     'Hi {{name}}—{{brand}} here re your earlier inquiry. Reply YES to book.'
@@ -155,6 +157,7 @@ function LeadsPageContent() {
 
   const tooLong = renderedPreview.trim().length > 160;
   const canSend = selectedIds.length > 0 && !tooLong && !sending;
+  const canDelete = selectedIds.length > 0 && !deleting;
 
   const send = async () => {
     if (!canSend) return;
@@ -174,6 +177,30 @@ function LeadsPageContent() {
       setFeedback(`Error: ${e.message}`);
     } finally {
       setSending(false);
+    }
+  };
+
+  const removeSelected = async () => {
+    if (!canDelete) return;
+    setDeleting(true);
+    setFeedback(null);
+    try {
+      const r = await authenticatedFetch('/api/leads', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedIds }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j?.error || 'Failed to delete leads');
+      const removed = typeof j?.deleted === 'number' ? j.deleted : selectedIds.length;
+      setFeedback(`Deleted ${removed} lead${removed === 1 ? '' : 's'}`);
+      await load();
+      setSelected({});
+    } catch (e: any) {
+      setFeedback(`Error: ${e.message}`);
+    } finally {
+      setDeleting(false);
+      setTimeout(() => setFeedback(null), 3000);
     }
   };
 
@@ -328,6 +355,13 @@ function LeadsPageContent() {
         <button onClick={send} disabled={!canSend} style={canSend ? btnPrimary : { ...btn, opacity: 0.6, cursor: 'not-allowed' }}>
           {sending ? 'Sending…' : `Send to selected (${selectedIds.length})`}
         </button>
+        <button
+          onClick={removeSelected}
+          disabled={!canDelete}
+          style={canDelete ? { ...btn, borderColor: '#ef4444', color: '#b91c1c' } : { ...btn, opacity: 0.5, cursor: 'not-allowed' }}
+        >
+          {deleting ? 'Deleting…' : `Delete (${selectedIds.length})`}
+        </button>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 8 }}>
@@ -348,6 +382,7 @@ function LeadsPageContent() {
             <th style={th}>Owner</th>
             <th style={th}>CRM Status</th>
             <th style={th}>Notes</th>
+            <th style={th}>Intro</th>
             <th style={th}>Status</th>
             <th style={th}>Replied</th>
             <th style={th}>Intent</th>
@@ -365,6 +400,13 @@ function LeadsPageContent() {
             const isBooked = !!l.appointment_set_at;
             const crmStatus = l.crm_status || l.crm_stage || '—';
             const crmNotes = l.crm_description ? (l.crm_description.length > 80 ? `${l.crm_description.slice(0, 77)}…` : l.crm_description) : '—';
+            const introBadge = l.intro_sent_at ? (
+              <span style={{ fontSize: 12, color: '#059669' }} title={`Intro sent ${new Date(l.intro_sent_at).toLocaleString()}`}>
+                Intro sent
+              </span>
+            ) : (
+              <span style={{ fontSize: 12, color: '#9ca3af' }}>Pending</span>
+            );
             return (
               <tr key={l.id} style={l.opted_out ? { opacity: 0.55 } : undefined}>
                 <td style={td}><input type="checkbox" checked={!!selected[l.id]} onChange={() => toggle(l.id)} /></td>
@@ -379,6 +421,7 @@ function LeadsPageContent() {
                 </td>
                 <td style={td}>{crmStatus}</td>
                 <td style={tdNote} title={l.crm_description || undefined}>{crmNotes}</td>
+                <td style={td}>{introBadge}</td>
                 <td style={td}>{l.status}</td>
                 <td style={td}>{l.replied ? '✅' : '—'}</td>
                 <td style={td}>{l.intent || '—'}</td>

@@ -4,6 +4,35 @@ import { sendSms } from '@/lib/twilio';
 
 export const runtime = 'nodejs';
 
+type QueueItem = {
+  id: string;
+  account_id: string;
+  lead_id: string;
+  body: string;
+  attempt: number;
+  max_attempts: number;
+};
+
+type LeadRow = {
+  id: string;
+  phone: string | null;
+  intro_sent_at?: string | null;
+};
+
+async function isAutotexterEnabled(accountId: string): Promise<boolean> {
+  const { data } = await supabaseAdmin
+    .from('account_settings')
+    .select('autotexter_enabled')
+    .eq('account_id', accountId)
+    .maybeSingle();
+  return !!data?.autotexter_enabled;
+}
+
+function backoffDelaySeconds(attempt: number) {
+  const exp = Math.pow(2, attempt) * 5;
+  return Math.min(exp, 60 * 15);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const adminHeader = (req.headers.get('x-admin-token') || '').trim();
@@ -13,7 +42,7 @@ export async function POST(req: NextRequest) {
     }
 
     const nowIso = new Date().toISOString();
-    // Pick ready items (small batch)
+
     const { data: items, error } = await supabaseAdmin
       .from('send_queue')
       .select('id, account_id, lead_id, body, attempt, max_attempts')
@@ -21,47 +50,122 @@ export async function POST(req: NextRequest) {
       .lte('run_after', nowIso)
       .order('run_after', { ascending: true })
       .limit(10);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 
     const results: any[] = [];
-    for (const it of items || []) {
-      // flip to processing
-      await supabaseAdmin.from('send_queue').update({ status: 'processing', updated_at: nowIso }).eq('id', it.id).eq('status', 'queued');
+    if (!items?.length) {
+      return NextResponse.json({ ok: true, processed: 0, results });
+    }
+
+    for (const item of items as QueueItem[]) {
+      const lockResult = await supabaseAdmin
+        .from('send_queue')
+        .update({ status: 'processing', updated_at: nowIso })
+        .eq('id', item.id)
+        .eq('status', 'queued');
+
+      if (lockResult.error) {
+        results.push({ id: item.id, sent: false, error: lockResult.error.message });
+        continue;
+      }
+
       try {
-        // Resolve phone
+        const enabled = await isAutotexterEnabled(item.account_id);
+        if (!enabled) {
+          const runAfter = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+          await supabaseAdmin
+            .from('send_queue')
+            .update({ status: 'queued', run_after: runAfter, updated_at: new Date().toISOString() })
+            .eq('id', item.id);
+          results.push({ id: item.id, sent: false, skipped: 'autotexter_disabled' });
+          continue;
+        }
+
         const { data: lead } = await supabaseAdmin
           .from('leads')
-          .select('id, phone')
-          .eq('id', it.lead_id)
-          .eq('account_id', it.account_id)
+          .select('id, phone, intro_sent_at')
+          .eq('id', item.lead_id)
+          .eq('account_id', item.account_id)
           .maybeSingle();
-        if (!lead?.phone) throw new Error('no_phone');
-        const r = await sendSms({ to: lead.phone, body: it.body });
-        // mark sent
-        await supabaseAdmin.from('send_queue').update({ status: 'sent', updated_at: new Date().toISOString() }).eq('id', it.id);
-        results.push({ id: it.id, sent: true, sid: r?.sid });
-      } catch (e: any) {
-        const attempt = (it.attempt || 0) + 1;
-        let status: 'queued'|'failed'|'dead_letter' = 'queued';
-        let run_after: string | null = null;
-        if (attempt >= (it.max_attempts || 5)) {
-          status = 'dead_letter';
-        } else {
-          status = 'queued';
-          const backoffSec = Math.min(60 * 15, Math.pow(2, attempt) * 5); // cap at 15m
-          run_after = new Date(Date.now() + backoffSec * 1000).toISOString();
+
+        const leadRow = lead as LeadRow | null;
+        if (!leadRow?.phone) {
+          throw new Error('missing_phone');
         }
+
+        const body = item.body.length > 320 ? `${item.body.slice(0, 317).trimEnd()}…` : item.body;
+        const smsResult = await sendSms({ to: leadRow.phone, body });
+        const status = String(smsResult?.status || 'queued').toLowerCase();
+        const providerStatus = (status === 'sending' || status === 'sent') ? 'sent' : 'queued';
+        const sid = smsResult?.sid || null;
+        const sentAtIso = new Date().toISOString();
+
+        await supabaseAdmin.from('send_queue').update({
+          status: 'sent',
+          updated_at: sentAtIso,
+          error: null,
+        }).eq('id', item.id);
+
+        await supabaseAdmin.from('messages_out').insert({
+          account_id: item.account_id,
+          lead_id: item.lead_id,
+          body,
+          provider: 'twilio',
+          provider_status: providerStatus,
+          status: providerStatus,
+          sent_by: 'ai',
+          intent: 'initial_outreach',
+          gate_log: { category: 'initial_outreach', source: 'send_queue', queue_id: item.id },
+          created_at: sentAtIso,
+          sid,
+        }).catch((err) => {
+          console.error('[queue-worker] messages_out insert failed', err);
+        });
+
+        const leadUpdate: Record<string, any> = {
+          last_sent_at: sentAtIso,
+          last_message_sid: sid,
+          delivery_status: providerStatus,
+          status: 'sent',
+        };
+        if (!leadRow.intro_sent_at) {
+          leadUpdate.intro_sent_at = sentAtIso;
+        }
+
+        await supabaseAdmin
+          .from('leads')
+          .update(leadUpdate)
+          .eq('id', item.lead_id)
+          .eq('account_id', item.account_id);
+
+        results.push({ id: item.id, sent: true, sid });
+      } catch (err: any) {
+        const attempt = (item.attempt || 0) + 1;
+        const maxAttempts = item.max_attempts || 5;
+        const tooManyAttempts = attempt >= maxAttempts;
+        const nextRun =
+          tooManyAttempts ? null : new Date(Date.now() + backoffDelaySeconds(attempt) * 1000).toISOString();
+
         await supabaseAdmin
           .from('send_queue')
-          .update({ status, error: e?.message || 'send_error', attempt, run_after: run_after || undefined, updated_at: new Date().toISOString() })
-          .eq('id', it.id);
-        results.push({ id: it.id, sent: false, error: e?.message });
+          .update({
+            status: tooManyAttempts ? 'dead_letter' : 'queued',
+            error: err?.message || 'send_error',
+            attempt,
+            run_after: nextRun || undefined,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', item.id);
+
+        results.push({ id: item.id, sent: false, error: err?.message || 'send_error' });
       }
     }
+
     return NextResponse.json({ ok: true, processed: results.length, results });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || 'server_error' }, { status: 500 });
   }
 }
-
-

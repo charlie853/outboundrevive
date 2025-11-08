@@ -86,7 +86,7 @@ export async function GET(_req: NextRequest) {
         sent_at,last_message_sid,delivery_status,error_code,
         opted_out,step,last_step_at,last_reply_at,last_reply_body,
         appointment_set_at,crm_owner,crm_owner_email,crm_status,crm_stage,
-        crm_description,crm_last_activity_at,company
+        crm_description,crm_last_activity_at,company,intro_sent_at
       `)
       .eq('account_id', accountId) // Filter by account
       .order('created_at', { ascending: false })
@@ -147,6 +147,39 @@ export async function PATCH(req: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json(data);
   } catch (e:any) {
+    return NextResponse.json({ error: e?.message || 'Invalid JSON' }, { status: 400 });
+  }
+}
+
+// ---- DELETE /api/leads (delete selected) ----------------------
+export async function DELETE(req: NextRequest) {
+  try {
+    const accountId = await requireAccountAccess();
+    if (!accountId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await req.json().catch(() => null);
+    const ids: string[] = Array.isArray(body?.ids)
+      ? body.ids.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : [];
+
+    if (ids.length === 0) {
+      return NextResponse.json({ error: 'No lead IDs provided' }, { status: 400 });
+    }
+
+    const { count, error } = await supabaseAdmin
+      .from('leads')
+      .delete({ count: 'exact' })
+      .in('id', ids)
+      .eq('account_id', accountId);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true, deleted: count ?? 0 });
+  } catch (e: any) {
     return NextResponse.json({ error: e?.message || 'Invalid JSON' }, { status: 400 });
   }
 }

@@ -3,6 +3,7 @@ import { createCRMAdapter } from './factory';
 import { CRMContact, CRMProvider, SyncResult, SyncStrategy } from './types';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 import { toE164 } from '@/lib/phone';
+import { queueIntroForLead } from '@/lib/autotexter/queue';
 
 function getNangoClient() {
   const secretKey = process.env.NANGO_SECRET_KEY;
@@ -251,7 +252,7 @@ export async function syncContactsToLeads(
         const { data: inserted, error: insertError } = await supabaseAdmin
           .from('leads')
           .insert(insertPayload)
-          .select('id, phone, email, crm_id, crm_source, name, company, lead_type, crm_owner, crm_owner_email, crm_status, crm_stage, crm_description')
+          .select('id, phone, email, crm_id, crm_source, name, company, lead_type, crm_owner, crm_owner_email, crm_status, crm_stage, crm_description, crm_last_activity_at, intro_sent_at')
           .maybeSingle();
 
         if (insertError) {
@@ -269,6 +270,20 @@ export async function syncContactsToLeads(
           if (newLead.email) {
             byEmail.set(String(newLead.email).toLowerCase(), newLead);
           }
+
+          await queueIntroForLead(accountId, {
+            id: newLead.id,
+            name: newLead.name,
+            phone: newLead.phone,
+            email: newLead.email,
+            company: newLead.company,
+            crm_owner: insertPayload.crm_owner,
+            crm_status: crmStatus,
+            crm_stage: crmStage,
+            crm_description: crmDescription,
+            crm_last_activity_at: crmLastActivity,
+            intro_sent_at: newLead.intro_sent_at,
+          });
         }
 
         created++;

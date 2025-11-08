@@ -2,7 +2,12 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SRK = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL!;
+const BASE_URL =
+  process.env.PUBLIC_BASE_URL ||
+  process.env.PUBLIC_BASE ||
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  process.env.NEXT_PUBLIC_BASE_URL ||
+  '';
 const ACCOUNT_ID = '11111111-1111-1111-1111-111111111111';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -27,8 +32,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // If turning ON, immediately kick off (seed any unsent intros)
     let kickoff: any = null;
-    if (saved) {
-      const r = await fetch(`${PUBLIC_BASE_URL}/api/autotexter/kickoff`, { method: 'POST' }).catch(() => null);
+    if (saved && BASE_URL) {
+      const kickoffUrl = `${BASE_URL.replace(/\/$/, '')}/api/autotexter/kickoff`;
+      const r = await fetch(kickoffUrl, { method: 'POST' }).catch(() => null);
       kickoff = r ? await r.json().catch(() => null) : null;
     }
 

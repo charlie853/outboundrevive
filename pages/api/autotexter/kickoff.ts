@@ -1,99 +1,74 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { supabaseAdmin } from '@/lib/supabaseServer';
+import { queueIntroForLead } from '@/lib/autotexter/queue';
 
 const ACCOUNT_ID = '11111111-1111-1111-1111-111111111111';
-const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID || '';
-const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN || '';
-const TWILIO_FROM = process.env.TWILIO_FROM || '';
-
-const headers = {
-  apikey: SUPABASE_SERVICE_ROLE_KEY,
-  Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-  'Content-Type': 'application/json',
-  Prefer: 'resolution=merge-duplicates',
-};
-
-const INITIAL_TEXT =
-  "Hey, it’s OutboundRevive — quick follow-up from your inquiry. Want me to share pricing & next steps?";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' });
 
   try {
-    const setResp = await fetch(
-      `${SUPABASE_URL}/rest/v1/account_settings?account_id=eq.${ACCOUNT_ID}&select=autotexter_enabled,brand,phone_from`,
-      { headers }
-    );
-    const setJson = (await setResp.json())[0] || {};
-    if (!setJson?.autotexter_enabled) {
+    const { data: settings } = await supabaseAdmin
+      .from('account_settings')
+      .select('autotexter_enabled')
+      .eq('account_id', ACCOUNT_ID)
+      .maybeSingle();
+
+    if (!settings?.autotexter_enabled) {
       return res.status(200).json({ ok: false, error: 'autotexter_disabled' });
     }
-    const brand = setJson.brand || 'OutboundRevive';
-    const phone_from = setJson.phone_from || TWILIO_FROM;
 
-    const q = new URL(`${SUPABASE_URL}/rest/v1/leads`);
-    q.searchParams.set('account_id', `eq.${ACCOUNT_ID}`);
-    q.searchParams.set('or', '(last_sent_at.is.null,delivery_status.eq.pending)');
-    q.searchParams.set('select', 'id,phone,name');
-    q.searchParams.set('order', 'created_at.asc');
-    q.searchParams.set('limit', '50');
-    const leadsResp = await fetch(q.toString(), { headers });
-    const leads: { id: string; phone: string; name?: string }[] = leadsResp.ok ? await leadsResp.json() : [];
+    const { data: leads, error } = await supabaseAdmin
+      .from('leads')
+      .select('id, phone, name, email, company, crm_owner, crm_status, crm_stage, crm_description, crm_last_activity_at, intro_sent_at')
+      .eq('account_id', ACCOUNT_ID)
+      .not('phone', 'is', null)
+      .is('intro_sent_at', null)
+      .or('last_sent_at.is.null,delivery_status.eq.pending')
+      .limit(200);
 
-    let attempted = 0, sent = 0, dryRun = false;
-    let twilioClient: any = null;
-    if (TWILIO_SID && TWILIO_TOKEN && phone_from) {
-      try {
-        const twilio = (await import('twilio')).default;
-        twilioClient = twilio(TWILIO_SID, TWILIO_TOKEN);
-      } catch { dryRun = true; }
-    } else {
-      dryRun = true;
+    if (error) {
+      return res.status(500).json({ ok: false, error: error.message });
     }
 
-    for (const lead of leads) {
-      attempted++;
-      const to = lead.phone;
-      let delivered = false;
+    const queuePromises =
+      leads?.map((lead) =>
+        queueIntroForLead(ACCOUNT_ID, {
+          id: lead.id,
+          name: lead.name,
+          phone: lead.phone,
+          email: lead.email,
+          company: lead.company,
+          crm_owner: lead.crm_owner,
+          crm_status: lead.crm_status,
+          crm_stage: lead.crm_stage,
+          crm_description: lead.crm_description,
+          crm_last_activity_at: lead.crm_last_activity_at,
+          intro_sent_at: lead.intro_sent_at,
+        })
+      ) ?? [];
 
-      try {
-        if (!dryRun && twilioClient) {
-          await twilioClient.messages.create({ from: phone_from, to, body: INITIAL_TEXT });
-          delivered = true;
-        }
-      } catch { delivered = false; }
+    await Promise.allSettled(queuePromises);
 
-      const now = new Date().toISOString();
+    const base =
+      process.env.PUBLIC_BASE_URL ||
+      process.env.PUBLIC_BASE ||
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      process.env.NEXT_PUBLIC_BASE_URL ||
+      '';
+    const adminToken = (process.env.ADMIN_API_KEY || process.env.ADMIN_TOKEN || '').trim();
 
-      await fetch(`${SUPABASE_URL}/rest/v1/leads?id=eq.${lead.id}`, {
-        method: 'PATCH',
-        headers,
-        body: JSON.stringify({
-          last_sent_at: now,
-          delivery_status: delivered ? 'delivered' : (dryRun ? 'queued' : 'failed'),
-        }),
-      }).catch(() => {});
-
-      await fetch(`${SUPABASE_URL}/rest/v1/messages_out`, {
+    if (base && adminToken) {
+      await fetch(`${base.replace(/\/$/, '')}/api/internal/queue/worker`, {
         method: 'POST',
-        headers,
-        body: JSON.stringify([{
-          account_id: ACCOUNT_ID,    // <-- important
-          lead_id: lead.id,
-          from_phone: phone_from,
-          to_phone: to,
-          body: INITIAL_TEXT,
-          status: delivered ? 'delivered' : (dryRun ? 'queued' : 'failed'),
-          provider: 'twilio',
-          created_at: now,
-        }]),
-      }).catch(() => {});
-
-      if (delivered || dryRun) sent++;
+        headers: { 'x-admin-token': adminToken },
+      }).catch(() => null);
     }
 
-    res.status(200).json({ ok: true, attempted, sent, dryRun, brand, from: phone_from });
+    res.status(200).json({
+      ok: true,
+      queued: queuePromises.length,
+    });
   } catch (e: any) {
     res.status(200).json({ ok: false, error: String(e?.message || e) });
   }
