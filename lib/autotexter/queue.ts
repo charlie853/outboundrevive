@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabaseServer';
 import { renderIntro, firstNameOf } from '@/lib/reminderTemplates';
+import { sendSms } from '@/lib/twilio';
 
 type LeadForIntro = {
   id: string;
@@ -18,33 +19,31 @@ type LeadForIntro = {
 type AccountSettings = {
   brand?: string | null;
   booking_link?: string | null;
+  autotexter_enabled?: boolean | null;
 };
 
-const settingsCache = new Map<string, AccountSettings | null>();
-
 async function getAccountSettings(accountId: string): Promise<AccountSettings | null> {
-  if (settingsCache.has(accountId)) {
-    return settingsCache.get(accountId)!;
-  }
   try {
     const { data } = await supabaseAdmin
       .from('account_settings')
-      .select('brand, booking_link')
+      .select('brand, booking_link, autotexter_enabled')
       .eq('account_id', accountId)
       .maybeSingle();
-    settingsCache.set(accountId, data ?? null);
     return data ?? null;
   } catch (error) {
     console.warn('[autotexter] failed to load account_settings', error);
-    settingsCache.set(accountId, null);
     return null;
   }
 }
 
-async function generateIntroMessage(accountId: string, lead: LeadForIntro): Promise<string> {
-  const settings = await getAccountSettings(accountId);
-  const brand = settings?.brand?.trim() || 'OutboundRevive';
-  const booking = settings?.booking_link?.trim();
+async function generateIntroMessage(
+  accountId: string,
+  lead: LeadForIntro,
+  settings?: AccountSettings | null
+): Promise<{ message: string; settings: AccountSettings | null }> {
+  const effectiveSettings = settings ?? (await getAccountSettings(accountId));
+  const brand = effectiveSettings?.brand?.trim() || 'OutboundRevive';
+  const booking = effectiveSettings?.booking_link?.trim();
 
   const firstName = firstNameOf(lead.name ?? undefined);
   const lines: string[] = [];
@@ -117,7 +116,7 @@ async function generateIntroMessage(accountId: string, lead: LeadForIntro): Prom
           null;
         if (reply) {
           const trimmed = reply.length > 320 ? `${reply.slice(0, 317).trimEnd()}…` : reply;
-          return trimmed;
+          return { message: trimmed, settings: effectiveSettings };
         }
       } else {
         const detail = await resp.text().catch(() => '');
@@ -129,7 +128,89 @@ async function generateIntroMessage(accountId: string, lead: LeadForIntro): Prom
   }
 
   const fallback = renderIntro(firstName, brand);
-  return fallback.length > 320 ? `${fallback.slice(0, 317).trimEnd()}…` : fallback;
+  const trimmed = fallback.length > 320 ? `${fallback.slice(0, 317).trimEnd()}…` : fallback;
+  return { message: trimmed, settings: effectiveSettings };
+}
+
+async function introAlreadySent(accountId: string, lead: LeadForIntro) {
+  const { count: introCount, error: introError } = await supabaseAdmin
+    .from('messages_out')
+    .select('id', { head: true, count: 'exact' })
+    .eq('lead_id', lead.id)
+    .eq('intent', 'initial_outreach')
+    .limit(1);
+
+  if (introError) {
+    console.warn('[autotexter] intro history check failed', introError.message);
+    return false;
+  }
+
+  return (introCount ?? 0) > 0;
+}
+
+async function sendIntroNow(
+  accountId: string,
+  lead: LeadForIntro,
+  message: string,
+  settings: AccountSettings | null
+) {
+  if (!lead.phone) return;
+
+  const nowIso = new Date().toISOString();
+  let sid: string | null = null;
+  let providerStatus: 'queued' | 'sent' | 'failed' = 'queued';
+
+  try {
+    const resp = await sendSms({ to: lead.phone, body: message });
+    sid = resp?.sid ?? null;
+    const statusLower = String(resp?.status || '').toLowerCase();
+    providerStatus = statusLower === 'sent' || statusLower === 'sending' ? 'sent' : 'queued';
+  } catch (error) {
+    providerStatus = 'failed';
+    console.error('[autotexter] intro send failed', error);
+  }
+
+  try {
+    await supabaseAdmin.from('messages_out').insert({
+      account_id: accountId,
+      lead_id: lead.id,
+      body: message,
+      provider: 'twilio',
+      provider_status: providerStatus,
+      status: providerStatus,
+      sent_by: 'ai',
+      intent: 'initial_outreach',
+      gate_log: {
+        category: 'initial_outreach',
+        source: 'autotexter',
+        autotexter_enabled: settings?.autotexter_enabled ?? null,
+      },
+      created_at: nowIso,
+      sid,
+    });
+  } catch (error) {
+    console.error('[autotexter] failed to log intro message', error);
+  }
+
+  const leadUpdate: Record<string, any> = {
+    last_message_sid: sid,
+    last_sent_at: nowIso,
+    delivery_status: providerStatus,
+    status: providerStatus === 'failed' ? 'pending' : 'sent',
+  };
+  if (providerStatus !== 'failed') {
+    leadUpdate.intro_sent_at = nowIso;
+  }
+
+  try {
+    await supabaseAdmin
+      .from('leads')
+      .update(leadUpdate)
+      .eq('id', lead.id)
+      .eq('account_id', accountId);
+  } catch (error) {
+    console.error('[autotexter] failed to update lead intro status', error);
+  }
 }
 
 export async function queueIntroForLead(accountId: string, lead: LeadForIntro) {
@@ -153,19 +234,15 @@ export async function queueIntroForLead(accountId: string, lead: LeadForIntro) {
     if (existing) {
       return;
     }
-
-    const { count: introCount, error: introError } = await supabaseAdmin
-      .from('messages_out')
-      .select('id', { head: true, count: 'exact' })
-      .eq('lead_id', lead.id)
-      .eq('intent', 'initial_outreach')
-      .limit(1);
-
-    if (introError) {
-      console.warn('[autotexter] intro history check failed', introError.message);
+  } catch (error: any) {
+    if (error?.code !== 'PGRST205' && error?.code !== '42P01') {
+      console.warn('[autotexter] queue lookup failed', error);
     }
+  }
 
-    if ((introCount ?? 0) > 0) {
+  try {
+    const alreadySent = await introAlreadySent(accountId, lead);
+    if (alreadySent) {
       await supabaseAdmin
         .from('leads')
         .update({ intro_sent_at: new Date().toISOString() })
@@ -174,19 +251,33 @@ export async function queueIntroForLead(accountId: string, lead: LeadForIntro) {
       return;
     }
 
-    const message = await generateIntroMessage(accountId, lead);
+    const { message, settings } = await generateIntroMessage(accountId, lead);
     if (!message) return;
 
-    await supabaseAdmin.from('send_queue').insert({
-      account_id: accountId,
-      lead_id: lead.id,
-      body: message,
-      dedup_key: dedupKey,
-      run_after: new Date().toISOString(),
-    });
+    if (settings?.autotexter_enabled) {
+      await sendIntroNow(accountId, lead, message, settings);
+      return;
+    }
+
+    try {
+      await supabaseAdmin.from('send_queue').insert({
+        account_id: accountId,
+        lead_id: lead.id,
+        body: message,
+        dedup_key: dedupKey,
+        run_after: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      if (error?.code === '42P01' || error?.message?.includes('send_queue')) {
+        console.warn('[autotexter] send_queue table missing; intro will send once autotexter is enabled', {
+          accountId,
+          leadId: lead.id,
+        });
+      } else {
+        throw error;
+      }
+    }
   } catch (error) {
     console.error('[autotexter] failed to queue intro', { accountId, leadId: lead.id, error });
   }
 }
-
-

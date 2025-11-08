@@ -50,21 +50,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     await Promise.allSettled(queuePromises);
 
-    const base =
-      process.env.PUBLIC_BASE_URL ||
-      process.env.PUBLIC_BASE ||
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      process.env.NEXT_PUBLIC_BASE_URL ||
-      '';
-    const adminToken = (process.env.ADMIN_API_KEY || process.env.ADMIN_TOKEN || '').trim();
-
-    if (base && adminToken) {
-      await fetch(`${base.replace(/\/$/, '')}/api/internal/queue/worker`, {
-        method: 'POST',
-        headers: { 'x-admin-token': adminToken },
-      }).catch(() => null);
-    }
-
     res.status(200).json({
       ok: true,
       queued: queuePromises.length,
