@@ -77,9 +77,11 @@ export async function POST(request: NextRequest) {
         provider: providerConfigKey,
         nango_connection_id: connectionId,
         connection_metadata: {
+          access_token: token, // Store the token for fallback
           scopes: connection.credentials?.raw?.scope,
           connection_config: connection.connection_config,
           created_at: connection.created_at,
+          expires_at: connection.credentials?.expires_at,
         },
         is_active: true,
       })
