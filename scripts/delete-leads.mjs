@@ -21,10 +21,17 @@ function toE164(raw) {
   return `+${digits}`;
 }
 
-const phones = [
-  toE164('(415) 265-5001'),
-  toE164('(206) 295-9002'),
-].filter(Boolean);
+const inputPhones = process.argv.slice(2);
+if (inputPhones.length === 0) {
+  console.error('Usage: node scripts/delete-leads.mjs <phone1> <phone2> ...');
+  process.exit(1);
+}
+
+const phones = inputPhones.map(toE164).filter(Boolean);
+if (phones.length === 0) {
+  console.error('No valid phone numbers provided.');
+  process.exit(1);
+}
 
 const accountId = '11111111-1111-1111-1111-111111111111';
 
@@ -46,24 +53,6 @@ async function deleteLeadData() {
 
     const leadIds = leads.map((l) => l.id);
     console.log('Found lead IDs:', leadIds);
-
-    const { data: queueRows } = await supabase
-      .from('send_queue')
-      .select('id')
-      .in('lead_id', leadIds)
-      .eq('account_id', accountId)
-      .limit(100);
-
-    if (queueRows && queueRows.length) {
-      const { error: queueDeleteError } = await supabase
-        .from('send_queue')
-        .delete()
-        .in('id', queueRows.map((r) => r.id));
-      if (queueDeleteError) throw queueDeleteError;
-      console.log(`Removed ${queueRows.length} queued entries`);
-    } else {
-      console.log('No queued entries found.');
-    }
 
     const { error: messagesError, count: messagesDeleted } = await supabase
       .from('messages_out')

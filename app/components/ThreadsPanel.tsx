@@ -165,6 +165,8 @@ export default function ThreadsPanel() {
   const [conversation, setConversation] = useState<ConversationPayload | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
   const [modalLoading, setModalLoading] = useState(false);
+  const [deletingLeadId, setDeletingLeadId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   if (error) {
     console.warn('[THREADS_PANEL] error', error);
@@ -262,6 +264,47 @@ export default function ThreadsPanel() {
     setModalLoading(false);
   };
 
+  const handleDeleteLead = async (thread: ThreadRow) => {
+    const leadId = (thread?.id ?? thread?.lead_id ?? null);
+    const phone = thread?.phone ?? thread?.lead_phone ?? '';
+    const displayName = thread?.name ?? thread?.lead_name ?? formatPhone(phone);
+
+    if (!leadId) {
+      alert('Unable to delete this lead. No lead ID was provided.');
+      return;
+    }
+
+    if (!window.confirm(`Delete ${displayName}? This will remove the lead and its messages.`)) {
+      return;
+    }
+
+    setDeletingLeadId(leadId);
+    setDeleteError(null);
+    try {
+      const response = await authenticatedFetch('/api/leads', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [leadId] }),
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok || json?.error) {
+        throw new Error(json?.error || `Failed to delete lead (${response.status})`);
+      }
+
+      if (openLeadId === leadId) {
+        closeModal();
+      }
+
+      await mutate();
+    } catch (error: any) {
+      console.error('[THREADS] Failed to delete lead', error);
+      setDeleteError(error?.message || 'Failed to delete lead');
+      setTimeout(() => setDeleteError(null), 4000);
+    } finally {
+      setDeletingLeadId(null);
+    }
+  };
+
   // The threads API always returns HTTP 200 (even on errors it returns { ok: true, threads: [] })
   // and uses service role key, so it should never return 401.
   // However, if the fetcher throws a 401 error (e.g., from network/auth middleware), show banner
@@ -305,6 +348,11 @@ export default function ThreadsPanel() {
             </button>
           </div>
         )}
+        {deleteError && (
+          <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {deleteError}
+          </div>
+        )}
         {!error && isLoading && <div className="h-24 animate-pulse rounded-xl bg-surface-bg" />}
         {!error && !isLoading && threads.length === 0 && (
           <div className="text-sm text-ink-2">No recent conversations.</div>
@@ -314,6 +362,7 @@ export default function ThreadsPanel() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-surface-line">
+                  <th className="text-left py-2 px-3 font-medium text-ink-2 w-12"> </th>
                   <th className="text-left py-2 px-3 font-medium text-ink-2">Name</th>
                   <th className="text-left py-2 px-3 font-medium text-ink-2">Opted Out</th>
                   <th className="text-left py-2 px-3 font-medium text-ink-2">Booked</th>
@@ -363,6 +412,17 @@ export default function ThreadsPanel() {
                       key={itemKey} 
                       className={`hover:bg-surface-bg/50 ${optedOut ? 'opacity-60' : ''}`}
                     >
+                      <td className="py-2 px-3">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteLead(thread)}
+                          disabled={deletingLeadId === (thread?.id ?? thread?.lead_id ?? null)}
+                          className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          title="Delete lead"
+                        >
+                          {deletingLeadId === (thread?.id ?? thread?.lead_id ?? null) ? 'Deleting…' : 'Delete'}
+                        </button>
+                      </td>
                       <td className="py-2 px-3">
                         <div className="font-medium text-ink-1">{displayName}</div>
                         <div className="text-xs text-ink-3">{formatPhone(phone)}</div>
