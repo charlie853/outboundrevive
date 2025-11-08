@@ -1,11 +1,34 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { authenticatedFetch } from '@/lib/api-client';
 
 export default function RefreshCrmButton({ onRefresh }: { onRefresh?: () => void }) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+
+  // Fetch the last sync time on mount and after each sync
+  const fetchLastSyncTime = async () => {
+    try {
+      const response = await authenticatedFetch('/api/crm/status');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.lastSyncedAt) {
+          setLastSyncedAt(data.lastSyncedAt);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch last sync time:', error);
+    }
+  };
+
+  useEffect(() => {
+    fetchLastSyncTime();
+    // Poll every 60 seconds to update the "last synced" time
+    const interval = setInterval(fetchLastSyncTime, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleRefresh = async () => {
     try {
@@ -36,6 +59,9 @@ export default function RefreshCrmButton({ onRefresh }: { onRefresh?: () => void
         setMessage('Sync completed');
       }
 
+      // Update last sync time
+      setLastSyncedAt(new Date().toISOString());
+
       // Call the onRefresh callback to reload data
       onRefresh?.();
 
@@ -50,50 +76,76 @@ export default function RefreshCrmButton({ onRefresh }: { onRefresh?: () => void
     }
   };
 
+  const formatLastSyncTime = (isoString: string | null) => {
+    if (!isoString) return 'Never';
+    
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+    
+    return date.toLocaleDateString();
+  };
+
   return (
-    <div className="flex items-center gap-2">
-      <button
-        onClick={handleRefresh}
-        disabled={isSyncing}
-        className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-          isSyncing
-            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-            : 'bg-emerald-600 text-white hover:bg-emerald-700'
-        }`}
-      >
-        {isSyncing ? (
-          <span className="flex items-center gap-2">
-            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-                fill="none"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              />
-            </svg>
-            Syncing…
-          </span>
-        ) : (
-          '🔄 Refresh CRM'
-        )}
-      </button>
-      {message && (
-        <div
-          className={`text-sm px-3 py-1 rounded ${
-            message.includes('Failed') || message.includes('error')
-              ? 'bg-red-50 text-red-700'
-              : 'bg-emerald-50 text-emerald-700'
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <button
+          onClick={handleRefresh}
+          disabled={isSyncing}
+          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+            isSyncing
+              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              : 'bg-emerald-600 text-white hover:bg-emerald-700'
           }`}
         >
-          {message}
+          {isSyncing ? (
+            <span className="flex items-center gap-2">
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                  fill="none"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                />
+              </svg>
+              Syncing…
+            </span>
+          ) : (
+            '🔄 Refresh CRM'
+          )}
+        </button>
+        {message && (
+          <div
+            className={`text-sm px-3 py-1 rounded ${
+              message.includes('Failed') || message.includes('error')
+                ? 'bg-red-50 text-red-700'
+                : 'bg-emerald-50 text-emerald-700'
+            }`}
+          >
+            {message}
+          </div>
+        )}
+      </div>
+      {lastSyncedAt && (
+        <div className="text-xs text-gray-500">
+          Last synced: {formatLastSyncTime(lastSyncedAt)}
+          <span className="ml-1 text-gray-400">• Auto-syncs hourly</span>
         </div>
       )}
     </div>
