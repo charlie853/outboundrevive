@@ -7,7 +7,7 @@ const admin = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVI
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     const { query } = req;
-    const account_id = String(query.account_id || '');
+    const account_id = query.account_id ? String(query.account_id) : null;
     const out_id = query.out_id ? String(query.out_id) : null;
 
     const {
@@ -24,7 +24,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const toPhone = typeof twilioTo === 'string' ? toE164US(twilioTo) : null;
     const fromPhone = typeof twilioFrom === 'string' ? toE164US(twilioFrom) : null;
 
-    if (!account_id || !messageSid) {
+    if (!messageSid) {
       res.status(200).send('<ok/>');
       return;
     }
@@ -49,19 +49,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       updates.sent_at = new Date().toISOString();
     }
 
+    // Build base query
+    let queryBuilder = admin.from('messages_out').update(updates);
+
     if (out_id) {
-      await admin
-        .from('messages_out')
-        .update(updates)
-        .eq('account_id', account_id)
-        .eq('id', out_id);
+      queryBuilder = queryBuilder.eq('id', out_id);
     } else {
-      await admin
-        .from('messages_out')
-        .update(updates)
-        .eq('account_id', account_id)
-        .eq('provider_sid', messageSid);
+      queryBuilder = queryBuilder.eq('provider_sid', messageSid);
     }
+
+    if (account_id) {
+      queryBuilder = queryBuilder.eq('account_id', account_id);
+    }
+
+    await queryBuilder;
 
     res.status(200).send('<ok/>');
   } catch {
