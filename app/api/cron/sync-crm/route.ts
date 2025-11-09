@@ -16,7 +16,26 @@ export async function GET(req: NextRequest) {
     
     if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
       console.warn('[cron/sync-crm] Unauthorized request');
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json(
+        {
+          error: 'Unauthorized',
+          hint: 'Cron secret mismatch',
+          hasSecret: true,
+        },
+        { status: 401 }
+      );
+    }
+
+    if (!cronSecret) {
+      console.warn('[cron/sync-crm] CRON_SECRET is not configured');
+      return NextResponse.json(
+        {
+          error: 'Unauthorized',
+          hint: 'CRON_SECRET not configured in environment',
+          hasSecret: false,
+        },
+        { status: 401 }
+      );
     }
 
     console.log('[cron/sync-crm] Starting hourly CRM sync for all accounts');
