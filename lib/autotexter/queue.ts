@@ -160,11 +160,24 @@ async function sendIntroNow(
   let sid: string | null = null;
   let providerStatus: 'queued' | 'sent' | 'failed' = 'queued';
 
+  console.log('[autotexter] Sending intro SMS', {
+    accountId,
+    leadId: lead.id,
+    to: lead.phone,
+    messageLength: message.length,
+  });
+
   try {
     const resp = await sendSms({ to: lead.phone, body: message });
     sid = resp?.sid ?? null;
     const statusLower = String(resp?.status || '').toLowerCase();
     providerStatus = statusLower === 'sent' || statusLower === 'sending' ? 'sent' : 'queued';
+    
+    console.log('[autotexter] SMS sent successfully', {
+      sid,
+      status: resp?.status,
+      providerStatus,
+    });
   } catch (error) {
     providerStatus = 'failed';
     console.error('[autotexter] intro send failed', error);
@@ -176,6 +189,7 @@ async function sendIntroNow(
       lead_id: lead.id,
       body: message,
       provider: 'twilio',
+      provider_sid: sid,
       provider_status: providerStatus,
       status: providerStatus,
       sent_by: 'ai',
@@ -186,7 +200,6 @@ async function sendIntroNow(
         autotexter_enabled: settings?.autotexter_enabled ?? null,
       },
       created_at: nowIso,
-      sid,
     });
   } catch (error) {
     console.error('[autotexter] failed to log intro message', error);
@@ -214,11 +227,25 @@ async function sendIntroNow(
 }
 
 export async function queueIntroForLead(accountId: string, lead: LeadForIntro) {
-  if (!lead?.id || !lead.phone) return;
-
-  if (lead.intro_sent_at) {
+  if (!lead?.id || !lead.phone) {
+    console.log('[autotexter] Skipping lead - missing ID or phone', {
+      leadId: lead?.id,
+      hasPhone: !!lead?.phone,
+    });
     return;
   }
+
+  if (lead.intro_sent_at) {
+    console.log('[autotexter] Intro already sent for lead', { leadId: lead.id });
+    return;
+  }
+
+  console.log('[autotexter] Processing intro for lead', {
+    accountId,
+    leadId: lead.id,
+    name: lead.name,
+    phone: lead.phone,
+  });
 
   const dedupKey = `intro:${lead.id}`;
   try {
@@ -252,12 +279,24 @@ export async function queueIntroForLead(accountId: string, lead: LeadForIntro) {
     }
 
     const { message, settings } = await generateIntroMessage(accountId, lead);
-    if (!message) return;
+    if (!message) {
+      console.warn('[autotexter] No message generated for lead', { leadId: lead.id });
+      return;
+    }
+
+    console.log('[autotexter] Message generated', {
+      leadId: lead.id,
+      messageLength: message.length,
+      autotexterEnabled: settings?.autotexter_enabled,
+    });
 
     if (settings?.autotexter_enabled) {
+      console.log('[autotexter] Autotexter is ON - sending immediately', { leadId: lead.id });
       await sendIntroNow(accountId, lead, message, settings);
       return;
     }
+
+    console.log('[autotexter] Autotexter is OFF - queueing message', { leadId: lead.id });
 
     try {
       await supabaseAdmin.from('send_queue').insert({
