@@ -58,13 +58,10 @@ export async function fetchCrmContacts(options: SyncExecutionOptions): Promise<{
   let connection: any = null;
   let accessToken = options.accessToken;
 
-  // If we have a stored access token, use it directly
-  if (accessToken) {
-    console.log('[sync-service] Using stored access token from database');
-  } else if (options.connectionId) {
-    // Otherwise, try to fetch fresh credentials from Nango
+  // Always try to fetch fresh token from Nango first if we have a connectionId
+  if (options.connectionId) {
     try {
-      console.log('[sync-service] Fetching Nango connection for provider:', options.provider, 'connectionId:', options.connectionId);
+      console.log('[sync-service] Fetching fresh Nango connection for provider:', options.provider, 'connectionId:', options.connectionId);
       const nango = getNangoClient();
       // Nango SDK expects (integrationId, connectionId) where integrationId is the provider config key
       connection = await nango.getConnection(options.provider, options.connectionId);
@@ -73,6 +70,21 @@ export async function fetchCrmContacts(options: SyncExecutionOptions): Promise<{
         hasAccessToken: !!connection?.credentials?.access_token,
       });
       accessToken = connection?.credentials?.access_token;
+      
+      // Update the stored token in the database for future fallback
+      if (accessToken) {
+        console.log('[sync-service] Updating stored access token in database');
+        await supabaseAdmin
+          .from('crm_connections')
+          .update({
+            connection_metadata: {
+              access_token: accessToken,
+              updated_at: new Date().toISOString(),
+            },
+          })
+          .eq('account_id', options.accountId)
+          .eq('nango_connection_id', options.connectionId);
+      }
     } catch (nangoError: any) {
       console.error('[sync-service] Nango getConnection error:', {
         message: nangoError.message,
@@ -83,12 +95,19 @@ export async function fetchCrmContacts(options: SyncExecutionOptions): Promise<{
         connectionId: options.connectionId,
       });
       
-      // If Nango returns 400, the connection might be invalid or expired
-      throw new Error(
-        `Failed to fetch CRM connection from Nango: ${nangoError.response?.data?.error || nangoError.message}. ` +
-        `The connection may have expired. Please reconnect your CRM.`
-      );
+      // If Nango fails, try the stored token as fallback
+      if (options.accessToken) {
+        console.log('[sync-service] Falling back to stored access token');
+        accessToken = options.accessToken;
+      } else {
+        throw new Error(
+          `Failed to fetch CRM connection from Nango: ${nangoError.response?.data?.error || nangoError.message}. ` +
+          `The connection may have expired. Please reconnect your CRM.`
+        );
+      }
     }
+  } else if (accessToken) {
+    console.log('[sync-service] Using stored access token (no connectionId available)');
   }
 
   if (!accessToken) {
