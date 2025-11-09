@@ -5,6 +5,7 @@ import { toE164US } from '@/lib/phone';
 const admin = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const start = Date.now();
   try {
     const { query } = req;
     const account_id = query.account_id ? String(query.account_id) : null;
@@ -23,6 +24,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const errorCode = ErrorCode ?? null;
     const toPhone = typeof twilioTo === 'string' ? toE164US(twilioTo) : null;
     const fromPhone = typeof twilioFrom === 'string' ? toE164US(twilioFrom) : null;
+
+    console.log('[twilio/status] webhook received', {
+      messageSid,
+      messageStatus,
+      hasErrorCode: errorCode != null,
+      account_id,
+      out_id,
+    });
 
     if (!messageSid) {
       res.status(200).send('<ok/>');
@@ -62,10 +71,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       queryBuilder = queryBuilder.eq('account_id', account_id);
     }
 
-    await queryBuilder;
+    const { error } = await queryBuilder;
+
+    if (error) {
+      console.error('[twilio/status] failed to update message', { messageSid, error: error.message });
+    } else {
+      console.log('[twilio/status] updated message', { messageSid, status: updates.status });
+    }
 
     res.status(200).send('<ok/>');
-  } catch {
+  } catch (err: any) {
+    console.error('[twilio/status] handler exception', { message: err?.message });
     res.status(200).send('<ok/>');
+  } finally {
+    console.log('[twilio/status] completed', { durationMs: Date.now() - start });
   }
 }
