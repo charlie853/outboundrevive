@@ -183,6 +183,11 @@ export async function syncContactsToLeads(
       const phoneE164 = contact.phone ? toE164(contact.phone) : null;
 
       if (!phoneE164) {
+        console.log('[sync-service] Skipping contact without valid phone', {
+          name: contact.name,
+          id: contact.id,
+          rawPhone: contact.phone,
+        });
         skipped++;
         continue;
       }
@@ -289,6 +294,13 @@ export async function syncContactsToLeads(
           if (newLead.email) {
             byEmail.set(String(newLead.email).toLowerCase(), newLead);
           }
+
+          console.log('[sync-service] Created new lead, queueing intro', {
+            leadId: newLead.id,
+            name: newLead.name,
+            phone: newLead.phone,
+            hasIntroSent: !!newLead.intro_sent_at,
+          });
 
           await queueIntroForLead(accountId, {
             id: newLead.id,
