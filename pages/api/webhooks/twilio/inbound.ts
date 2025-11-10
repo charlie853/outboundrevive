@@ -13,12 +13,13 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const LLM_MODEL = process.env.LLM_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";
 
 // Booking link priority: Use 30-min intro call link, never the secret link
-// Priority order: BOOKING_URL > CAL_BOOKING_URL > CAL_PUBLIC_URL (skip CAL_URL if it's a secret link)
+// Priority order: BOOKING_URL > CAL_BOOKING_URL > CAL_PUBLIC_URL > CAL_URL (filter out secret links)
 const BOOKING_LINK = (() => {
   const candidates = [
     process.env.BOOKING_URL,
     process.env.CAL_BOOKING_URL,
     process.env.CAL_PUBLIC_URL,
+    process.env.CAL_URL,
   ].filter(Boolean).map(s => s!.trim());
   
   // Filter out any secret links
