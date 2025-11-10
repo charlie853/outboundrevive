@@ -121,6 +121,22 @@ function escapeXml(s: string) {
     .replace(/'/g, "&apos;");
 }
 
+async function insertWithOptionalSegments(
+  table: 'messages_in' | 'messages_out',
+  row: Record<string, any>
+) {
+  let payload = { ...row };
+  let { data, error } = await supabaseAdmin.from(table).insert([payload]);
+
+  if (error && typeof error.message === 'string' && error.message.includes("'segments'")) {
+    console.warn(`[twilio/inbound] ${table} insert retry without segments column`, error.message);
+    const { segments, ...rest } = payload;
+    ({ data, error } = await supabaseAdmin.from(table).insert([rest]));
+  }
+
+  return { data, error };
+}
+
 // === Check if intro is needed (thread context) ===
 async function needsIntro(leadId: string): Promise<boolean> {
   try {
@@ -417,18 +433,16 @@ async function persistIn(
       segments,
     });
 
-    const { error } = await supabaseAdmin
-      .from("messages_in")
-      .insert({
-        lead_id: leadId,
-        account_id: accountId,
-        body,
-        provider_sid: providerSid ?? null,
-        provider_from: fromPhone,
-        provider_to: toPhone,
-        created_at: createdAtIso,
-        segments
-      });
+    const { error } = await insertWithOptionalSegments("messages_in", {
+      lead_id: leadId,
+      account_id: accountId,
+      body,
+      provider_sid: providerSid ?? null,
+      provider_from: fromPhone,
+      provider_to: toPhone,
+      created_at: createdAtIso,
+      segments
+    });
 
     if (error) {
       console.error("messages_in insert failed:", error);
@@ -493,28 +507,17 @@ async function persistOut(leadId: string, body: string, needsFooterFlag: boolean
       : body;
     const segments = countSegments(finalBody);
 
-  const payload = [{
+    const { error } = await insertWithOptionalSegments("messages_out", {
       lead_id: leadId,
-    account_id: accountId,
+      account_id: accountId,
       body: finalBody,
-    sent_by: "ai",
-    segments
-  }];
+      sent_by: "ai",
+      segments,
+      created_at: new Date().toISOString()
+    });
 
-  const resp = await fetch(`${SUPABASE_URL}/rest/v1/messages_out`, {
-    method: "POST",
-    headers: {
-      "apikey": SRK,
-      "Authorization": `Bearer ${SRK}`,
-      "Content-Type": "application/json",
-      "Prefer": "return=representation"
-    },
-    body: JSON.stringify(payload)
-  });
-
-    if (!resp.ok) {
-  const text = await resp.text();
-    console.error("messages_out insert failed", resp.status, text);
+    if (error) {
+      console.error("messages_out insert failed", error);
       return;
     }
 
