@@ -398,12 +398,17 @@ async function persistIn(
   fromPhone: string,
   toPhone: string,
   accountId: string,
-  providerSid?: string | null
+  providerSid?: string | null,
+  createdAt?: string | null
 ) {
   if (!leadId || !body || !accountId) return;
 
   try {
     const segments = countSegments(body || "");
+    const createdAtIso = createdAt && !Number.isNaN(Date.parse(createdAt))
+      ? new Date(createdAt).toISOString()
+      : new Date().toISOString();
+
     const { error } = await supabaseAdmin
       .from("messages_in")
       .insert({
@@ -413,7 +418,7 @@ async function persistIn(
         provider_sid: providerSid ?? null,
         provider_from: fromPhone,
         provider_to: toPhone,
-        created_at: new Date().toISOString(),
+        created_at: createdAtIso,
         segments
       });
 
