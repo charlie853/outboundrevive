@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { supabaseAdmin } from "@/lib/supabaseServer";
 import { countSegments } from "@/lib/messaging/segments";
 import { toE164US } from "@/lib/phone";
+import { determineLeadBucket } from "@/lib/leads/classify";
 import * as fs from "fs";
 import * as path from "path";
 
