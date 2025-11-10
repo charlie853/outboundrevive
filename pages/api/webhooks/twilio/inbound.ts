@@ -385,6 +385,8 @@ function postProcessMessage(
   s = s.replace(/hope your (?:day|week)(?: is)? going (?:well|great)[,!.\s]*/gi, '').trim();
   s = s.replace(/chat about your goals/gi, '').trim();
   s = s.replace(/checking in to see if now is a better time/gi, '').trim();
+  s = s.replace(/i know timing can be tricky[—\-]?\s*/gi, '').trim();
+  s = s.replace(/timing can be tricky[—\-]?\s*/gi, '').trim();
 
   // If gate hit (sent link in last 24h), remove any booking link
   if (gateHit && bookingLink) {
@@ -563,32 +565,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   let leadId: string | null = null;
   let firstName = "there";
   
+  let leadRecord: any = null;
   try {
     console.log("Looking up lead by phone:", FromE164);
-    const { data: lead, error: leadError } = await supabaseAdmin
+    const { data, error: leadError } = await supabaseAdmin
       .from("leads")
-      .select("id,name,opted_out,account_id")
+      .select("id,name,opted_out,account_id,lead_type,crm_status,crm_stage,crm_description,crm_owner,crm_owner_email,crm_last_activity_at,last_inbound_at,last_sent_at,company")
       .eq("phone", FromE164)
       .maybeSingle();
-    
+
     if (leadError) {
       console.error("Lead lookup error:", leadError);
     }
-    
-    if (lead) {
-      console.log("Lead found:", lead.id, lead.name);
-      leadId = lead.id;
-      firstName = (lead.name || "").split(" ")[0] || "there";
-      if (lead.account_id) {
-        accountId = lead.account_id;
+
+    leadRecord = data ?? null;
+
+    if (leadRecord) {
+      console.log("Lead found:", leadRecord.id, leadRecord.name);
+      leadId = leadRecord.id;
+      firstName = (leadRecord.name || "").split(" ")[0] || "there";
+      if (leadRecord.account_id) {
+        accountId = leadRecord.account_id;
       }
-      
-      // Check opt-out status
-      if (lead.opted_out) {
+
+      if (leadRecord.opted_out) {
         console.log("Lead has opted out, returning empty TwiML");
         res.status(200).setHeader("Content-Type", "text/xml")
           .send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
-    return;
+        return;
       }
     } else {
       console.log("No lead found in query result");
@@ -701,6 +705,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const templateVars: Record<string, string> = {
     brand: BRAND,
     first_name: firstName,
+    lead_first_name: firstName,
     booking_link: BOOKING_LINK,
     time1,
     time2,
@@ -709,14 +714,40 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     key_factors: "volume and features",
     entry_option: "Lite at $299/mo",
     differentiator: "AI-powered lead revival",
-    "insurers/financing": "major providers"
+    "insurers/financing": "major providers",
+    lead_bucket: leadBucket.label,
+    lead_bucket_reason: leadBucket.reason,
+    lead_status: leadStatus,
+    lead_stage: leadStage,
+    lead_notes: leadNotes,
+    lead_owner: leadOwner,
   };
 
-  const threadContext = await getThreadContext(leadId, inboundBody);
+  const leadBucket = determineLeadBucket({
+    lead_type: leadRecord?.lead_type,
+    crm_status: leadRecord?.crm_status,
+    crm_stage: leadRecord?.crm_stage,
+    crm_description: leadRecord?.crm_description,
+  });
+  const leadStatus = leadRecord?.crm_status?.trim() || "";
+  const leadStage = leadRecord?.crm_stage?.trim() || "";
+  const leadNotes = leadRecord?.crm_description?.trim() || "";
+  const leadOwner = leadRecord?.crm_owner?.trim() || "";
+
+  const baseThreadContext = await getThreadContext(leadId, inboundBody);
+  const bucketContextSegments = [
+    `Lead bucket: ${leadBucket.label}`,
+    leadBucket.reason ? `Bucket rationale: ${leadBucket.reason}` : '',
+    leadStatus ? `CRM status: ${leadStatus}` : '',
+    leadStage ? `CRM stage: ${leadStage}` : '',
+    leadOwner ? `Owner: ${leadOwner}` : '',
+    leadNotes ? `CRM notes: ${leadNotes}` : '',
+  ].filter(Boolean);
+  const llmContext = [bucketContextSegments.join('\n'), baseThreadContext].filter(Boolean).join('\n\n');
   let llmOutput: LLMOutputContract;
   
   try {
-    llmOutput = await generateWithLLM(threadContext, templateVars, needsIntroFlag);
+    llmOutput = await generateWithLLM(llmContext, templateVars, needsIntroFlag);
     console.log("LLM output:", JSON.stringify({ intent: llmOutput.intent, message_length: llmOutput.message?.length }));
   } catch (err) {
     console.error("LLM generation failed:", err);

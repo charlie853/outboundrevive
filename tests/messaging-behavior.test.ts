@@ -62,6 +62,11 @@ describe('SMS messaging helpers', () => {
       const processed = postProcessMessage("Just checking in to see if now is a better time to talk.", '', false);
       expect(processed.toLowerCase()).not.toContain('checking in to see if now is a better time');
     });
+
+    it('removes phrases like "timing can be tricky"', () => {
+      const processed = postProcessMessage("I know timing can be tricky—happy to help when you’re ready.", '', false);
+      expect(processed.toLowerCase()).not.toContain('timing can be tricky');
+    });
   });
 });
 

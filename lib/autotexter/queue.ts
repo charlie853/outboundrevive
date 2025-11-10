@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabaseServer';
 import { renderIntro, firstNameOf } from '@/lib/reminderTemplates';
 import { sendSms } from '@/lib/twilio';
+import { determineLeadBucket } from '@/lib/leads/classify';
 
 type LeadForIntro = {
   id: string;
@@ -49,15 +50,16 @@ async function generateIntroMessage(
   const firstName = firstNameOf(lead.name ?? undefined);
   const lines: string[] = [];
   if (lead.company) lines.push(`Company: ${lead.company}`);
-  const classification =
-    lead.lead_type ||
-    lead.crm_status ||
-    lead.crm_stage ||
-    null;
-  if (classification) {
-    lines.push(`Lead classification: ${classification}`);
-  } else {
-    console.warn('[autotexter] Missing lead classification for intro', {
+  const bucket = determineLeadBucket({
+    lead_type: lead.lead_type,
+    crm_status: lead.crm_status,
+    crm_stage: lead.crm_stage,
+    crm_description: lead.crm_description,
+  });
+  lines.push(`Lead bucket: ${bucket.label}`);
+  lines.push(`Bucket rationale: ${bucket.reason}`);
+  if (!lead.lead_type && !lead.crm_status && !lead.crm_stage && !lead.crm_description) {
+    console.warn('[autotexter] Missing classification context for intro', {
       accountId,
       leadId: lead.id,
     });
