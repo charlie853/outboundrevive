@@ -384,13 +384,7 @@ function postProcessMessage(
 }
 
 // === Persist INBOUND message to messages_in ===
-async function persistIn(
-  leadId: string,
-  body: string,
-  fromPhone: string,
-  toPhone: string,
-  accountId: string
-) {
+async function persistIn(leadId: string, body: string, fromPhone: string, toPhone: string) {
   if (!leadId || !body) return;
 
   try {
@@ -399,7 +393,7 @@ async function persistIn(
       .from("messages_in")
       .insert({
         lead_id: leadId,
-        account_id: accountId,
+        account_id: ACCOUNT_ID,
         body,
         provider_from: fromPhone,
         provider_to: toPhone,
@@ -539,7 +533,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // === PERSIST INBOUND MESSAGE ===
   // Save every inbound message to messages_in table so it shows in threads
-  await persistIn(leadId, inboundBody, FromE164, ToE164, accountId);
+  await persistIn(leadId, inboundBody, FromE164, ToE164);
 
   // === Handle compliance keywords ===
   const text = inboundBody.trim().toLowerCase().replace(/\W+/g, "");
