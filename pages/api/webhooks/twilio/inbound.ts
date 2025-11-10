@@ -706,6 +706,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const needsFooterFlag = await needsFooter(leadId);
   const { time1, time2 } = generateTimeSlots();
   
+  // Prepare lead context variables BEFORE using them in templateVars
+  const leadBucket = determineLeadBucket({
+    lead_type: leadRecord?.lead_type,
+    crm_status: leadRecord?.crm_status,
+    crm_stage: leadRecord?.crm_stage,
+    crm_description: leadRecord?.crm_description,
+  });
+  const leadStatus = leadRecord?.crm_status?.trim() || "";
+  const leadStage = leadRecord?.crm_stage?.trim() || "";
+  const leadNotes = leadRecord?.crm_description?.trim() || "";
+  const leadOwner = leadRecord?.crm_owner?.trim() || "";
+  
   const templateVars: Record<string, string> = {
     brand: BRAND,
     first_name: firstName,
@@ -726,17 +738,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     lead_notes: leadNotes,
     lead_owner: leadOwner,
   };
-
-  const leadBucket = determineLeadBucket({
-    lead_type: leadRecord?.lead_type,
-    crm_status: leadRecord?.crm_status,
-    crm_stage: leadRecord?.crm_stage,
-    crm_description: leadRecord?.crm_description,
-  });
-  const leadStatus = leadRecord?.crm_status?.trim() || "";
-  const leadStage = leadRecord?.crm_stage?.trim() || "";
-  const leadNotes = leadRecord?.crm_description?.trim() || "";
-  const leadOwner = leadRecord?.crm_owner?.trim() || "";
 
   const baseThreadContext = await getThreadContext(leadId, inboundBody);
   const bucketContextSegments = [
