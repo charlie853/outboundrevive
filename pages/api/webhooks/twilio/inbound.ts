@@ -414,6 +414,10 @@ function postProcessMessage(
   
   // Flatten whitespace
   s = s.replace(/\s*\n+\s*/g, " ").replace(/\s{2,}/g, " ").trim();
+
+  if (!s) {
+    s = "Appreciate the reply—happy to help you automate follow-ups. Anything specific you want to tackle?";
+  }
   
   return s;
 }

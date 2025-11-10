@@ -67,6 +67,12 @@ describe('SMS messaging helpers', () => {
       const processed = postProcessMessage("I know timing can be tricky—happy to help when you’re ready.", '', false);
       expect(processed.toLowerCase()).not.toContain('timing can be tricky');
     });
+
+    it('falls back to default text if everything is stripped', () => {
+      const processed = postProcessMessage("I hope you're doing well!", '', false);
+      expect(processed.length).toBeGreaterThan(0);
+      expect(processed.toLowerCase()).not.toContain("hope you're doing well");
+    });
   });
 });
 
