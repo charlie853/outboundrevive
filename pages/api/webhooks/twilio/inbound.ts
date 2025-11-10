@@ -346,16 +346,19 @@ async function generateWithLLM(
   
   // Extract intent from user context for better fallback
   const contextLower = userContext.toLowerCase();
-  let fallbackMsg = "Thanks for reaching out.";
+  let fallbackMsg = "Appreciate the reply. I’m here if you need anything.";
   
   if (contextLower.includes("price") || contextLower.includes("cost") || contextLower.includes("much")) {
-    fallbackMsg = `Happy to help with pricing. We have plans from $299/mo. Want me to share details or grab a time to chat? ${templateVars.booking_link || ''}`.trim();
+    fallbackMsg = "Totally get it—plans start at $299/mo and scale with volume. Want a quick rundown?";
   } else if (contextLower.includes("book") || contextLower.includes("schedule") || contextLower.includes("call") || contextLower.includes("time")) {
-    fallbackMsg = `Let's schedule a time. ${templateVars.booking_link || 'Reply with two times that work for you.'}`.trim();
+    const linkLine = templateVars.booking_link
+      ? `Can hold ${templateVars.time1 || 'tomorrow afternoon'} or ${templateVars.time2 || 'later this week'}, or grab a spot here: ${templateVars.booking_link}`
+      : "I can set something up—any times that work well for you?";
+    fallbackMsg = linkLine;
   } else if (contextLower.includes("who") || contextLower.includes("what is this")) {
-    fallbackMsg = `It's Charlie from OutboundRevive with ${templateVars.brand}—following up on your earlier inquiry. Happy to help schedule a time or answer questions.`;
+    fallbackMsg = `Charlie from OutboundRevive here—helping ${templateVars.brand} handle SMS follow-ups. Happy to keep this easy for you.`;
   } else {
-    fallbackMsg = `Thanks for the message. I can help with scheduling or answer questions about ${templateVars.brand}. What works best for you?`;
+    fallbackMsg = "All good—I’m here to help with questions or next steps whenever you’re ready.";
   }
   
   return {
@@ -406,6 +409,10 @@ function postProcessMessage(
   
   return s;
 }
+
+export const __test__ = {
+  postProcessMessage,
+};
 
 // === Persist INBOUND message to messages_in ===
 async function persistIn(

@@ -68,13 +68,14 @@ async function generateIntroMessage(
   const contextBlock = lines.length ? lines.join('\n') : 'No additional CRM notes.';
 
   const prompt = [
-    `You are the AI SMS assistant for ${brand}. Craft a first-touch SMS (max 280 characters) to re-engage a lead.`,
-    `Use a warm, human tone. Reference useful CRM context if helpful.`,
-    `Goal: spark a reply or invite them to continue the conversation.`,
-    `Avoid emojis, ALL CAPS, long paragraphs, or compliance footers.`,
+    `You are the AI SMS assistant for ${brand}. Craft the very first outreach SMS (max 240 characters) to re-engage a lead.`,
+    `Tone should feel human and light: acknowledge context, ask an easy question, and avoid sounding like a sales script.`,
+    `Do NOT include the booking link unless the context clearly calls for it (default is no link).`,
+    `Keep it to one or two short sentences. No emojis, no caps lock, no compliance footer text.`,
+    `Mention you're Charlie from OutboundRevive only if this is the first ever touch or the context requires it.`,
     booking
-      ? `You may reference this scheduling link ONCE if it fits naturally: ${booking}`
-      : `Do not include any links.`,
+      ? `If you truly need the scheduling link, it is ${booking}, but only use it when the lead explicitly asked to schedule.`
+      : `There is no scheduling link available for this account.`,
     '',
     `Lead name: ${lead.name || 'Unknown'}`,
     contextBlock,
@@ -167,8 +168,13 @@ async function sendIntroNow(
     messageLength: message.length,
   });
 
+  let outboundBody = message.trim();
+  if (!lead.intro_sent_at && !/reply\s+pause\s+to\s+stop/i.test(outboundBody)) {
+    outboundBody = `${outboundBody} Reply PAUSE to stop`.trim();
+  }
+
   try {
-    const resp = await sendSms({ to: lead.phone, body: message });
+    const resp = await sendSms({ to: lead.phone, body: outboundBody });
     sid = resp?.sid ?? null;
     const statusLower = String(resp?.status || '').toLowerCase();
     providerStatus = statusLower === 'sent' || statusLower === 'sending' ? 'sent' : 'queued';
@@ -187,7 +193,7 @@ async function sendIntroNow(
     await supabaseAdmin.from('messages_out').insert({
       account_id: accountId,
       lead_id: lead.id,
-      body: message,
+      body: outboundBody,
       provider: 'twilio',
       provider_sid: sid,
       provider_status: providerStatus,
@@ -213,6 +219,7 @@ async function sendIntroNow(
   };
   if (providerStatus !== 'failed') {
     leadUpdate.intro_sent_at = nowIso;
+    leadUpdate.last_footer_at = nowIso;
   }
 
   try {

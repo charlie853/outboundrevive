@@ -5,8 +5,8 @@ export function firstNameOf(name?: string | null) {
 }
 
 export function renderIntro(first?: string | null, brand = 'OutboundRevive') {
-  const who = first ? `Hi ${first} — it’s Charlie from ${brand}.` : `Hi — it’s Charlie from ${brand}.`;
-  return `${who} Quick check-in: would you like pricing, a 2-min overview, or a quick call link?`;
+  const who = first ? `Hi ${first}—Charlie from ${brand}.` : `Hi—Charlie from ${brand}.`;
+  return `${who} Wanted to reconnect and see if you still want help with the follow-up we discussed.`;
 }
 
 const gentle: Array<(f?: string | null) => string> = [
