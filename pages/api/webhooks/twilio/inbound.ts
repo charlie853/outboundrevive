@@ -409,6 +409,14 @@ async function persistIn(
       ? new Date(createdAt).toISOString()
       : new Date().toISOString();
 
+    console.log("[twilio/inbound] persistIn attempt", {
+      leadId,
+      accountId,
+      providerSid,
+      createdAtIso,
+      segments,
+    });
+
     const { error } = await supabaseAdmin
       .from("messages_in")
       .insert({
@@ -424,8 +432,20 @@ async function persistIn(
 
     if (error) {
       console.error("messages_in insert failed:", error);
+      return;
     } else {
       console.log("messages_in insert ok for lead", leadId);
+      try {
+        const { data: latest } = await supabaseAdmin
+          .from("messages_in")
+          .select("id, created_at, account_id, provider_sid")
+          .eq("lead_id", leadId)
+          .order("created_at", { ascending: false })
+          .limit(1);
+        console.log("[twilio/inbound] latest messages_in row", latest?.[0]);
+      } catch (debugErr) {
+        console.error("[twilio/inbound] failed to load latest messages_in row", debugErr);
+      }
       try {
         const nowIso = new Date().toISOString();
         await supabaseAdmin
