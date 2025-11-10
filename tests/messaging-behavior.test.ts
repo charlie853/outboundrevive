@@ -47,6 +47,11 @@ describe('SMS messaging helpers', () => {
       expect(processed.length).toBeLessThanOrEqual(320);
       expect(processed.endsWith(booking)).toBe(true);
     });
+
+    it('strips filler like "I hope you’re doing well"', () => {
+      const processed = postProcessMessage("I hope you're doing well! Just wanted to check in.", '', false);
+      expect(processed.toLowerCase()).not.toContain("hope you're doing well");
+    });
   });
 });
 

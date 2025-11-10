@@ -380,6 +380,9 @@ function postProcessMessage(
   // Strip robotic openers
   s = s.replace(/^\s*(Happy to help|Got it|Thanks for reaching out)[\s—,-:]*/i, "").trim();
   
+  // Remove filler like "I hope you're doing well"
+  s = s.replace(/i hope you(?:'| a)re doing well[,!.\s]*/gi, '').trim();
+
   // If gate hit (sent link in last 24h), remove any booking link
   if (gateHit && bookingLink) {
     s = s.replace(new RegExp(bookingLink.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), "").trim();

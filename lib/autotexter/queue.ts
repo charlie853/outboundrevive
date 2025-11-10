@@ -13,6 +13,7 @@ type LeadForIntro = {
   crm_stage?: string | null;
   crm_description?: string | null;
   crm_last_activity_at?: string | null;
+  lead_type?: string | null;
   intro_sent_at?: string | null;
 };
 
@@ -48,6 +49,19 @@ async function generateIntroMessage(
   const firstName = firstNameOf(lead.name ?? undefined);
   const lines: string[] = [];
   if (lead.company) lines.push(`Company: ${lead.company}`);
+  const classification =
+    lead.lead_type ||
+    lead.crm_status ||
+    lead.crm_stage ||
+    null;
+  if (classification) {
+    lines.push(`Lead classification: ${classification}`);
+  } else {
+    console.warn('[autotexter] Missing lead classification for intro', {
+      accountId,
+      leadId: lead.id,
+    });
+  }
   if (lead.crm_status) lines.push(`Status: ${lead.crm_status}`);
   if (lead.crm_stage) lines.push(`Stage: ${lead.crm_stage}`);
   if (lead.crm_owner) lines.push(`Owner: ${lead.crm_owner}`);
@@ -70,11 +84,12 @@ async function generateIntroMessage(
   const prompt = [
     `You are the AI SMS assistant for ${brand}. Craft the very first outreach SMS (max 240 characters) to re-engage a lead.`,
     `Tone should feel human and light: acknowledge context, ask an easy question, and avoid sounding like a sales script.`,
-    `Do NOT include the booking link unless the context clearly calls for it (default is no link).`,
+    `Do NOT include the booking link on this first intro message.`,
     `Keep it to one or two short sentences. No emojis, no caps lock, no compliance footer text.`,
-    `Mention you're Charlie from OutboundRevive only if this is the first ever touch or the context requires it.`,
+    `Open with "Hi {{first_name}}" (or "Hi there" if the name is missing) and make the tone helpful.`,
+    `Mention you're Charlie from OutboundRevive only if this is truly the first-ever touch or a re-intro situation.`,
     booking
-      ? `If you truly need the scheduling link, it is ${booking}, but only use it when the lead explicitly asked to schedule.`
+      ? `If the conversation later needs scheduling, the 30-min link is ${booking}, but do NOT include it in this intro message.`
       : `There is no scheduling link available for this account.`,
     '',
     `Lead name: ${lead.name || 'Unknown'}`,
@@ -169,6 +184,16 @@ async function sendIntroNow(
   });
 
   let outboundBody = message.trim();
+  if (!lead.intro_sent_at) {
+    const linkRegex = /https?:\/\/\S+/gi;
+    if (linkRegex.test(outboundBody)) {
+      outboundBody = outboundBody.replace(linkRegex, '').replace(/\s{2,}/g, ' ').trim();
+      console.log('[autotexter] Removed booking link from first intro message', {
+        accountId,
+        leadId: lead.id,
+      });
+    }
+  }
   if (!lead.intro_sent_at && !/reply\s+pause\s+to\s+stop/i.test(outboundBody)) {
     outboundBody = `${outboundBody} Reply PAUSE to stop`.trim();
   }
