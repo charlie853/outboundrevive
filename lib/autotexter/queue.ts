@@ -88,6 +88,9 @@ async function generateIntroMessage(
     `Keep it to one or two short sentences. No emojis, no caps lock, no compliance footer text.`,
     `Open with "Hi {{first_name}}" (or "Hi there" if the name is missing) and make the tone helpful.`,
     `Mention you're Charlie from OutboundRevive only if this is truly the first-ever touch or a re-intro situation.`,
+    `Use the lead classification and notes to hint at value (reviving inactive leads, lightening manual follow-up, reducing no-shows, getting them booked quicker).`,
+    `Ask a single low-friction question instead of selling hard.`,
+    `Do NOT use phrases like "I hope you're doing well", "chat about your goals", or "checking in to see if now is a better time".`,
     booking
       ? `If the conversation later needs scheduling, the 30-min link is ${booking}, but do NOT include it in this intro message.`
       : `There is no scheduling link available for this account.`,

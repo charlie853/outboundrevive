@@ -52,6 +52,16 @@ describe('SMS messaging helpers', () => {
       const processed = postProcessMessage("I hope you're doing well! Just wanted to check in.", '', false);
       expect(processed.toLowerCase()).not.toContain("hope you're doing well");
     });
+
+    it('removes vague sales fillers such as "chat about your goals"', () => {
+      const processed = postProcessMessage("We should chat about your goals soon.", '', false);
+      expect(processed.toLowerCase()).not.toContain('chat about your goals');
+    });
+
+    it('removes template phrases like "checking in to see if now is a better time"', () => {
+      const processed = postProcessMessage("Just checking in to see if now is a better time to talk.", '', false);
+      expect(processed.toLowerCase()).not.toContain('checking in to see if now is a better time');
+    });
   });
 });
 

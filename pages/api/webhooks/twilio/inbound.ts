@@ -356,9 +356,9 @@ async function generateWithLLM(
       : "I can set something up—any times that work well for you?";
     fallbackMsg = linkLine;
   } else if (contextLower.includes("who") || contextLower.includes("what is this")) {
-    fallbackMsg = `Charlie from OutboundRevive here—helping ${templateVars.brand} handle SMS follow-ups. Happy to keep this easy for you.`;
+    fallbackMsg = `Charlie from OutboundRevive here—helping ${templateVars.brand} keep follow-ups quick and off your plate. Happy to keep this easy for you.`;
   } else {
-    fallbackMsg = "All good—I’m here to help with questions or next steps whenever you’re ready.";
+    fallbackMsg = "All good—I’m here to help revive old leads and free up your team whenever you’re ready.";
   }
   
   return {
@@ -381,7 +381,10 @@ function postProcessMessage(
   s = s.replace(/^\s*(Happy to help|Got it|Thanks for reaching out)[\s—,-:]*/i, "").trim();
   
   // Remove filler like "I hope you're doing well"
-  s = s.replace(/i hope you(?:'| a)re doing well[,!.\s]*/gi, '').trim();
+  s = s.replace(/i hope you(?:'| a)re doing (?:well|great)[,!.\s]*/gi, '').trim();
+  s = s.replace(/hope your (?:day|week)(?: is)? going (?:well|great)[,!.\s]*/gi, '').trim();
+  s = s.replace(/chat about your goals/gi, '').trim();
+  s = s.replace(/checking in to see if now is a better time/gi, '').trim();
 
   // If gate hit (sent link in last 24h), remove any booking link
   if (gateHit && bookingLink) {
