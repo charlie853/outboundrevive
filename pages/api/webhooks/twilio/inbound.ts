@@ -11,7 +11,30 @@ export const config = { api: { bodyParser: false } };
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const LLM_MODEL = process.env.LLM_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";
-const BOOKING_LINK = (process.env.CAL_BOOKING_URL || process.env.CAL_PUBLIC_URL || process.env.CAL_URL || "").trim();
+
+// Booking link priority: Use 30-min intro call link, never the secret link
+// Priority order: BOOKING_URL > CAL_BOOKING_URL > CAL_PUBLIC_URL (skip CAL_URL if it's a secret link)
+const BOOKING_LINK = (() => {
+  const candidates = [
+    process.env.BOOKING_URL,
+    process.env.CAL_BOOKING_URL,
+    process.env.CAL_PUBLIC_URL,
+  ].filter(Boolean).map(s => s!.trim());
+  
+  // Filter out any secret links
+  const validLink = candidates.find(link => !link.includes('/secret/'));
+  if (validLink) {
+    console.log('[inbound] Using booking link:', validLink.slice(0, 50) + '...');
+    return validLink;
+  }
+  
+  // If all links are secret links, log warning and return empty
+  if (candidates.length > 0) {
+    console.warn('[inbound] All booking links contain /secret/, not using any link');
+  }
+  return '';
+})();
+
 const BRAND = process.env.BRAND || "OutboundRevive";
 const ACCOUNT_ID = process.env.DEFAULT_ACCOUNT_ID || "";
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
