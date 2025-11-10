@@ -640,6 +640,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // === PERSIST INBOUND MESSAGE ===
   // Save every inbound message to messages_in table so it shows in threads
   await persistIn(leadId, inboundBody, FromE164, ToE164, accountId, MessageSid);
+  
+  // === CANCEL ACTIVE FOLLOW-UPS ===
+  // When lead replies, stop any active follow-up sequences
+  try {
+    await supabaseAdmin.rpc('cancel_followups_for_lead', {
+      p_lead_id: leadId,
+      p_reason: 'lead_replied'
+    });
+    console.log('[inbound] Cancelled active follow-ups for lead', leadId);
+  } catch (cancelErr) {
+    console.warn('[inbound] Failed to cancel follow-ups:', cancelErr);
+    // Non-critical, continue processing
+  }
 
   // === Handle compliance keywords ===
   const text = inboundBody.trim().toLowerCase().replace(/\W+/g, "");
@@ -667,14 +680,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const msg = "You're paused and won't receive further messages. Reply START to resume.";
     await persistOut(leadId, msg, false, accountId);
-    // Cancel queued cadence runs for this lead
+    // Cancel all follow-ups and cadences for this lead
     try {
-      await supabaseAdmin
-        .from('cadence_runs')
-        .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancel_reason: 'opt_out' })
-        .eq('lead_id', leadId)
-        .eq('status', 'scheduled');
-    } catch (e) { console.error('cancel cadence_runs on STOP failed', e); }
+      await supabaseAdmin.rpc('cancel_followups_for_lead', {
+        p_lead_id: leadId,
+        p_reason: 'opt_out'
+      });
+      console.log('[inbound] Cancelled all follow-ups due to STOP for lead', leadId);
+    } catch (e) { console.error('cancel follow-ups on STOP failed', e); }
     const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(msg)}</Message></Response>`;
     return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
   }
@@ -682,6 +695,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (/^pause/.test(text)) {
     const msg = "You're paused and won't receive further messages. Reply START to resume.";
     await persistOut(leadId, msg, false, accountId);
+    // Cancel follow-ups on PAUSE as well
+    try {
+      await supabaseAdmin.rpc('cancel_followups_for_lead', {
+        p_lead_id: leadId,
+        p_reason: 'paused'
+      });
+    } catch (e) { console.error('cancel follow-ups on PAUSE failed', e); }
     const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(msg)}</Message></Response>`;
     return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
   }
