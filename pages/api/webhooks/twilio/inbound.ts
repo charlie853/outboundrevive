@@ -91,7 +91,14 @@ type LLMOutputContract = {
 };
 
 // === Parse Twilio form ===
-async function parseTwilioForm(req: NextApiRequest): Promise<{From:string;To:string;Body:string}> {
+type ParsedTwilioForm = {
+  From: string;
+  To: string;
+  Body: string;
+  MessageSid?: string;
+};
+
+async function parseTwilioForm(req: NextApiRequest): Promise<ParsedTwilioForm> {
   const chunks: Buffer[] = [];
   for await (const c of req) chunks.push(typeof c === "string" ? Buffer.from(c) : c);
   const raw = Buffer.concat(chunks).toString("utf8");
@@ -100,6 +107,7 @@ async function parseTwilioForm(req: NextApiRequest): Promise<{From:string;To:str
     From: params.get("From") || "",
     To: params.get("To") || "",
     Body: (params.get("Body") || "").trim(),
+    MessageSid: params.get("MessageSid") || params.get("SmsSid") || undefined,
   };
 }
 
@@ -389,7 +397,8 @@ async function persistIn(
   body: string,
   fromPhone: string,
   toPhone: string,
-  accountId: string
+  accountId: string,
+  providerSid?: string | null
 ) {
   if (!leadId || !body) return;
 
@@ -401,6 +410,7 @@ async function persistIn(
         lead_id: leadId,
         account_id: accountId,
         body,
+        provider_sid: providerSid ?? null,
         provider_from: fromPhone,
         provider_to: toPhone,
         created_at: new Date().toISOString(),
@@ -411,6 +421,20 @@ async function persistIn(
       console.error("messages_in insert failed:", error);
     } else {
       console.log("messages_in insert ok for lead", leadId);
+      try {
+        const nowIso = new Date().toISOString();
+        await supabaseAdmin
+          .from('leads')
+          .update({
+            last_reply_body: body,
+            last_reply_at: nowIso,
+            last_inbound_at: nowIso,
+            replied: true,
+          })
+          .eq('id', leadId);
+      } catch (updateErr) {
+        console.error('Failed to update lead last_reply fields:', updateErr);
+      }
       // Increment tenant_billing.segments_used for inbound, counting toward cap
       try {
         const nowIso = new Date().toISOString();
@@ -435,8 +459,8 @@ async function persistIn(
 }
 
 // === Persist outbound message and update last_footer_at ===
-async function persistOut(leadId: string, body: string, needsFooterFlag: boolean) {
-  if (!SUPABASE_URL || !SRK || !ACCOUNT_ID || !body || !leadId) return;
+async function persistOut(leadId: string, body: string, needsFooterFlag: boolean, accountId: string) {
+  if (!SUPABASE_URL || !SRK || !body || !leadId || !accountId) return;
 
   try {
     const finalBody = needsFooterFlag && !body.includes("Reply PAUSE")
@@ -446,7 +470,7 @@ async function persistOut(leadId: string, body: string, needsFooterFlag: boolean
 
   const payload = [{
       lead_id: leadId,
-    account_id: ACCOUNT_ID,
+    account_id: accountId,
       body: finalBody,
     sent_by: "ai",
     segments
@@ -502,7 +526,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.log("Looking up lead with account_id:", accountId, "phone:", FromE164);
     const { data: lead, error: leadError } = await supabaseAdmin
       .from("leads")
-      .select("id,name,opted_out")
+      .select("id,name,opted_out,account_id")
       .eq("account_id", accountId)
       .eq("phone", FromE164)
       .maybeSingle();
@@ -515,6 +539,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       console.log("Lead found:", lead.id, lead.name);
       leadId = lead.id;
       firstName = (lead.name || "").split(" ")[0] || "there";
+      if (lead.account_id) {
+        accountId = lead.account_id;
+      }
       
       // Check opt-out status
       if (lead.opted_out) {
@@ -539,7 +566,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // === PERSIST INBOUND MESSAGE ===
   // Save every inbound message to messages_in table so it shows in threads
-  await persistIn(leadId, inboundBody, FromE164, ToE164, accountId);
+  await persistIn(leadId, inboundBody, FromE164, ToE164, accountId, MessageSid);
 
   // === Handle compliance keywords ===
   const text = inboundBody.trim().toLowerCase().replace(/\W+/g, "");
@@ -566,7 +593,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const msg = "You're paused and won't receive further messages. Reply START to resume.";
-    await persistOut(leadId, msg, false);
+    await persistOut(leadId, msg, false, accountId);
     // Cancel queued cadence runs for this lead
     try {
       await supabaseAdmin
@@ -581,14 +608,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (/^pause/.test(text)) {
     const msg = "You're paused and won't receive further messages. Reply START to resume.";
-    await persistOut(leadId, msg, false);
+    await persistOut(leadId, msg, false, accountId);
     const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(msg)}</Message></Response>`;
     return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
   }
 
   if (text === "help") {
     const msg = "Help: booking & support via this number. Reply PAUSE to stop. Reply START to resume.";
-    await persistOut(leadId, msg, false);
+    await persistOut(leadId, msg, false, accountId);
     const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(msg)}</Message></Response>`;
     return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
   }
@@ -601,7 +628,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .eq('id', leadId);
     } catch (e) { console.error('START update failed', e); }
     const msg = "You're resumed. How can I help with scheduling or questions?";
-    await persistOut(leadId, msg, false);
+    await persistOut(leadId, msg, false, accountId);
     const twiml = `<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Message>${escapeXml(msg)}</Message></Response>`;
     return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
   }
@@ -696,7 +723,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     final_length: finalMessage.length
   }));
 
-  await persistOut(leadId, finalMessage, shouldAddFooter);
+  await persistOut(leadId, finalMessage, shouldAddFooter, accountId);
 
   // TwiML response
   const twimlBody = shouldAddFooter && !finalMessage.includes("Reply PAUSE")
