@@ -70,13 +70,14 @@ export async function POST(req: NextRequest) {
         // Get account follow-up settings (or use defaults)
         const { data: settings } = await supabaseAdmin
           .from('account_followup_settings')
-          .select('conversation_died_hours, max_followups, cadence_days')
+          .select('conversation_died_hours, max_followups, cadence_hours, preferred_send_times')
           .eq('account_id', accountId)
           .maybeSingle();
 
         const conversationDiedHours = settings?.conversation_died_hours || 48;
-        const maxFollowups = settings?.max_followups || 4;
-        const cadenceDays = settings?.cadence_days || [2, 4, 7, 10];
+        const maxFollowups = settings?.max_followups || 42;
+        const cadenceHours = settings?.cadence_hours || [12,24,36,48,60,72,84,96,108,120,132,144,156,168,180,192,204,216,228,240,252,264,276,288,300,312,324,336,348,360,372,384,396,408,420,432,444,456,468,480,492,504];
+        const preferredSendTimes = settings?.preferred_send_times || [{"hour": 10, "minute": 30}, {"hour": 15, "minute": 30}];
 
         // Find leads with died conversations
         const { data: leadsNeedingFollowup, error: leadsError } = await supabaseAdmin
@@ -103,7 +104,7 @@ export async function POST(req: NextRequest) {
           const leadId = lead.lead_id;
 
           // Calculate first follow-up time based on preferred send times
-          const nextAttemptTime = calculateNextSendTime(cadenceDays[0]);
+          const nextAttemptTime = calculateNextSendTime(cadenceHours[0], preferredSendTimes);
 
           const { error: enrollError } = await supabaseAdmin
             .from('ai_followup_cursor')
@@ -113,7 +114,7 @@ export async function POST(req: NextRequest) {
               status: 'active',
               attempt: 0,
               max_attempts: maxFollowups,
-              cadence: cadenceDays,
+              cadence: cadenceHours,
               next_at: nextAttemptTime,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString()
@@ -154,17 +155,44 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * Calculate next send time based on cadence days and preferred send windows
- * For now, uses simple logic: add X days and target late morning (10-11am local)
- * TODO: Use account_followup_settings.preferred_send_times for smarter scheduling
+ * Calculate next send time based on cadence hours and preferred send windows
+ * Uses intelligent scheduling to hit statistically best times (10:30am or 3:30pm local)
  */
-function calculateNextSendTime(daysFromNow: number): string {
+function calculateNextSendTime(
+  hoursFromNow: number, 
+  preferredTimes: Array<{hour: number, minute: number}>
+): string {
   const now = new Date();
-  const targetDate = new Date(now.getTime() + daysFromNow * 24 * 60 * 60 * 1000);
+  const targetDate = new Date(now.getTime() + hoursFromNow * 60 * 60 * 1000);
   
-  // Target 10:30am local time (simplified - assumes UTC-5 for now)
-  // TODO: Use lead's timezone or account timezone
-  targetDate.setHours(15, 30, 0, 0); // 10:30am EST = 15:30 UTC
+  // Determine which preferred time slot to use based on cadence
+  // Alternate between morning (10:30am) and afternoon (3:30pm) sends
+  const currentHour = now.getHours();
+  
+  // If it's before 10:30am, schedule for 10:30am today/target day
+  // If it's after 10:30am but before 3:30pm, schedule for 3:30pm today/target day
+  // If it's after 3:30pm, schedule for 10:30am next day
+  
+  let preferredTime;
+  if (hoursFromNow <= 12) {
+    // First follow-up of the day - use morning slot
+    preferredTime = preferredTimes[0] || {hour: 10, minute: 30};
+  } else {
+    // Second follow-up of the day - use afternoon slot
+    preferredTime = preferredTimes[1] || {hour: 15, minute: 30};
+  }
+  
+  // Set to preferred time (assumes UTC-5 EST for now)
+  // TODO: Use per-lead timezone from leads table or account settings
+  const localHour = preferredTime.hour;
+  const utcHour = (localHour + 5) % 24; // Convert EST to UTC
+  
+  targetDate.setHours(utcHour, preferredTime.minute, 0, 0);
+  
+  // If the calculated time is in the past, add 24 hours
+  if (targetDate.getTime() < Date.now()) {
+    targetDate.setTime(targetDate.getTime() + 24 * 60 * 60 * 1000);
+  }
   
   return targetDate.toISOString();
 }

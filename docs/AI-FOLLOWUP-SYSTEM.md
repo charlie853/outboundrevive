@@ -11,15 +11,26 @@ The AI Follow-Up System automatically re-engages leads when conversations "die" 
 - **Check**: Hourly cron job (`/api/cron/enroll-followups`) scans for eligible leads
 - **Enrollment**: Lead is added to follow-up sequence via `ai_followup_cursor` table
 
-### 2. Follow-Up Cadence (Default)
-| Attempt | Timing | Message Style |
-|---------|--------|---------------|
-| 1 | 2 days after silence | "Hi {{name}}, just checking back—still interested?" |
-| 2 | 4 days after attempt 1 | "Quick check-in—want that overview?" |
-| 3 | 7 days after attempt 2 | Light nudge, no name |
-| 4 | 10 days after attempt 3 | "Last check—should I hold off?" |
+### 2. Follow-Up Cadence (Default - Aggressive)
+**Schedule**: 2 texts per day at statistically best times for 21 days
 
-**Total**: Max 4 follow-ups over ~23 days, then stop.
+| Day | Texts | Times (Local) | Cumulative |
+|-----|-------|---------------|------------|
+| 1 | 2 | 10:30am, 3:30pm | 2 |
+| 2-7 | 2/day | 10:30am, 3:30pm | 14 |
+| 8-14 | 2/day | 10:30am, 3:30pm | 28 |
+| 15-21 | 2/day | 10:30am, 3:30pm | 42 |
+
+**Total**: Max 42 follow-ups over 21 days (3 weeks), then stop.
+
+**Message Style**:
+- Days 1-7: "Hi {{name}}, just checking back—still interested?"
+- Days 8-14: Lighter nudges, vary name usage
+- Days 15-21: Final check-ins, "should I hold off?"
+
+**Compliance Caps**:
+- **Normal states**: Max 2 follow-ups/day (already at limit)
+- **FL/OK**: Max 3 total messages/day (includes all outbound, not just follow-ups)
 
 ### 3. Auto-Cancellation
 Follow-ups are automatically cancelled when:
@@ -29,10 +40,17 @@ Follow-ups are automatically cancelled when:
 - ✅ Max attempts reached (4 by default)
 
 ### 4. Sending Rules
-- **Quiet Hours**: Respects existing quiet-hour logic (8am–9pm local)
-- **Daily Caps**: Honors reminder caps (max 1/day, 3/week by default)
-- **Best Times**: Targets late morning (10-11am) or mid-afternoon (3-5pm) local time
-- **State Compliance**: Stricter rules for FL/OK (uses existing `FL_NPAS`, `OK_NPAS` logic)
+- **Quiet Hours**: 
+  - Normal states: 8am–9pm local time
+  - FL/OK: 8am–8pm local time (stricter)
+- **Daily Caps**: 
+  - Normal states: Max 2 follow-ups/day per lead
+  - FL/OK: Max 3 total messages/day per lead (all outbound combined)
+- **Best Times**: 
+  - Morning: 10:30am local
+  - Afternoon: 3:30pm local
+  - Alternates between these two slots throughout the day
+- **State Compliance**: Stricter rules for FL/OK automatically enforced
 
 ## Configuration
 
@@ -45,11 +63,17 @@ SELECT * FROM account_followup_settings WHERE account_id = 'YOUR_ACCOUNT_ID';
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `conversation_died_hours` | 48 | Hours of silence before enrolling lead |
-| `max_followups` | 4 | Total follow-ups before giving up |
-| `cadence_days` | `[2,4,7,10]` | Days between each follow-up |
-| `preferred_send_times` | `[{10-11}, {15-17}]` | Best hours for sending (local) |
+| `max_followups` | 42 | Total follow-ups before giving up (2/day * 21 days) |
+| `cadence_hours` | `[12,24,36,...]` | Hours between each follow-up (12h = 2/day) |
+| `preferred_send_times` | `[{"hour":10,"minute":30}, {"hour":15,"minute":30}]` | Best times for sending (10:30am, 3:30pm local) |
+| `max_per_day_normal` | 2 | Max follow-ups/day for normal states |
+| `max_per_day_strict` | 3 | Max total messages/day for FL/OK |
+| `quiet_hours_start` | 8 | Start of quiet hours (8am local) |
+| `quiet_hours_end` | 21 | End of quiet hours (9pm local) |
+| `quiet_hours_end_strict` | 20 | End for FL/OK (8pm local) |
 | `stop_on_reply` | `true` | Cancel sequence when lead replies |
 | `stop_on_booking` | `true` | Cancel sequence when lead books |
+| `max_weeks_no_reply` | 3 | Stop after 3 weeks of no replies |
 
 ### Updating Settings
 
@@ -59,16 +83,23 @@ UPDATE account_followup_settings
 SET conversation_died_hours = 72
 WHERE account_id = 'YOUR_ACCOUNT_ID';
 
--- More aggressive cadence: 1d, 3d, 5d, 7d
+-- Less aggressive: 1 per day for 21 days (24h intervals)
 UPDATE account_followup_settings
-SET cadence_days = '[1,3,5,7]'::jsonb,
+SET cadence_hours = '[24,48,72,96,120,144,168,192,216,240,264,288,312,336,360,384,408,432,456,480,504]'::jsonb,
+    max_followups = 21
+WHERE account_id = 'YOUR_ACCOUNT_ID';
+
+-- Very conservative: 1 per week for 4 weeks
+UPDATE account_followup_settings
+SET cadence_hours = '[168,336,504,672]'::jsonb,
     max_followups = 4
 WHERE account_id = 'YOUR_ACCOUNT_ID';
 
--- Conservative cadence: 5d, 10d, 20d
+-- DEFAULT (Aggressive): 2 per day for 21 days
+-- Already set, but here's how to reset to default:
 UPDATE account_followup_settings
-SET cadence_days = '[5,10,20]'::jsonb,
-    max_followups = 3
+SET cadence_hours = '[12,24,36,48,60,72,84,96,108,120,132,144,156,168,180,192,204,216,228,240,252,264,276,288,300,312,324,336,348,360,372,384,396,408,420,432,444,456,468,480,492,504]'::jsonb,
+    max_followups = 42
 WHERE account_id = 'YOUR_ACCOUNT_ID';
 ```
 

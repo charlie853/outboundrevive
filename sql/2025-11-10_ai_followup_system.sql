@@ -8,8 +8,8 @@ CREATE TABLE IF NOT EXISTS public.ai_followup_cursor (
   account_id UUID NOT NULL REFERENCES public.accounts(id) ON DELETE CASCADE,
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'processing', 'done', 'cancelled')),
   attempt INT NOT NULL DEFAULT 0,
-  max_attempts INT NOT NULL DEFAULT 4, -- default: 4 follow-ups max
-  cadence JSONB NOT NULL DEFAULT '[2,4,7,10]'::jsonb, -- days between follow-ups: [2d, 4d, 7d, 10d]
+  max_attempts INT NOT NULL DEFAULT 42, -- default: 42 follow-ups (2/day * 21 days)
+  cadence JSONB NOT NULL DEFAULT '[12,24,36,48,60,72,84,96,108,120,132,144,156,168,180,192,204,216,228,240,252,264,276,288,300,312,324,336,348,360,372,384,396,408,420,432,444,456,468,480,492,504]'::jsonb, -- hours between follow-ups: 12h intervals for 2/day
   last_out_at TIMESTAMPTZ,
   next_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -41,19 +41,27 @@ CREATE TABLE IF NOT EXISTS public.account_followup_settings (
   
   -- Timing
   conversation_died_hours INT NOT NULL DEFAULT 48, -- conversation "died" after X hours of silence
-  max_followups INT NOT NULL DEFAULT 4, -- total follow-ups before giving up
-  cadence_days JSONB NOT NULL DEFAULT '[2,4,7,10]'::jsonb, -- spacing between follow-ups (days)
+  max_followups INT NOT NULL DEFAULT 42, -- total follow-ups before giving up (2/day * 21 days = 42)
+  cadence_hours JSONB NOT NULL DEFAULT '[12,24,36,48,60,72,84,96,108,120,132,144,156,168,180,192,204,216,228,240,252,264,276,288,300,312,324,336,348,360,372,384,396,408,420,432,444,456,468,480,492,504]'::jsonb, -- 2 per day for 21 days, in hours
   
-  -- Sending windows (best times for replies)
-  preferred_send_times JSONB NOT NULL DEFAULT '[{"hour_start": 10, "hour_end": 11}, {"hour_start": 15, "hour_end": 17}]'::jsonb,
+  -- Sending windows (best times for replies - local time hours)
+  preferred_send_times JSONB NOT NULL DEFAULT '[{"hour": 10, "minute": 30}, {"hour": 15, "minute": 30}]'::jsonb, -- 10:30am and 3:30pm local
+  
+  -- Per-lead caps
+  max_per_day_normal INT NOT NULL DEFAULT 2, -- normal states: max 2/day
+  max_per_day_strict INT NOT NULL DEFAULT 3, -- FL/OK: max 3/day total (including all outbound)
   
   -- Compliance
   respect_quiet_hours BOOLEAN NOT NULL DEFAULT true,
-  respect_daily_caps BOOLEAN NOT NULL DEFAULT true,
+  quiet_hours_start INT NOT NULL DEFAULT 8, -- 8am local
+  quiet_hours_end INT NOT NULL DEFAULT 21, -- 9pm local
+  quiet_hours_start_strict INT NOT NULL DEFAULT 8, -- 8am for FL/OK
+  quiet_hours_end_strict INT NOT NULL DEFAULT 20, -- 8pm for FL/OK
   
   -- Behavior
   stop_on_reply BOOLEAN NOT NULL DEFAULT true, -- stop sequence when lead replies
   stop_on_booking BOOLEAN NOT NULL DEFAULT true, -- stop sequence when lead books
+  max_weeks_no_reply INT NOT NULL DEFAULT 3, -- stop after 3 weeks of no replies
   
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -123,6 +131,8 @@ COMMENT ON TABLE public.ai_followup_cursor IS 'Tracks active AI follow-up sequen
 COMMENT ON TABLE public.ai_followup_log IS 'Historical log of all follow-up attempts';
 COMMENT ON TABLE public.account_followup_settings IS 'Per-account configuration for AI follow-up behavior';
 COMMENT ON COLUMN public.account_followup_settings.conversation_died_hours IS 'Hours of silence before considering conversation "died"';
-COMMENT ON COLUMN public.account_followup_settings.cadence_days IS 'Array of days between follow-up attempts, e.g. [2,4,7,10]';
-COMMENT ON COLUMN public.account_followup_settings.preferred_send_times IS 'Best hours for sending (local time), e.g. [{"hour_start":10,"hour_end":11}]';
+COMMENT ON COLUMN public.account_followup_settings.cadence_hours IS 'Array of hours between follow-up attempts, e.g. [12,24,36,...] for 2/day schedule';
+COMMENT ON COLUMN public.account_followup_settings.preferred_send_times IS 'Best times for sending (local time), e.g. [{"hour":10,"minute":30},{"hour":15,"minute":30}]';
+COMMENT ON COLUMN public.account_followup_settings.max_per_day_normal IS 'Max follow-ups per day for normal states (not FL/OK)';
+COMMENT ON COLUMN public.account_followup_settings.max_per_day_strict IS 'Max total messages per day for FL/OK (includes all outbound, not just follow-ups)';
 

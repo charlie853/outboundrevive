@@ -258,13 +258,15 @@ export async function POST(req: NextRequest) {
 
       // 4) Log + reschedule
       const attempt = Number(c.attempt ?? 0) + 1;
-      const done = attempt >= Number(c.max_attempts ?? 5);
+      const done = attempt >= Number(c.max_attempts ?? 42);
 
       let next_at: string | null = null;
       if (!done) {
-        const plan = Array.isArray(c.cadence) && c.cadence.length ? c.cadence : [3,7,14];
-        const stepDays = plan[Math.min(attempt-1, plan.length-1)] || 7; // clamp to last cadence value
-        next_at = addDays(new Date(), stepDays).toISOString();
+        // cadence is now in hours, not days
+        const plan = Array.isArray(c.cadence) && c.cadence.length ? c.cadence : [12,24,36,48,60,72,84,96,108,120,132,144,156,168,180,192,204,216,228,240,252,264,276,288,300,312,324,336,348,360,372,384,396,408,420,432,444,456,468,480,492,504];
+        const stepHours = plan[Math.min(attempt-1, plan.length-1)] || 12; // clamp to last cadence value (12h default)
+        const nextTime = new Date(Date.now() + stepHours * 60 * 60 * 1000);
+        next_at = nextTime.toISOString();
       }
 
       await db.from('ai_followup_log').insert({
