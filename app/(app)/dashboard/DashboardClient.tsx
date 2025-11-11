@@ -27,8 +27,8 @@ export default function DashboardClient() {
       <header className="space-y-4">
         <div className="flex items-start justify-between gap-6">
           <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-            <p className="text-sm text-slate-600 mt-1">Monitor outreach performance and jump back into conversations.</p>
+            <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+            <p className="text-sm text-white/80 mt-1">Monitor outreach performance and jump back into conversations.</p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <ConnectCrmButton onConnect={handleCrmConnect} />
