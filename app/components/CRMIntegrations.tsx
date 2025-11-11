@@ -260,31 +260,31 @@ export default function CRMIntegrations({
 
   if (variant === 'button') {
     return (
-      <div className="flex items-center gap-2 text-gray-600">
+      <div className="flex items-center gap-2">
         {!crmStatus.connected ? (
           <button
             onClick={handleConnectCRM}
             disabled={isConnecting}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+            className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors border ${
               isConnecting
-                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
+                ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50 hover:border-slate-400'
             }`}
           >
             {isConnecting ? 'Connecting…' : 'Connect CRM'}
           </button>
         ) : (
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-emerald-600">
-              Connected to {crmStatus.provider ?? 'CRM'}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-slate-700 font-medium">
+              {crmStatus.provider ? `${crmStatus.provider.charAt(0).toUpperCase() + crmStatus.provider.slice(1)}` : 'CRM'} connected
             </span>
             <button
               onClick={handleDisconnectCRM}
               disabled={isDisconnecting}
-              className={`px-3 py-2 rounded-lg border transition-colors ${
+              className={`px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
                 isDisconnecting
-                  ? 'border-gray-200 text-gray-400 cursor-not-allowed'
-                  : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                  ? 'border-slate-200 text-slate-400 cursor-not-allowed'
+                  : 'border-slate-300 text-slate-600 hover:bg-slate-50 hover:border-slate-400'
               }`}
             >
               {isDisconnecting ? 'Disconnecting…' : 'Disconnect'}

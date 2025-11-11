@@ -64,16 +64,23 @@ export default function AutotexterToggle({ defaultOn = false }: { defaultOn?: bo
   const disabled = busy || loading;
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="relative">
       <button
         disabled={disabled}
         onClick={() => flip(!on)}
-        className={`px-4 py-2 rounded-2xl shadow text-sm font-medium transition
-          ${on ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-900'}
-          ${disabled ? 'opacity-70 cursor-not-allowed' : ''}`}>
+        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+          on 
+            ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white border-indigo-700 hover:from-indigo-700 hover:to-indigo-800' 
+            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50 hover:border-slate-400'
+        } ${disabled ? 'opacity-70 cursor-not-allowed' : ''}`}
+      >
         {loading ? 'Loading...' : on ? 'AI Texter: ON' : 'AI Texter: OFF'}
       </button>
-      {msg && <span className="text-xs text-gray-600">{msg}</span>}
+      {msg && (
+        <div className="absolute top-full mt-2 right-0 text-xs px-3 py-2 rounded-lg shadow-lg whitespace-nowrap bg-indigo-50 text-indigo-700 border border-indigo-200">
+          {msg}
+        </div>
+      )}
     </div>
   );
 }

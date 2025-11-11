@@ -462,65 +462,59 @@ export default function MetricsPanel() {
       <div className="grid gap-6 md:grid-cols-2">
         {/* Appointment Performance */}
         <div className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-lg">
-          <h3 className="text-base font-bold text-slate-900 mb-3">Appointment Performance</h3>
+          <h3 className="text-base font-bold text-slate-900 mb-4">Appointment Performance</h3>
           <div className="space-y-3">
-            <div className="flex items-center justify-between p-3 rounded-lg bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-200">
-              <div>
-                <div className="text-xs font-medium text-slate-600">Booked</div>
-                <div className="text-2xl font-bold text-amber-900">{kpis.appointmentsBooked ?? 0}</div>
+            <div className="flex items-center justify-between p-4 rounded-lg bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-200">
+              <div className="flex-1">
+                <div className="text-xs font-semibold text-amber-800 uppercase tracking-wider mb-1">Booked</div>
+                <div className="text-3xl font-bold text-amber-900">{kpis.appointmentsBooked ?? 0}</div>
               </div>
-              <div className="text-3xl">📅</div>
             </div>
-            <div className="flex items-center justify-between p-3 rounded-lg bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200">
-              <div>
-                <div className="text-xs font-medium text-slate-600">Kept (Attended)</div>
-                <div className="text-2xl font-bold text-indigo-900">{kpis.appointmentsKept ?? 0}</div>
+            <div className="flex items-center justify-between p-4 rounded-lg bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200">
+              <div className="flex-1">
+                <div className="text-xs font-semibold text-indigo-800 uppercase tracking-wider mb-1">Kept (Attended)</div>
+                <div className="text-3xl font-bold text-indigo-900">{kpis.appointmentsKept ?? 0}</div>
               </div>
-              <div className="text-3xl">✅</div>
             </div>
-            <div className="flex items-center justify-between p-3 rounded-lg bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200">
-              <div>
-                <div className="text-xs font-medium text-slate-600">No-Show</div>
-                <div className="text-2xl font-bold text-slate-700">{kpis.appointmentsNoShow ?? 0}</div>
+            <div className="flex items-center justify-between p-4 rounded-lg bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200">
+              <div className="flex-1">
+                <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">No-Show</div>
+                <div className="text-3xl font-bold text-slate-700">{kpis.appointmentsNoShow ?? 0}</div>
               </div>
-              <div className="text-3xl">👻</div>
             </div>
             {(kpis.appointmentsBooked ?? 0) > 0 && (
               <div className="pt-3 border-t border-slate-200">
-                <div className="text-xs text-slate-600 mb-1">Show-up Rate</div>
-                <div className="text-lg font-bold text-indigo-900">
+                <div className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">Show-up Rate</div>
+                <div className="text-2xl font-bold text-indigo-900">
                   {Math.round(((kpis.appointmentsKept ?? 0) / (kpis.appointmentsBooked ?? 1)) * 100)}%
                 </div>
               </div>
             )}
           </div>
-          <p className="text-xs text-slate-500 mt-3">
-            Data from calendar webhooks (Cal.com, Calendly). Booked includes rescheduled appointments.
+          <p className="text-xs text-slate-500 mt-4">
+            Tracked from calendar webhooks. Booked includes rescheduled appointments.
           </p>
         </div>
 
         {/* Re-engagement */}
         <div className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-lg">
-          <h3 className="text-base font-bold text-slate-900 mb-3">Lead Re-engagement</h3>
+          <h3 className="text-base font-bold text-slate-900 mb-4">Lead Re-engagement</h3>
           <div className="space-y-3">
-            <div className="flex items-center justify-between p-3 rounded-lg bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200">
-              <div>
-                <div className="text-xs font-medium text-slate-600">Re-engaged Leads</div>
-                <div className="text-2xl font-bold text-indigo-900">{kpis.reEngaged ?? 0}</div>
+            <div className="flex items-center justify-between p-4 rounded-lg bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200">
+              <div className="flex-1">
+                <div className="text-xs font-semibold text-indigo-800 uppercase tracking-wider mb-1">Re-engaged Leads</div>
+                <div className="text-3xl font-bold text-indigo-900">{kpis.reEngaged ?? 0}</div>
               </div>
-              <div className="text-3xl">🔄</div>
             </div>
-            <div className="flex items-center justify-between p-3 rounded-lg bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200">
-              <div>
-                <div className="text-xs font-medium text-slate-600">Re-engagement Rate</div>
-                <div className="text-2xl font-bold text-indigo-900">{kpis.reEngagementRate ?? 0}%</div>
+            <div className="flex items-center justify-between p-4 rounded-lg bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200">
+              <div className="flex-1">
+                <div className="text-xs font-semibold text-indigo-800 uppercase tracking-wider mb-1">Re-engagement Rate</div>
+                <div className="text-3xl font-bold text-indigo-900">{kpis.reEngagementRate ?? 0}%</div>
               </div>
-              <div className="text-3xl">📈</div>
             </div>
           </div>
-          <p className="text-xs text-slate-500 mt-3">
-            Re-engaged: Leads inactive for 30+ days who replied or booked in this period. 
-            Rate = re-engaged / total contacted.
+          <p className="text-xs text-slate-500 mt-4">
+            Leads inactive 30+ days who replied or booked in this period.
           </p>
         </div>
       </div>
