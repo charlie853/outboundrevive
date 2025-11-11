@@ -30,7 +30,36 @@ npm run test:smoke
 - `analytics.test.ts` - Analytics accuracy (replies, delivered %, segments)
 - `isolation.test.ts` - Multi-tenant isolation (RLS and account_id scoping)
 - `admin.test.ts` - Admin resend endpoint
+- `appointment-metrics.test.ts` - Appointment & re-engagement metrics (requires real DB or use validation script)
 - `integration.test.ts` - Legacy scaffold (can be removed once other tests are complete)
+
+### Special Note: Appointment Metrics Tests
+
+The `appointment-metrics.test.ts` file requires real Supabase credentials. You have two options:
+
+**Option 1: Shell Script Validation (Recommended for quick checks)**
+
+```bash
+# Make sure your server is running
+npm run dev
+
+# Run validation script
+./tests/validate-metrics.sh
+```
+
+This validates the API responses without requiring database seeding.
+
+**Option 2: Full Integration Tests**
+
+Set real credentials and run Jest:
+
+```bash
+export SUPABASE_URL="your-real-url"
+export SUPABASE_SERVICE_ROLE_KEY="your-real-key"
+npm test -- appointment-metrics.test.ts
+```
+
+If using mock credentials, these tests will be automatically skipped.
 
 ## Environment Variables
 
