@@ -77,10 +77,10 @@ export default function RepliesChart({ days }: { days: DayPoint[] }) {
   };
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-lg" aria-label="Replies per day">
-      <div className="mb-3 text-base font-semibold text-slate-900">Lead Engagement</div>
-      <div className="text-sm text-slate-600 mb-4">Inbound replies from leads by day</div>
-      <ReactECharts option={option} style={{ height: '280px' }} />
+    <div className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-lg" aria-label="Replies per day">
+      <div className="mb-2 text-lg font-bold text-slate-900">Lead Engagement</div>
+      <div className="text-sm text-slate-600 mb-4">Inbound replies from leads over time</div>
+      <ReactECharts option={option} style={{ height: '300px' }} />
     </div>
   );
 }

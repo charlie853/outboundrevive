@@ -83,10 +83,10 @@ export default function DeliveryChart({ days }: { days: DayPoint[] }) {
   };
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-lg" aria-label="Delivery over time">
-      <div className="mb-3 text-base font-semibold text-slate-900">Message Delivery</div>
+    <div className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-lg" aria-label="Delivery over time">
+      <div className="mb-2 text-lg font-bold text-slate-900">Message Delivery</div>
       <div className="text-sm text-slate-600 mb-4">Track sent, delivered, and failed messages over time</div>
-      <ReactECharts option={option} style={{ height: '280px' }} />
+      <ReactECharts option={option} style={{ height: '300px' }} />
     </div>
   );
 }
