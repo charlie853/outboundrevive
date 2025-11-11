@@ -61,15 +61,11 @@ export default function KpiCards({ data, className = '' }: { data: Kpis & { book
 function MetricCard({ item }: { item: MetricItem }) {
   const [showTooltip, setShowTooltip] = useState(false);
 
-  // Choose card accent color based on metric type
+  // Simplified color scheme: primary (indigo) for most, accent (amber) for conversions, neutral for negatives
   const getAccentColor = (label: string) => {
-    if (label === 'New Leads') return 'from-slate-600 to-slate-700';
-    if (label === 'Contacted') return 'from-indigo-600 to-indigo-700';
-    if (label === 'Replies') return 'from-purple-500 to-purple-600';
-    if (label === 'Reply Rate') return 'from-purple-500 to-purple-600';
-    if (label === 'Booked') return 'from-amber-500 to-orange-500';
-    if (label === 'Opt-Outs') return 'from-rose-500 to-rose-600';
-    return 'from-indigo-600 to-indigo-700';
+    if (label === 'Booked') return 'from-amber-500 to-orange-500'; // Success/conversion
+    if (label === 'Opt-Outs') return 'from-slate-500 to-slate-600'; // Neutral/negative
+    return 'from-indigo-600 to-indigo-700'; // Default primary color for all engagement metrics
   };
 
   return (

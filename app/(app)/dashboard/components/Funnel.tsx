@@ -74,11 +74,9 @@ export default function Funnel({ data }: {
               <div className="relative h-10 flex-1 rounded-lg bg-slate-100 overflow-hidden shadow-inner">
                 <div 
                   className={`absolute inset-y-0 left-0 rounded-lg transition-all duration-500 ${
-                    idx === 0 ? 'bg-gradient-to-r from-slate-600 to-slate-700' :
-                    idx === 1 ? 'bg-gradient-to-r from-indigo-600 to-indigo-700' :
-                    idx === 2 ? 'bg-gradient-to-r from-blue-500 to-blue-600' :
-                    idx === 3 ? 'bg-gradient-to-r from-purple-500 to-purple-600' :
-                    'bg-gradient-to-r from-amber-500 to-orange-500'
+                    idx === steps.length - 1 
+                      ? 'bg-gradient-to-r from-amber-500 to-orange-500' // Last stage (Booked) = success color
+                      : 'bg-gradient-to-r from-indigo-600 to-indigo-700' // All other stages = primary color
                   }`}
                   style={{ width: `${(s.value / max) * 100}%` }}
                 />
@@ -110,9 +108,9 @@ export default function Funnel({ data }: {
               {data.leads > 0 ? Math.round((data.contacted / data.leads) * 100) : 0}%
             </div>
           </div>
-          <div className="p-4 rounded-xl bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200">
+          <div className="p-4 rounded-xl bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200">
             <div className="text-xs font-medium text-slate-600 mb-1">Reply Rate</div>
-            <div className="text-2xl font-bold text-purple-900">
+            <div className="text-2xl font-bold text-indigo-900">
               {data.contacted > 0 ? Math.round((data.replied / data.contacted) * 100) : 0}%
             </div>
           </div>

@@ -291,7 +291,9 @@ export default function ThreadsPanel() {
         throw new Error(json?.error || `Failed to delete lead (${response.status})`);
       }
 
-      if (openLeadId === leadId) {
+      // Close modal if this lead's conversation is currently open
+      const currentOpenLeadId = conversation?.lead?.id || null;
+      if (currentOpenLeadId === leadId) {
         closeModal();
       }
 
@@ -316,13 +318,16 @@ export default function ThreadsPanel() {
 
   return (
     <section className="space-y-4">
-      <div className="rounded-2xl border border-surface-line bg-surface-card p-4 shadow-soft">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="text-sm text-ink-2">Recent Threads</h2>
+      <div className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-lg">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Recent Threads</h2>
+            <p className="text-sm text-slate-600 mt-1">View and manage your active conversations</p>
+          </div>
           <button
             type="button"
             onClick={() => mutate()}
-            className="text-xs text-ink-3 underline-offset-4 hover:underline"
+            className="px-4 py-2 text-sm font-medium text-indigo-700 hover:text-indigo-900 hover:bg-indigo-50 rounded-lg transition-colors"
           >
             Refresh
           </button>
@@ -358,120 +363,121 @@ export default function ThreadsPanel() {
           <div className="text-sm text-ink-2">No recent conversations.</div>
         )}
         {!error && !isLoading && threads.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-surface-line">
-                  <th className="text-left py-2 px-3 font-medium text-ink-2 w-12"> </th>
-                  <th className="text-left py-2 px-3 font-medium text-ink-2">Name</th>
-                  <th className="text-left py-2 px-3 font-medium text-ink-2">Opted Out</th>
-                  <th className="text-left py-2 px-3 font-medium text-ink-2">Booked</th>
-                  <th className="text-left py-2 px-3 font-medium text-ink-2">Last Reply</th>
-                  <th className="text-left py-2 px-3 font-medium text-ink-2">Lead Type</th>
-                  <th className="text-left py-2 px-3 font-medium text-ink-2">Owner</th>
-                  <th className="text-left py-2 px-3 font-medium text-ink-2">Last Message</th>
-                  <th className="text-right py-2 px-3 font-medium text-ink-2">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-surface-line">
-                {threads.map((thread, idx) => {
-                  const phone = thread?.phone ?? thread?.lead_phone ?? '';
-                  const name = thread?.name ?? thread?.lead_name ?? phone;
-                  const last = thread?.lastMessage ?? thread?.last_message ?? '';
-                  const at = thread?.lastAt ?? thread?.last_at ?? thread?.last_activity ?? null;
-                  const displayName = name || formatPhone(phone);
-                  const lastTimestamp = at ? new Date(at).toLocaleString() : '—';
-                  const itemKey = `${phone || 'unknown'}-${at || 'na'}-${idx}`;
-                  
-                  // Status fields
-                  const optedOut = thread?.opted_out ?? false;
-                  const bookingStatus = thread?.booking_status ?? null;
-                  const leadType = thread?.lead_type ?? null;
-                  const owner = thread?.crm_owner ?? null;
-                  const lastReplyAt = thread?.last_reply_at ? new Date(thread.last_reply_at).toLocaleString() : null;
+          <div className="space-y-3">
+            {threads.map((thread, idx) => {
+              const phone = thread?.phone ?? thread?.lead_phone ?? '';
+              const name = thread?.name ?? thread?.lead_name ?? phone;
+              const last = thread?.lastMessage ?? thread?.last_message ?? '';
+              const at = thread?.lastAt ?? thread?.last_at ?? thread?.last_activity ?? null;
+              const displayName = name || formatPhone(phone);
+              const lastTimestamp = at ? new Date(at).toLocaleString() : '—';
+              const itemKey = `${phone || 'unknown'}-${at || 'na'}-${idx}`;
+              
+              // Status fields
+              const optedOut = thread?.opted_out ?? false;
+              const bookingStatus = thread?.booking_status ?? null;
+              const leadType = thread?.lead_type ?? null;
+              const owner = thread?.crm_owner ?? null;
+              const lastReplyAt = thread?.last_reply_at;
 
-                  // Format booking status
-                  const bookingDisplay = bookingStatus 
-                    ? (bookingStatus === 'booked' ? 'Booked' : 
-                       bookingStatus === 'kept' ? 'Kept' :
-                       bookingStatus === 'canceled' ? 'Canceled' :
-                       bookingStatus === 'no_show' ? 'No Show' :
-                       bookingStatus === 'rescheduled' ? 'Rescheduled' :
-                       bookingStatus)
-                    : 'Not booked';
+              // Format booking status
+              const bookingDisplay = bookingStatus 
+                ? (bookingStatus === 'booked' ? '📅 Booked' : 
+                   bookingStatus === 'kept' ? '✅ Kept' :
+                   bookingStatus === 'canceled' ? '❌ Canceled' :
+                   bookingStatus === 'no_show' ? '👻 No Show' :
+                   bookingStatus === 'rescheduled' ? '🔄 Rescheduled' :
+                   bookingStatus)
+                : null;
 
-                  // Format lead type
-                  const leadTypeDisplay = leadType 
-                    ? (leadType === 'new' ? 'New Lead' : 
-                       leadType === 'old' ? 'Old Lead' : 
-                       leadType)
-                    : '—';
+              // Format lead type badge
+              const leadTypeBadge = leadType === 'new' 
+                ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">New</span>
+                : leadType === 'old'
+                ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">Cold</span>
+                : null;
 
-                  return (
-                    <tr 
-                      key={itemKey} 
-                      className={`hover:bg-surface-bg/50 ${optedOut ? 'opacity-60' : ''}`}
-                    >
-                      <td className="py-2 px-3">
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteLead(thread)}
-                          disabled={deletingLeadId === (thread?.id ?? thread?.lead_id ?? null)}
-                          className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
-                          title="Delete lead"
-                        >
-                          {deletingLeadId === (thread?.id ?? thread?.lead_id ?? null) ? 'Deleting…' : 'Delete'}
-                        </button>
-                      </td>
-                      <td className="py-2 px-3">
-                        <div className="font-medium text-ink-1">{displayName}</div>
-                        <div className="text-xs text-ink-3">{formatPhone(phone)}</div>
-                      </td>
-                      <td className="py-2 px-3">
-                        <span className={optedOut ? 'text-red-600 font-medium' : 'text-ink-3'}>
-                          {optedOut ? 'Yes' : 'No'}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3">
-                        <span className={
-                          bookingStatus === 'booked' || bookingStatus === 'kept'
-                            ? 'text-green-600 font-medium'
-                            : bookingStatus === 'canceled' || bookingStatus === 'no_show'
-                            ? 'text-gray-600'
-                            : 'text-ink-3'
-                        }>
-                          {bookingDisplay}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 text-xs text-ink-3">
-                        {lastReplyAt || '—'}
-                      </td>
-                      <td className="py-2 px-3 text-ink-2">
-                        {leadTypeDisplay}
-                      </td>
-                      <td className="py-2 px-3 text-ink-2">
-                        {owner || '—'}
-                      </td>
-                      <td className="py-2 px-3">
-                        <div className="text-ink-2 line-clamp-1 max-w-xs" title={last || undefined}>
-                          {last || '—'}
+              return (
+                <div 
+                  key={itemKey} 
+                  className={`rounded-xl border border-slate-200 bg-white p-4 hover:shadow-md transition-shadow ${
+                    optedOut ? 'opacity-60' : ''
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    {/* Left: Lead info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-2">
+                        <h3 className="font-semibold text-slate-900 truncate">{displayName}</h3>
+                        {leadTypeBadge}
+                        {optedOut && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-800">
+                            Opted Out
+                          </span>
+                        )}
+                        {bookingDisplay && (
+                          <span className="text-sm">{bookingDisplay}</span>
+                        )}
+                      </div>
+                      <p className="text-sm text-slate-600 mb-2">{formatPhone(phone)}</p>
+                      
+                      {/* Last message preview */}
+                      {last && (
+                        <div className="mb-2">
+                          <p className="text-sm text-slate-700 line-clamp-2">{last}</p>
                         </div>
-                        <div className="text-xs text-ink-3 mt-0.5">{lastTimestamp}</div>
-                      </td>
-                      <td className="py-2 px-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => openThread(thread)}
-                          className="rounded-lg border border-surface-line px-3 py-1.5 text-xs text-ink-1 transition-colors hover:bg-surface-bg"
-                        >
-                          View
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      )}
+                      
+                      {/* Meta info row */}
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                        {lastReplyAt && (
+                          <span className="flex items-center gap-1">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                            </svg>
+                            Replied {new Date(lastReplyAt).toLocaleDateString()}
+                          </span>
+                        )}
+                        {owner && (
+                          <span className="flex items-center gap-1">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                            </svg>
+                            {owner}
+                          </span>
+                        )}
+                        <span className="flex items-center gap-1">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          {lastTimestamp}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    {/* Right: Actions */}
+                    <div className="flex flex-col gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openThread(thread)}
+                        className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-indigo-600 to-indigo-700 rounded-lg hover:from-indigo-700 hover:to-indigo-800 transition-colors shadow-sm"
+                      >
+                        View
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteLead(thread)}
+                        disabled={deletingLeadId === (thread?.id ?? thread?.lead_id ?? null)}
+                        className="px-4 py-2 text-sm font-medium text-rose-700 bg-rose-50 rounded-lg hover:bg-rose-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Delete lead"
+                      >
+                        {deletingLeadId === (thread?.id ?? thread?.lead_id ?? null) ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
