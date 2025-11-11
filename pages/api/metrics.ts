@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { supabaseAdmin } from '@/lib/supabaseServer';
 
 const URL = process.env.SUPABASE_URL!;
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -125,6 +126,44 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return unique.size;
   }).catch(() => 0);
 
+  // Re-engagement: leads that were inactive (no inbound/outbound for 30+ days) and then replied/booked in range
+  // We'll count leads who:
+  // 1. Had their last activity (inbound or outbound) more than 30 days before the range start
+  // 2. Then replied or booked in the current range
+  const reEngagedCount = await (async () => {
+    if (!since) return 0; // Can't calculate for "all time"
+    
+    const rangeStart = new Date(since);
+    const inactiveThreshold = new Date(rangeStart.getTime() - 30 * 24 * 3600 * 1000).toISOString();
+    
+    try {
+      // Get leads who replied in range
+      const repliedInRange = await fetch(`${URL}/rest/v1/messages_in?select=lead_id&${qsInbound}`, {
+        headers: { apikey: KEY, Authorization: `Bearer ${KEY}` },
+        signal: AbortSignal.timeout(5000),
+      }).then(async r => {
+        if (!r.ok) return [];
+        return await r.json().catch(() => []);
+      });
+      
+      const repliedLeadIds = [...new Set((repliedInRange as Array<{ lead_id: string }>).map(x => x.lead_id).filter(Boolean))];
+      if (repliedLeadIds.length === 0) return 0;
+      
+      // For each lead, check if they were inactive before the range
+      const { data: inactiveLeads } = await supabaseAdmin
+        .from('leads')
+        .select('id')
+        .in('id', repliedLeadIds)
+        .or(`last_inbound_at.lt.${inactiveThreshold},last_outbound_at.lt.${inactiveThreshold}`)
+        .eq('account_id', accountId);
+      
+      return inactiveLeads?.length || 0;
+    } catch (e) {
+      console.warn('[metrics] re-engagement calculation failed', e);
+      return 0;
+    }
+  })();
+
   // Segments: sum from both tables
   const [segmentsIn, segmentsOut] = await Promise.all([
     fetch(`${URL}/rest/v1/messages_in?select=segments&${qsSegmentsIn}`, {
@@ -146,13 +185,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   ]);
   const segmentsTotal = segmentsIn + segmentsOut;
 
-  const [newLeads, messagesSent, deliveredCount, sentCount, bookedCount, optedOutCount] = await Promise.all([
+  // Appointment metrics: query appointments table for booking lifecycle
+  const qsAppointmentsBase = buildQS('', 'created_at');
+  const qsAppointmentsBooked = buildQS('status=in.(booked,rescheduled)', 'created_at');
+  const qsAppointmentsKept = buildQS('status=eq.kept', 'created_at');
+  const qsAppointmentsNoShow = buildQS('status=eq.no_show', 'created_at');
+
+  const [newLeads, messagesSent, deliveredCount, sentCount, bookedCount, optedOutCount, appointmentsBooked, appointmentsKept, appointmentsNoShow] = await Promise.all([
     count('leads', qsNewLeads),
     count('messages_out', qsMessagesSent),
     count('messages_out', qsDelivered),
     count('messages_out', qsSent),
     count('messages_out', qsBooked),
     count('leads', qsOptedOut),
+    count('appointments', qsAppointmentsBooked),
+    count('appointments', qsAppointmentsKept),
+    count('appointments', qsAppointmentsNoShow),
   ]);
 
   // Replies = unique leads with at least one inbound
@@ -180,7 +228,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       optedOut: optedOutCount,
       replyRate,
       optOutRate,
-      segments: segmentsTotal, // NEW: Segments KPI (in+out)
+      segments: segmentsTotal,
+      // NEW: Appointment metrics
+      appointmentsBooked,
+      appointmentsKept,
+      appointmentsNoShow,
+      // NEW: Re-engagement metrics
+      reEngaged: reEngagedCount,
+      reEngagementRate: contactedCount > 0 ? Math.round((reEngagedCount / contactedCount) * 100) : 0,
     },
     charts: {
       deliveryOverTime: chartData.deliveryOverTime,
