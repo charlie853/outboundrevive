@@ -275,7 +275,7 @@ export default function CRMIntegrations({
           </button>
         ) : (
           <div className="flex items-center gap-2">
-            <span className="text-sm text-slate-700 font-medium">
+            <span className="text-sm text-slate-900 font-semibold">
               {crmStatus.provider ? `${crmStatus.provider.charAt(0).toUpperCase() + crmStatus.provider.slice(1)}` : 'CRM'} connected
             </span>
             <button
@@ -284,7 +284,7 @@ export default function CRMIntegrations({
               className={`px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
                 isDisconnecting
                   ? 'border-slate-200 text-slate-400 cursor-not-allowed'
-                  : 'border-slate-300 text-slate-600 hover:bg-slate-50 hover:border-slate-400'
+                  : 'border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400'
               }`}
             >
               {isDisconnecting ? 'Disconnecting…' : 'Disconnect'}
