@@ -113,6 +113,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return unique.size;
   }).catch(() => 0);
 
+  // Contacted: unique lead_ids with at least one outbound message in range
+  // (More accurate than using last_outbound_at which only counts if LAST message was in range)
+  const contactedCount = await fetch(`${URL}/rest/v1/messages_out?select=lead_id&${qsMessagesSent}`, {
+    headers: { apikey: KEY, Authorization: `Bearer ${KEY}`, Prefer: 'count=exact' },
+    signal: AbortSignal.timeout(5000),
+  }).then(async r => {
+    if (!r.ok) return 0;
+    const data = await r.json().catch(() => []);
+    const unique = new Set((data as Array<{ lead_id: string }>).map(x => x.lead_id).filter(Boolean));
+    return unique.size;
+  }).catch(() => 0);
+
   // Segments: sum from both tables
   const [segmentsIn, segmentsOut] = await Promise.all([
     fetch(`${URL}/rest/v1/messages_in?select=segments&${qsSegmentsIn}`, {
@@ -134,13 +146,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   ]);
   const segmentsTotal = segmentsIn + segmentsOut;
 
-  const [newLeads, messagesSent, deliveredCount, sentCount, bookedCount, contactedCount, optedOutCount] = await Promise.all([
+  const [newLeads, messagesSent, deliveredCount, sentCount, bookedCount, optedOutCount] = await Promise.all([
     count('leads', qsNewLeads),
     count('messages_out', qsMessagesSent),
     count('messages_out', qsDelivered),
     count('messages_out', qsSent),
     count('messages_out', qsBooked),
-    count('leads', qsContacted),
     count('leads', qsOptedOut),
   ]);
 
@@ -149,7 +160,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // Delivered% = delivered / sent (exclude queued)
   const deliveredPct = sentCount > 0 ? Math.round((deliveredCount / sentCount) * 100) : 0;
-  const replyRate = deliveredCount > 0 ? Math.round((replies / deliveredCount) * 100) : 0;
+  // Reply Rate = unique replying leads / unique contacted leads (not message count)
+  const replyRate = contactedCount > 0 ? Math.round((replies / contactedCount) * 100) : 0;
   const optOutRate = contactedCount > 0 ? Math.round((optedOutCount / contactedCount) * 100) : 0;
 
   // NEW: Generate time-series chart data (bucketed by hour or day)
