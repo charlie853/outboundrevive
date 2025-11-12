@@ -64,10 +64,10 @@ export default function PricingPage() {
               </div>
               
               <a
-                href="/settings?plan=lite"
+                href="/contact?plan=lite"
                 className="block w-full rounded-lg bg-indigo-600 px-3 py-2 text-center text-sm font-semibold text-white hover:bg-indigo-500 transition-colors shadow-sm"
               >
-                Upgrade to Lite
+                Get Started with Lite
               </a>
               
               <ul className="mt-8 space-y-3 text-sm leading-6 text-slate-600">
@@ -125,10 +125,10 @@ export default function PricingPage() {
               </div>
               
               <a
-                href="/settings?plan=standard"
+                href="/contact?plan=standard"
                 className="block w-full rounded-lg bg-indigo-600 px-3 py-2 text-center text-sm font-semibold text-white hover:bg-indigo-500 transition-colors shadow-sm"
               >
-                Upgrade to Standard
+                Get Started with Standard
               </a>
               
               <ul className="mt-8 space-y-3 text-sm leading-6 text-slate-600">
@@ -186,10 +186,10 @@ export default function PricingPage() {
               </div>
               
               <a
-                href="/settings?plan=pro"
+                href="/contact?plan=pro"
                 className="block w-full rounded-lg bg-indigo-600 px-3 py-2 text-center text-sm font-semibold text-white hover:bg-indigo-500 transition-colors shadow-sm"
               >
-                Upgrade to Pro
+                Get Started with Pro
               </a>
               
               <ul className="mt-8 space-y-3 text-sm leading-6 text-slate-600">
