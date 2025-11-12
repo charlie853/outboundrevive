@@ -14,12 +14,18 @@ export default function PricingPage() {
         <div className="relative mx-auto max-w-7xl px-6 lg:px-8">
           <div className="mx-auto max-w-2xl text-center">
             <h1 className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
-              Simple, Transparent Pricing
+              Flat & Simple Pricing
             </h1>
             <p className="mt-6 text-lg leading-8 text-indigo-100">
-              Start free, then upgrade as you grow. All plans include AI-powered follow-ups, 
-              smart scheduling, and compliance automation.
+              $299 one-time setup, then choose your monthly plan. 
+              All plans include AI-powered follow-ups, smart scheduling, and compliance automation.
             </p>
+            <div className="mt-6 inline-flex items-center gap-3 rounded-full bg-amber-500 px-6 py-3 text-sm font-semibold text-indigo-900">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              ~1 week onboarding time included
+            </div>
           </div>
         </div>
       </section>
@@ -27,62 +33,21 @@ export default function PricingPage() {
       {/* Pricing Cards */}
       <section className="relative py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
+          {/* One-time Setup Fee Banner */}
+          <div className="mb-12 mx-auto max-w-3xl rounded-2xl border-2 border-amber-400 bg-gradient-to-r from-amber-50 to-orange-50 p-8 text-center shadow-lg">
+            <h3 className="text-2xl font-bold text-slate-900 mb-2">One-Time Setup Fee</h3>
+            <p className="text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-amber-600 to-orange-600 mb-3">
+              $299
+            </p>
+            <p className="text-sm text-slate-600 mb-4">
+              Includes full onboarding, CRM integration, AI customization, and team training (~1 week)
+            </p>
+            <p className="text-xs text-slate-500">
+              Required for all new accounts • One-time payment • No recurring setup fees
+            </p>
+          </div>
+
           <div className="grid gap-8 lg:grid-cols-3">
-            
-            {/* Free Plan */}
-            <div className="relative rounded-2xl border-2 border-slate-200 bg-white p-8 shadow-sm hover:shadow-lg transition-shadow">
-              <div className="mb-8">
-                <h3 className="text-lg font-semibold text-slate-900">Starter</h3>
-                <p className="mt-2 text-sm text-slate-600">
-                  Perfect for testing and small teams
-                </p>
-                <p className="mt-6">
-                  <span className="text-4xl font-bold tracking-tight text-slate-900">$0</span>
-                  <span className="text-sm font-semibold leading-6 text-slate-600">/month</span>
-                </p>
-                <p className="mt-2 text-sm text-slate-500">500 segments/month</p>
-              </div>
-              
-              <a
-                href="/auth/login"
-                className="block w-full rounded-lg border border-indigo-600 bg-white px-3 py-2 text-center text-sm font-semibold text-indigo-600 hover:bg-indigo-50 transition-colors"
-              >
-                Get Started Free
-              </a>
-              
-              <ul className="mt-8 space-y-3 text-sm leading-6 text-slate-600">
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span><strong>500 SMS segments</strong> per month</span>
-                </li>
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span>AI-powered follow-ups</span>
-                </li>
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span>Smart quiet hours</span>
-                </li>
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span>Compliance automation</span>
-                </li>
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span>Basic analytics</span>
-                </li>
-              </ul>
-            </div>
 
             {/* Lite Plan */}
             <div className="relative rounded-2xl border-2 border-slate-200 bg-white p-8 shadow-sm hover:shadow-lg transition-shadow">
@@ -207,7 +172,7 @@ export default function PricingPage() {
             </div>
 
             {/* Pro Plan */}
-            <div className="relative rounded-2xl border-2 border-slate-200 bg-white p-8 shadow-sm hover:shadow-lg transition-shadow lg:col-span-3 lg:mx-auto lg:max-w-md">
+            <div className="relative rounded-2xl border-2 border-slate-200 bg-white p-8 shadow-sm hover:shadow-lg transition-shadow">
               <div className="mb-8">
                 <h3 className="text-lg font-semibold text-slate-900">Pro</h3>
                 <p className="mt-2 text-sm text-slate-600">
