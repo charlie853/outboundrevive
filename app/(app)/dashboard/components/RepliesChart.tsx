@@ -29,14 +29,14 @@ export default function RepliesChart({ days }: { days: DayPoint[] }) {
     xAxis: {
       type: 'category',
       data: dates,
-      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.2)' } },
-      axisLabel: { color: '#E5E7EB' },
+      axisLine: { lineStyle: { color: '#E2E8F0' } },
+      axisLabel: { color: '#64748B' },
     },
     yAxis: {
       type: 'value',
       axisLine: { show: false },
-      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.1)', type: 'dashed' } },
-      axisLabel: { color: '#E5E7EB' },
+      splitLine: { lineStyle: { color: '#F1F5F9', type: 'dashed' } },
+      axisLabel: { color: '#64748B' },
     },
     series: [
       {
@@ -77,10 +77,10 @@ export default function RepliesChart({ days }: { days: DayPoint[] }) {
   };
 
   return (
-    <div className="grad-border-amber p-5" aria-label="Replies per day">
-      <div className="mb-3 text-base font-semibold text-white">Lead Engagement</div>
-      <div className="text-sm text-gray-300 mb-4">Inbound replies from leads by day</div>
-      <ReactECharts option={option} style={{ height: '280px' }} />
+    <div className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-lg" aria-label="Replies per day">
+      <div className="mb-2 text-lg font-bold text-slate-900">Lead Engagement</div>
+      <div className="text-sm text-slate-600 mb-4">Inbound replies from leads over time</div>
+      <ReactECharts option={option} style={{ height: '300px' }} />
     </div>
   );
 }

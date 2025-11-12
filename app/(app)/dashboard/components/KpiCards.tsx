@@ -61,31 +61,45 @@ export default function KpiCards({ data, className = '' }: { data: Kpis & { book
 function MetricCard({ item }: { item: MetricItem }) {
   const [showTooltip, setShowTooltip] = useState(false);
 
+  // Simplified color scheme: primary (indigo) for most, accent (amber) for conversions, neutral for negatives
+  const getAccentColor = (label: string) => {
+    if (label === 'Booked') return 'from-amber-500 to-orange-500'; // Success/conversion
+    if (label === 'Opt-Outs') return 'from-slate-500 to-slate-600'; // Neutral/negative
+    return 'from-indigo-600 to-indigo-700'; // Default primary color for all engagement metrics
+  };
+
   return (
-    <div className="grad-border-amber p-5 transition-shadow relative text-white">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-medium text-gray-300">{item.label}</div>
+    <div className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-[1.02] relative">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-sm font-semibold text-slate-700">{item.label}</div>
         <div 
           className="relative group"
           onMouseEnter={() => setShowTooltip(true)}
           onMouseLeave={() => setShowTooltip(false)}
         >
-          <svg className="w-4 h-4 text-amber-400 hover:text-amber-300 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5 text-indigo-400 hover:text-indigo-600 cursor-help transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           {showTooltip && (
-            <div className="absolute z-50 right-0 top-6 w-64 p-3 text-xs text-gray-200 bg-indigo-950/80 border border-amber-300/40 rounded-lg shadow-xl backdrop-blur">
+            <div className="absolute z-50 right-0 top-7 w-72 p-3 text-xs text-slate-700 bg-white border border-indigo-200 rounded-xl shadow-2xl">
               {item.description}
             </div>
           )}
         </div>
       </div>
-      <div className="mt-2 text-3xl font-bold text-white">
-        {(item.label === 'Delivered %' || item.label === 'Reply Rate') ? `${item.value}%` : item.value.toLocaleString()}
+      
+      {/* Metric Value with gradient accent */}
+      <div className="relative">
+        <div className={`text-4xl font-black bg-gradient-to-r ${getAccentColor(item.label)} bg-clip-text text-transparent`}>
+          {(item.label === 'Delivered %' || item.label === 'Reply Rate') ? `${item.value}%` : item.value.toLocaleString()}
+        </div>
       </div>
+      
+      {/* Delta indicator */}
       {item.delta !== 0 && (
-        <div className={`mt-1 text-xs font-medium ${item.delta >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}> 
-          {item.delta >= 0 ? '▲' : '▼'} {Math.round(Math.abs(item.delta || 0) * 100)}% vs previous period
+        <div className={`mt-2 flex items-center gap-1 text-xs font-semibold ${item.delta >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}> 
+          <span className="text-base">{item.delta >= 0 ? '↗' : '↘'}</span>
+          <span>{Math.round(Math.abs(item.delta || 0) * 100)}% vs previous</span>
         </div>
       )}
     </div>
