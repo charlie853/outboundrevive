@@ -15,7 +15,7 @@ import React from "react";
  */
 export default function PageShell({ children }: { children: React.ReactNode }) {
   return (
-    <section className="page-shell bg-gradient-to-b from-indigo-900 via-indigo-800 to-slate-900 relative">
+    <section className="page-shell bg-gradient-to-b from-indigo-900 via-indigo-800 to-slate-900 bg-grid relative min-h-screen">
       <div className="relative z-10">{children}</div>
     </section>
   );

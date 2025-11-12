@@ -1,123 +1,66 @@
 "use client";
 import React from 'react';
 
-/**
- * Conversion Funnel Component - FIXED LOGIC
- * 
- * Shows lead progression with correct, monotonic percentages:
- * - Leads (base, always 100%)
- * - Contacted (unique leads with ≥1 outbound, % of leads)
- * - Delivered (messages delivered, % relative to contacted)
- * - Replied (unique leads who replied, % of contacted)
- * - Booked (leads who booked, % of contacted)
- * 
- * KEY FIX: All percentages after "Leads" are calculated relative to the appropriate base
- * to ensure they never exceed 100% and form a logical funnel.
- */
-export default function Funnel({ data }: { 
-  data: { 
-    leads: number; 
-    contacted: number; 
-    delivered: number; 
-    replied: number;
-    booked?: number;
-  } 
-}) {
-  // Calculate percentages correctly:
-  // - Contacted: % of leads we reached
-  // - Delivered: we show this as a count, not % (since it's messages, not unique leads)
-  // - Replied: % of contacted leads who replied
-  // - Booked: % of contacted leads who booked
+export default function Funnel({ data }: { data: { leads: number; sent: number; delivered: number; replied: number } }) {
   const steps = [
-    { 
-      label: 'Leads', 
-      value: data.leads, 
-      percent: 100,
-      description: 'Total leads in your system'
-    },
+    { label: 'Leads', value: data.leads, percent: 100 },
     { 
       label: 'Contacted', 
-      value: data.contacted, 
-      percent: data.leads > 0 ? Math.round((data.contacted / data.leads) * 100) : 0,
-      description: 'Leads with at least one outbound message'
+      value: data.sent, 
+      percent: data.leads > 0 ? Math.round((data.sent / data.leads) * 100) : 0 
     },
     { 
       label: 'Delivered', 
       value: data.delivered, 
-      percent: data.contacted > 0 ? Math.round((data.delivered / data.contacted)) : 0, // Avg msgs per contacted lead
-      description: 'Messages successfully delivered'
+      percent: data.sent > 0 ? Math.round((data.delivered / data.sent) * 100) : 0 
     },
     { 
       label: 'Replied', 
       value: data.replied, 
-      percent: data.contacted > 0 ? Math.round((data.replied / data.contacted) * 100) : 0,
-      description: 'Leads who responded'
-    },
-    { 
-      label: 'Booked', 
-      value: data.booked ?? 0, 
-      percent: data.contacted > 0 ? Math.round(((data.booked ?? 0) / data.contacted) * 100) : 0,
-      description: 'Leads who scheduled an appointment'
+      percent: data.delivered > 0 ? Math.round((data.replied / data.delivered) * 100) : 0 
     },
   ];
   const max = Math.max(...steps.map(s => s.value), 1);
   
   return (
-    <div className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-lg" aria-label="Conversion Funnel">
-      <div className="mb-1 text-xl font-bold text-slate-900">Conversion Funnel</div>
-      <div className="mb-6 text-sm text-slate-600">Track how leads progress from initial contact to booking</div>
-      <ul className="space-y-3">
+    <div className="grad-border-amber p-6" aria-label="Conversion Funnel">
+      <div className="mb-1 text-lg font-bold text-white">Conversion Funnel</div>
+      <div className="mb-4 text-sm text-gray-300">Track how leads progress from initial contact to engagement</div>
+      <ul className="space-y-4">
         {steps.map((s, idx) => (
-          <li key={s.label} className="group">
-            <div className="flex items-center gap-3 mb-1">
-              <div className="w-32 text-sm font-semibold text-slate-800">{s.label}</div>
-              <div className="relative h-10 flex-1 rounded-lg bg-slate-100 overflow-hidden shadow-inner">
-                <div 
-                  className={`absolute inset-y-0 left-0 rounded-lg transition-all duration-500 ${
-                    idx === steps.length - 1 
-                      ? 'bg-gradient-to-r from-amber-500 to-orange-500' // Last stage (Booked) = success color
-                      : 'bg-gradient-to-r from-indigo-600 to-indigo-700' // All other stages = primary color
-                  }`}
-                  style={{ width: `${(s.value / max) * 100}%` }}
-                />
-                {s.value > 0 && (
-                  <div className="absolute inset-0 flex items-center justify-between px-3 z-10">
-                    <span className="text-xs font-bold text-white">
-                      {s.label === 'Delivered' ? `${s.percent} avg` : `${s.percent}%`}
-                    </span>
-                  </div>
-                )}
-              </div>
-              <div className="w-24 text-right text-sm font-bold tabular-nums text-slate-900">
-                {s.value.toLocaleString()}
-              </div>
+          <li key={s.label} className="flex items-center gap-3">
+            <div className="w-28 text-sm font-medium text-gray-300">{s.label}</div>
+            <div className="relative h-8 flex-1 rounded-lg bg-white/10 overflow-hidden">
+              <div 
+                className="absolute inset-y-0 left-0 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 transition-all duration-300" 
+                style={{ width: `${(s.value / max) * 100}%` }}
+              />
+              {s.value > 0 && (
+                <div className="absolute inset-0 flex items-center px-3 text-xs font-medium text-white z-10">
+                  {s.percent}%
+                </div>
+              )}
             </div>
-            <div className="ml-32 text-xs text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity">
-              {s.description}
+            <div className="w-20 text-right text-sm font-semibold tabular-nums text-white">
+              {s.value.toLocaleString()}
             </div>
           </li>
         ))}
       </ul>
       
-      {/* Conversion Summary - Key Metrics */}
-      <div className="mt-6 pt-6 border-t border-slate-200">
-        <div className="grid grid-cols-3 gap-4">
-          <div className="p-4 rounded-xl bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200">
-            <div className="text-xs font-medium text-slate-600 mb-1">Contact Rate</div>
-            <div className="text-2xl font-bold text-indigo-900">
-              {data.leads > 0 ? Math.round((data.contacted / data.leads) * 100) : 0}%
+      {/* Conversion Summary */}
+      <div className="mt-6 pt-4 border-t border-white/20">
+        <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+            <div className="text-gray-300 font-medium">Contact Rate</div>
+            <div className="text-2xl font-bold text-white mt-1">
+              {data.leads > 0 ? Math.round((data.sent / data.leads) * 100) : 0}%
             </div>
           </div>
-          <div className="p-4 rounded-xl bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200">
-            <div className="text-xs font-medium text-slate-600 mb-1">Reply Rate</div>
-            <div className="text-2xl font-bold text-indigo-900">
-              {data.contacted > 0 ? Math.round((data.replied / data.contacted) * 100) : 0}%
-            </div>
-          </div>
-          <div className="p-4 rounded-xl bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-200">
-            <div className="text-xs font-medium text-slate-600 mb-1">Booking Rate</div>
-            <div className="text-2xl font-bold text-amber-900">
-              {data.contacted > 0 ? Math.round(((data.booked ?? 0) / data.contacted) * 100) : 0}%
+          <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+            <div className="text-gray-300 font-medium">Reply Rate</div>
+            <div className="text-2xl font-bold text-amber-400 mt-1">
+              {data.delivered > 0 ? Math.round((data.replied / data.delivered) * 100) : 0}%
             </div>
           </div>
         </div>

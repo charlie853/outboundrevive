@@ -3,7 +3,7 @@ import Link from "next/link";
 
 export default function Nav() {
   return (
-    <header className="sticky top-0 z-30 border-b border-indigo-700/30 bg-indigo-900/95 backdrop-blur supports-[backdrop-filter]:bg-indigo-900/90">
+    <header className="sticky top-0 z-30 border-b border-indigo-700/30 bg-indigo-900">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 md:px-6 py-3">
         <Link href="/" className="font-semibold text-white" aria-label="OutboundRevive Home">
           OutboundRevive
