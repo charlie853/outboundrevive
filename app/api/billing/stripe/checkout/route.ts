@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
 const PLANS: Record<string, { priceId?: string; cap: number }> = {
+  starter: { cap: 500 },
   lite: { cap: 1000 },
   standard: { cap: 2000 },
   pro: { cap: 5000 },

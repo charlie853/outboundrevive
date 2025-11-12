@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabaseServer';
 export const runtime = 'nodejs';
 
 const PLAN_CAPS: Record<string, number> = {
+  starter: 500,
   lite: 1000,
   standard: 2000,
   pro: 5000,
