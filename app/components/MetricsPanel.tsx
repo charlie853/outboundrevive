@@ -145,20 +145,23 @@ export default function MetricsPanel() {
     canvas.height = rows * cell + pad * 2 + 16;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = 'rgba(255,255,255,0.02)'; ctx.fillRect(0,0,canvas.width,canvas.height);
     const max = Math.max(1, ...buckets.flat());
     // axes labels
     const dows = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-    ctx.fillStyle = '#111'; ctx.font = '12px sans-serif';
+    ctx.fillStyle = '#E5E7EB'; ctx.font = '12px sans-serif';
     dows.forEach((d, r) => ctx.fillText(d, 4, pad + r*cell + 12));
     for (let h = 0; h < cols; h += 3) ctx.fillText(String(h).padStart(2,'0'), pad + h*cell, 14);
-    // cells
+    // cells - use amber gradient for better visibility on dark background
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const v = buckets[r][c] || 0;
         const t = v / max;
-        const col = Math.floor(255 - t * 180);
-        ctx.fillStyle = `rgb(${col}, ${col}, 255)`;
+        // Amber gradient: from light amber to darker amber
+        const rVal = Math.floor(245 - t * 100); // 245 (amber-500) to 145
+        const gVal = Math.floor(158 - t * 80);  // 158 to 78
+        const bVal = Math.floor(11 + t * 20);   // 11 to 31
+        ctx.fillStyle = `rgb(${rVal}, ${gVal}, ${bVal})`;
         ctx.fillRect(pad + c*cell, pad + r*cell, cell-1, cell-1);
       }
     }
@@ -281,10 +284,10 @@ export default function MetricsPanel() {
 
   return (
     <section className="space-y-8">
-      {/* Dashboard Header - Match homepage theme (indigo gradient) */}
-      <div className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 p-6 shadow-xl">
+      {/* Dashboard Header - match site card styling */}
+      <div className="grad-border-amber p-6">
         <h2 className="text-xl font-bold text-white mb-2">Live Performance Dashboard</h2>
-        <p className="text-sm text-indigo-100">
+        <p className="text-sm text-gray-300">
           Track your AI texter's outreach performance and conversation health in real-time. 
           Metrics update as messages are sent and leads respond.
         </p>
@@ -292,7 +295,7 @@ export default function MetricsPanel() {
 
       {/* Time Range Selector */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex rounded-xl border border-indigo-200 bg-white p-1 shadow-md">
+        <div className="inline-flex rounded-xl border border-amber-500/30 bg-white/5 backdrop-blur p-1">
           {WINDOW_OPTIONS.map(({ label, value }) => (
             <button
               key={value}
@@ -300,8 +303,8 @@ export default function MetricsPanel() {
               onClick={() => handleSetRange(value)}
               className={`px-3 py-1.5 text-sm rounded-lg transition-all ${
                 range === value 
-                  ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md' 
-                  : 'text-slate-700 hover:bg-indigo-50'
+                  ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-md' 
+                  : 'text-gray-300 hover:bg-white/10'
               }`}
               aria-pressed={range === value}
             >
@@ -372,18 +375,18 @@ export default function MetricsPanel() {
       )}
 
       {/* Time Series Charts (feature-flagged modern theming) */}
-      <div className={newChartsEnabled ? 'grid gap-6 md:grid-cols-2 [&>*]:ring-1 [&>*]:ring-indigo-200 [&>*]:rounded-2xl [&>*]:shadow-lg' : 'grid gap-6 md:grid-cols-2'}>
+      <div className="grid gap-6 md:grid-cols-2">
         {delivery.length >= 1 ? (
           <DeliveryChart days={deliveryPoints} /* modern={newChartsEnabled} */ />
         ) : (
-          <div className="rounded-2xl border border-surface-line bg-surface-card p-4 text-sm text-ink-2 shadow-soft">
+          <div className="grad-border-amber p-4 text-sm text-gray-300">
             No delivery data yet. Send your first campaign to see stats here.
           </div>
         )}
         {repliesS.length >= 1 ? (
           <RepliesChart days={replyPoints} /* modern={newChartsEnabled} */ />
         ) : (
-          <div className="rounded-2xl border border-surface-line bg-surface-card p-4 text-sm text-ink-2 shadow-soft">
+          <div className="grad-border-amber p-4 text-sm text-gray-300">
             No replies yet. Once leads respond, you'll see engagement trends here.
           </div>
         )}
@@ -391,27 +394,27 @@ export default function MetricsPanel() {
 
       {/* Caps progress + quiet hours widget */}
       <div className="grid gap-6 md:grid-cols-2">
-        <div className="rounded-2xl border border-surface-line bg-surface-card p-4">
-          <h3 className="text-sm font-semibold text-ink-1 mb-2">Monthly SMS Cap</h3>
+        <div className="grad-border-amber p-4">
+          <h3 className="text-sm font-semibold text-white mb-2">Monthly SMS Cap</h3>
           {billing?.monthly_cap_segments ? (
             <div>
-              <div className="text-xs text-ink-2 mb-1">Plan: {billing?.plan_tier || 'unknown'}</div>
+              <div className="text-xs text-gray-300 mb-1">Plan: {billing?.plan_tier || 'unknown'}</div>
               {(() => {
                 const used = Number(billing?.segments_used || 0);
                 const cap = Number(billing?.monthly_cap_segments || 0);
                 const pct = cap > 0 ? Math.min(1, used / cap) : 0;
                 const pc100 = Math.round(pct * 100);
                 const bar = (
-                  <div className="w-full h-2 bg-surface-bg rounded">
+                  <div className="w-full h-2 bg-white/10 rounded">
                     <div className={`h-2 rounded ${pc100 >= 100 ? 'bg-rose-500' : pc100 >= 80 ? 'bg-amber-500' : 'bg-indigo-500'}`} style={{ width: `${pc100}%` }} />
                   </div>
                 );
                 return (
             <div className="space-y-2">
                     {bar}
-                    <div className="text-xs text-ink-2">{used} / {cap} segments ({pc100}%)</div>
+                  <div className="text-xs text-gray-300">{used} / {cap} segments ({pc100}%)</div>
                     {pc100 >= 100 && (
-                      <div className="text-xs text-rose-600">Cap reached — outbound paused. <button onClick={async ()=>{
+                    <div className="text-xs text-rose-400">Cap reached — outbound paused. <button onClick={async ()=>{
                         const pr = await fetch('/api/billing/upgrade/preview').then(r=>r.json()).catch(()=>({plans:[]}));
                         const plan = (Array.isArray(pr?.plans)?pr.plans:[])[1];
                         if (!plan) return;
@@ -420,7 +423,7 @@ export default function MetricsPanel() {
                       }} className="underline">Upgrade</button></div>
                     )}
                     {pc100 >= 80 && pc100 < 100 && (
-                      <div className="text-xs text-amber-600">Approaching cap — consider upgrading. <button onClick={async ()=>{
+                    <div className="text-xs text-amber-400">Approaching cap — consider upgrading. <button onClick={async ()=>{
                         const pr = await fetch('/api/billing/upgrade/preview').then(r=>r.json()).catch(()=>({plans:[]}));
                         const plan = (Array.isArray(pr?.plans)?pr.plans:[])[1];
                         if (!plan) return;
@@ -433,17 +436,17 @@ export default function MetricsPanel() {
               })()}
             </div>
           ) : (
-            <div className="text-sm text-ink-2">Billing info unavailable.</div>
+            <div className="text-sm text-gray-300">Billing info unavailable.</div>
           )}
         </div>
-        <div className="rounded-2xl border border-surface-line bg-surface-card p-4">
-          <h3 className="text-sm font-semibold text-ink-1 mb-2">Quiet Hours</h3>
-          <div className="text-xs text-ink-2 mb-2">Blocked sends in range: {Number(quiet?.count || 0)}</div>
+        <div className="grad-border-amber p-4">
+          <h3 className="text-sm font-semibold text-white mb-2">Quiet Hours</h3>
+          <div className="text-xs text-gray-300 mb-2">Blocked sends in range: {Number(quiet?.count || 0)}</div>
           <a className="text-xs underline" href="/followups">Edit quiet hours & windows</a>
         </div>
-        <div className="rounded-2xl border border-surface-line bg-surface-card p-4">
-          <h3 className="text-sm font-semibold text-ink-1 mb-2">Top Intents</h3>
-          <div className="text-xs text-ink-2 border rounded p-2 max-h-48 overflow-auto">
+        <div className="grad-border-amber p-4">
+          <h3 className="text-sm font-semibold text-white mb-2">Top Intents</h3>
+          <div className="text-xs text-gray-300 border border-white/20 rounded p-2 max-h-48 overflow-auto">
           {(Array.isArray(intents?.intents) ? intents.intents : []).map((row: any) => (
             <div key={row.intent} className="flex justify-between"><span>{row.intent}</span><span>{row.count}</span></div>
           ))}
@@ -453,23 +456,23 @@ export default function MetricsPanel() {
 
       {/* Analytics Panels: Heatmap and Carrier/Error breakdown */}
       <div className="grid gap-6 md:grid-cols-2">
-        <div className="rounded-2xl border border-surface-line bg-surface-card p-4">
+        <div className="grad-border-amber p-4">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-ink-1">Reply Heatmap (hour × day)</h3>
-            <button onClick={exportHeatmapPng} className="text-xs px-2 py-1 rounded bg-indigo-600 text-white">Export PNG</button>
+            <h3 className="text-sm font-semibold text-white">Reply Heatmap (hour × day)</h3>
+            <button onClick={exportHeatmapPng} className="text-xs px-2 py-1 rounded bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:from-amber-600 hover:to-amber-700 transition-all">Export PNG</button>
           </div>
           {Array.isArray(heatmap?.heatmap) && heatmap.heatmap.length ? (
             <canvas ref={heatmapRef} style={{ width: '100%', maxWidth: 560 }} />
           ) : (
-            <div className="text-sm text-ink-2">No data yet.</div>
+            <div className="text-sm text-gray-300">No data yet.</div>
           )}
         </div>
-        <div className="rounded-2xl border border-surface-line bg-surface-card p-4">
-          <h3 className="text-sm font-semibold text-ink-1 mb-2">Carrier/Error Breakdown</h3>
+        <div className="grad-border-amber p-4">
+          <h3 className="text-sm font-semibold text-white mb-2">Carrier/Error Breakdown</h3>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <div className="text-xs font-medium text-ink-2 mb-1">Regions</div>
-              <div className="text-xs text-ink-2 border rounded p-2 max-h-48 overflow-auto">
+              <div className="text-xs font-medium text-gray-300 mb-1">Regions</div>
+              <div className="text-xs text-gray-300 border border-white/20 rounded p-2 max-h-48 overflow-auto">
               {(Array.isArray(carriers?.breakdown) ? carriers.breakdown : []).map((row: any) => (
                 <div key={row.region} className="flex justify-between">
                   <span>{row.region}</span>
@@ -479,8 +482,8 @@ export default function MetricsPanel() {
               </div>
             </div>
             <div>
-              <div className="text-xs font-medium text-ink-2 mb-1">Top Error Codes</div>
-              <div className="text-xs text-ink-2 border rounded p-2 max-h-48 overflow-auto">
+              <div className="text-xs font-medium text-gray-300 mb-1">Top Error Codes</div>
+              <div className="text-xs text-gray-300 border border-white/20 rounded p-2 max-h-48 overflow-auto">
               {(Array.isArray(carriers?.errors) ? carriers.errors : []).map((row: any) => (
                 <div key={row.code} className="flex justify-between"><span>{row.code}</span><span>{row.count}</span></div>
               ))}

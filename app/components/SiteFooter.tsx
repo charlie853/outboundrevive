@@ -1,6 +1,6 @@
 export default function SiteFooter() {
   return (
-    <footer className="border-t border-indigo-700/30 bg-slate-900">
+    <footer className="bg-slate-900">
       <div className="mx-auto max-w-6xl px-4 py-8 text-sm text-gray-400 flex flex-wrap items-center gap-4">
         <a className="hover:text-white transition-colors" href="/">Home</a>
         <a className="hover:text-white transition-colors" href="/about">About</a>

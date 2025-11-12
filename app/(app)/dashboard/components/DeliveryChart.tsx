@@ -14,12 +14,12 @@ export default function DeliveryChart({ days }: { days: DayPoint[] }) {
     tooltip: {
       trigger: 'axis',
       backgroundColor: 'rgba(15, 23, 42, 0.95)',
-      borderColor: '#4F46E5',
+      borderColor: '#F59E0B',
       textStyle: { color: '#fff' },
     },
     legend: {
       data: ['Sent', 'Delivered', 'Failed'],
-      textStyle: { color: '#475569' },
+      textStyle: { color: '#E5E7EB' },
       bottom: 0,
     },
     grid: {
@@ -32,14 +32,14 @@ export default function DeliveryChart({ days }: { days: DayPoint[] }) {
     xAxis: {
       type: 'category',
       data: dates,
-      axisLine: { lineStyle: { color: '#E2E8F0' } },
-      axisLabel: { color: '#64748B' },
+      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.2)' } },
+      axisLabel: { color: '#E5E7EB' },
     },
     yAxis: {
       type: 'value',
       axisLine: { show: false },
-      splitLine: { lineStyle: { color: '#F1F5F9', type: 'dashed' } },
-      axisLabel: { color: '#64748B' },
+      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.1)', type: 'dashed' } },
+      axisLabel: { color: '#E5E7EB' },
     },
     series: [
       {
@@ -55,37 +55,37 @@ export default function DeliveryChart({ days }: { days: DayPoint[] }) {
             x2: 0,
             y2: 1,
             colorStops: [
-              { offset: 0, color: 'rgba(99, 102, 241, 0.3)' },
-              { offset: 1, color: 'rgba(99, 102, 241, 0.05)' },
+              { offset: 0, color: 'rgba(245, 158, 11, 0.4)' },
+              { offset: 1, color: 'rgba(245, 158, 11, 0.05)' },
             ],
           },
         },
-        lineStyle: { color: '#6366F1', width: 3 },
-        itemStyle: { color: '#6366F1' },
+        lineStyle: { color: '#F59E0B', width: 3 },
+        itemStyle: { color: '#F59E0B' },
       },
       {
         name: 'Sent',
         type: 'line',
         data: sentData,
         smooth: true,
-        lineStyle: { color: '#312E81', width: 2, type: 'dashed' },
-        itemStyle: { color: '#312E81' },
+        lineStyle: { color: 'rgba(255, 255, 255, 0.6)', width: 2, type: 'dashed' },
+        itemStyle: { color: 'rgba(255, 255, 255, 0.6)' },
       },
       {
         name: 'Failed',
         type: 'line',
         data: failedData,
         smooth: true,
-        lineStyle: { color: '#F59E0B', width: 2 },
-        itemStyle: { color: '#F59E0B' },
+        lineStyle: { color: '#EF4444', width: 2 },
+        itemStyle: { color: '#EF4444' },
       },
     ],
   };
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-lg" aria-label="Delivery over time">
-      <div className="mb-3 text-base font-semibold text-slate-900">Message Delivery</div>
-      <div className="text-sm text-slate-600 mb-4">Track sent, delivered, and failed messages over time</div>
+    <div className="grad-border-amber p-5" aria-label="Delivery over time">
+      <div className="mb-3 text-base font-semibold text-white">Message Delivery</div>
+      <div className="text-sm text-gray-300 mb-4">Track sent, delivered, and failed messages over time</div>
       <ReactECharts option={option} style={{ height: '280px' }} />
     </div>
   );

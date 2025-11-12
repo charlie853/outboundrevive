@@ -62,29 +62,29 @@ function MetricCard({ item }: { item: MetricItem }) {
   const [showTooltip, setShowTooltip] = useState(false);
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-lg hover:shadow-xl transition-shadow relative">
+    <div className="grad-border-amber p-5 transition-shadow relative text-white">
       <div className="flex items-center justify-between">
-        <div className="text-sm font-medium text-slate-600">{item.label}</div>
+        <div className="text-sm font-medium text-gray-300">{item.label}</div>
         <div 
           className="relative group"
           onMouseEnter={() => setShowTooltip(true)}
           onMouseLeave={() => setShowTooltip(false)}
         >
-          <svg className="w-4 h-4 text-indigo-400 hover:text-indigo-600 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4 text-amber-400 hover:text-amber-300 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           {showTooltip && (
-            <div className="absolute z-50 right-0 top-6 w-64 p-3 text-xs text-slate-700 bg-white border border-indigo-200 rounded-lg shadow-xl">
+            <div className="absolute z-50 right-0 top-6 w-64 p-3 text-xs text-gray-200 bg-indigo-950/80 border border-amber-300/40 rounded-lg shadow-xl backdrop-blur">
               {item.description}
             </div>
           )}
         </div>
       </div>
-      <div className="mt-2 text-3xl font-bold text-slate-900">
+      <div className="mt-2 text-3xl font-bold text-white">
         {(item.label === 'Delivered %' || item.label === 'Reply Rate') ? `${item.value}%` : item.value.toLocaleString()}
       </div>
       {item.delta !== 0 && (
-        <div className={`mt-1 text-xs font-medium ${item.delta >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}> 
+        <div className={`mt-1 text-xs font-medium ${item.delta >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}> 
           {item.delta >= 0 ? '▲' : '▼'} {Math.round(Math.abs(item.delta || 0) * 100)}% vs previous period
         </div>
       )}

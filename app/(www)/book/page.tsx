@@ -1,5 +1,6 @@
 import Client from "./Client";
 import Nav from "../components/Nav";
+import PageShell from "../components/PageShell";
 
 function sanitizeCalLink(raw?: string | null): string | null {
   if (!raw) return null;
@@ -24,9 +25,13 @@ export default function BookPage() {
   const provided = sanitizeCalLink("https://cal.com/charlie-fregozo-v8sczt/30min");
   const calPath = sanitizeCalLink(fromEnv) || provided;
   return (
-    <div className="bg-surface-bg">
+    <div className="min-h-screen flex flex-col">
       <Nav />
-      <Client calLink={calPath} />
+      <main className="flex-1">
+        <PageShell>
+          <Client calLink={calPath} />
+        </PageShell>
+      </main>
     </div>
   );
 }

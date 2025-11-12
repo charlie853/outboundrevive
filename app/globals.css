@@ -49,11 +49,9 @@
 }
 
 body {
-  /* Soft radial wash + neutral bg */
-  background: radial-gradient(1200px 600px at 50% -10%, #EEF2FF 0%, transparent 60%), var(--bg);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
-  background-color: #312e81; /* indigo-900 fallback */
+  background-color: transparent;
 }
 
 html {
@@ -165,18 +163,9 @@ html {
   .btn-shimmer::after { transition: none !important; }
 }
 
-/* === Unified page shell: static aurora background === */
+/* === Page shell with subtle grid (no aurora) === */
 /* Background wrapper for secondary pages (Contact, About, Privacy, etc.) */
 .page-shell { position: relative; overflow: hidden; }
-.page-shell::before{
-  content:""; position:absolute; inset:-10% -5% -20%; z-index:0; pointer-events:none;
-  /* Three gradient orbs for subtle visual interest */
-  background:
-    radial-gradient(40% 30% at 20% 10%, rgba(79,70,229,.35), transparent 60%),
-    radial-gradient(35% 28% at 80% 20%, rgba(88,28,135,.25), transparent 65%),
-    radial-gradient(30% 25% at 50% 0%, rgba(245,158,11,.12), transparent 70%);
-  filter: blur(36px);
-}
 
 /* === Card surface + animated amber border === */
 /* Reusable card styling for secondary pages */
