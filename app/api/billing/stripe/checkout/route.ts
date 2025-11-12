@@ -44,14 +44,50 @@ export async function POST(req: NextRequest) {
       }, { status: 500 });
     }
 
+    console.log('[stripe/checkout] Initializing Stripe...');
     const stripe = (await import('stripe')).default;
-    const client = new stripe(secret, { apiVersion: '2024-06-20' });
+    
+    // Validate the secret key format
+    if (!secret.startsWith('sk_')) {
+      console.error('[stripe/checkout] Invalid Stripe secret key format');
+      return NextResponse.json({ 
+        error: 'Invalid Stripe secret key format. Must start with sk_test_ or sk_live_' 
+      }, { status: 500 });
+    }
+    
+    const client = new stripe(secret, { 
+      apiVersion: '2024-06-20',
+      maxNetworkRetries: 2,
+      timeout: 10000, // 10 seconds
+    });
 
     const success = (process.env.PUBLIC_BASE_URL || req.nextUrl.origin).replace(/\/$/, '') + '/dashboard?upgrade=success';
     const cancel = (process.env.PUBLIC_BASE_URL || req.nextUrl.origin).replace(/\/$/, '') + '/dashboard?upgrade=cancel';
 
     console.log('[stripe/checkout] Creating session with price:', price);
+    console.log('[stripe/checkout] Success URL:', success);
+    console.log('[stripe/checkout] Cancel URL:', cancel);
 
+    // Validate the price ID exists in Stripe before creating session
+    try {
+      console.log('[stripe/checkout] Validating price ID...');
+      const priceObj = await client.prices.retrieve(price);
+      console.log('[stripe/checkout] Price validated:', priceObj.id, priceObj.active);
+      
+      if (!priceObj.active) {
+        return NextResponse.json({ 
+          error: 'This price is no longer active in Stripe. Please contact support.' 
+        }, { status: 400 });
+      }
+    } catch (priceError: any) {
+      console.error('[stripe/checkout] Price validation failed:', priceError.message);
+      return NextResponse.json({ 
+        error: `Invalid Stripe Price ID: ${price}. Error: ${priceError.message}`,
+        detail: 'The Price ID may be incorrect or from a different Stripe account.'
+      }, { status: 400 });
+    }
+
+    console.log('[stripe/checkout] Creating checkout session...');
     const session = await client.checkout.sessions.create({
       mode: 'subscription',
       line_items: [{ price, quantity: 1 }],
@@ -61,7 +97,7 @@ export async function POST(req: NextRequest) {
       metadata: { account_id, plan_id },
     });
 
-    console.log('[stripe/checkout] Session created:', session.id);
+    console.log('[stripe/checkout] Session created successfully:', session.id);
     return NextResponse.json({ ok: true, url: session.url });
   } catch (e: any) {
     console.error('[stripe/checkout] Error:', e.message, e.stack);

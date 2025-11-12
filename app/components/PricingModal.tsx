@@ -58,11 +58,14 @@ const PLANS = [
 
 export default function PricingModal({ isOpen, onClose, accountId }: PricingModalProps) {
   const [loading, setLoading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
   const handlePlanSelect = async (planId: string) => {
     setLoading(planId);
+    setError(null);
+    
     try {
       console.log('[PricingModal] Creating Stripe checkout for:', { plan_id: planId, account_id: accountId });
       
@@ -80,12 +83,14 @@ export default function PricingModal({ isOpen, onClose, accountId }: PricingModa
         window.location.href = data.url;
       } else {
         console.error('[PricingModal] No checkout URL:', data);
-        alert(`Error: ${data.error || 'Could not create checkout session'}`);
+        const errorMsg = data.error || 'Could not create checkout session';
+        const detailMsg = data.detail ? `\n\nDetails: ${data.detail}` : '';
+        setError(`${errorMsg}${detailMsg}`);
         setLoading(null);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('[PricingModal] Checkout error:', error);
-      alert('An error occurred. Please try again or contact support.');
+      setError(`Network error: ${error.message || 'Please try again or contact support.'}`);
       setLoading(null);
     }
   };
@@ -113,6 +118,27 @@ export default function PricingModal({ isOpen, onClose, accountId }: PricingModa
             Choose the plan that fits your needs. All plans include AI-powered follow-ups, smart scheduling, and compliance automation.
           </p>
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="mx-8 mt-6 rounded-lg border-2 border-rose-300 bg-rose-50 p-4">
+            <div className="flex items-start gap-3">
+              <svg className="w-6 h-6 text-rose-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div className="flex-1">
+                <h4 className="text-sm font-semibold text-rose-900 mb-1">Checkout Error</h4>
+                <p className="text-sm text-rose-800 whitespace-pre-line">{error}</p>
+                <button
+                  onClick={() => setError(null)}
+                  className="mt-2 text-xs font-medium text-rose-600 hover:text-rose-800 underline"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* One-time Setup Fee Banner */}
         <div className="mx-8 -mt-6 mb-8 rounded-2xl border-2 border-amber-400 bg-gradient-to-r from-amber-50 to-orange-50 p-6 text-center shadow-lg">
