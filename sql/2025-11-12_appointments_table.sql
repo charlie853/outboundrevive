@@ -78,10 +78,11 @@ CREATE TRIGGER appointments_updated_at_trigger
 ALTER TABLE public.appointments ENABLE ROW LEVEL SECURITY;
 
 -- Policy: Users can see appointments for their account
+-- Note: user_data.user_id is UUID (matches auth.uid()), user_data.id is bigint
 CREATE POLICY appointments_select_own_account ON public.appointments
   FOR SELECT
   USING (account_id IN (
-    SELECT account_id FROM public.user_data WHERE id = auth.uid()
+    SELECT account_id FROM public.user_data WHERE user_id = auth.uid()
   ));
 
 -- Policy: Service role can do everything
