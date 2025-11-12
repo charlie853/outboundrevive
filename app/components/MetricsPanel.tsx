@@ -378,10 +378,31 @@ export default function MetricsPanel() {
       {/* Business Metrics - Cap progress only (hide quiet hours & carrier panels from client view) */}
       <div className="grid gap-6 md:grid-cols-2">
         <div className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-lg">
-          <h3 className="text-base font-bold text-slate-900 mb-3">Monthly SMS Cap</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-base font-bold text-slate-900">Monthly SMS Cap</h3>
+            <a
+              href="/pricing"
+              className="text-sm font-semibold text-indigo-600 hover:text-indigo-700 transition-colors"
+            >
+              View Plans →
+            </a>
+          </div>
           {billing?.monthly_cap_segments ? (
             <div>
-              <div className="text-sm text-slate-600 mb-3">Plan: <span className="font-semibold text-indigo-700">{billing?.plan_tier || 'unknown'}</span></div>
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-sm text-slate-600">
+                  Plan: <span className="font-semibold text-indigo-700 capitalize">{billing?.plan_tier || 'unknown'}</span>
+                </div>
+                <a
+                  href="/pricing"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-gradient-to-r from-indigo-600 to-indigo-700 rounded-lg hover:from-indigo-700 hover:to-indigo-800 transition-all shadow-sm"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                  </svg>
+                  Upgrade Plan
+                </a>
+              </div>
               {(() => {
                 const used = Number(billing?.segments_used || 0);
                 const cap = Number(billing?.monthly_cap_segments || 0);
@@ -408,25 +429,13 @@ export default function MetricsPanel() {
                     {pc100 >= 100 && (
                       <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-3">
                         Cap reached — outbound paused. 
-                        <button onClick={async ()=>{
-                          const pr = await fetch('/api/billing/upgrade/preview').then(r=>r.json()).catch(()=>({plans:[]}));
-                          const plan = (Array.isArray(pr?.plans)?pr.plans:[])[1];
-                          if (!plan) return;
-                          const stripe = await fetch('/api/billing/stripe/checkout', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ plan_id: plan.id, account_id: status?.account_id })}).then(r=>r.json()).catch(()=>({}));
-                          if (stripe?.url) window.location.href = stripe.url; else if (stripe?.error) alert('Upgrade unavailable: ' + stripe.error);
-                        }} className="ml-2 font-semibold underline hover:text-rose-900">Upgrade</button>
+                        <a href="/pricing" className="ml-2 font-semibold underline hover:text-rose-900">Upgrade Plan</a>
                       </div>
                     )}
                     {pc100 >= 80 && pc100 < 100 && (
                       <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
                         Approaching cap — consider upgrading. 
-                        <button onClick={async ()=>{
-                          const pr = await fetch('/api/billing/upgrade/preview').then(r=>r.json()).catch(()=>({plans:[]}));
-                          const plan = (Array.isArray(pr?.plans)?pr.plans:[])[1];
-                          if (!plan) return;
-                          const stripe = await fetch('/api/billing/stripe/checkout', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ plan_id: plan.id, account_id: status?.account_id })}).then(r=>r.json()).catch(()=>({}));
-                          if (stripe?.url) window.location.href = stripe.url; else if (stripe?.error) alert('Upgrade unavailable: ' + stripe.error);
-                        }} className="ml-2 font-semibold underline hover:text-amber-900">Upgrade</button>
+                        <a href="/pricing" className="ml-2 font-semibold underline hover:text-amber-900">View Plans</a>
                       </div>
                     )}
                   </div>

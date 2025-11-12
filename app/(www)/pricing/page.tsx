@@ -1,11 +1,40 @@
 import type { Metadata } from 'next';
+import { cookies } from 'next/headers';
+import { createServerClient } from '@supabase/ssr';
+import PricingClient from './PricingClient';
 
 export const metadata: Metadata = {
   title: 'Pricing | OutboundRevive',
   description: 'Simple, transparent pricing for AI-powered SMS follow-ups. Start free, upgrade as you grow.',
 };
 
-export default function PricingPage() {
+export default async function PricingPage() {
+  // Check if user is logged in
+  const cookieStore = await cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+      },
+    }
+  );
+
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  // Get account_id if logged in
+  let accountId: string | undefined;
+  if (user) {
+    const { data: userData } = await supabase
+      .from('user_data')
+      .select('account_id')
+      .eq('user_id', user.id)
+      .single();
+    accountId = userData?.account_id;
+  }
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
       {/* Header */}
@@ -47,191 +76,7 @@ export default function PricingPage() {
             </p>
           </div>
 
-          <div className="grid gap-8 lg:grid-cols-3">
-
-            {/* Lite Plan */}
-            <div className="relative rounded-2xl border-2 border-slate-200 bg-white p-8 shadow-sm hover:shadow-lg transition-shadow">
-              <div className="mb-8">
-                <h3 className="text-lg font-semibold text-slate-900">Lite</h3>
-                <p className="mt-2 text-sm text-slate-600">
-                  For growing teams and agencies
-                </p>
-                <p className="mt-6">
-                  <span className="text-4xl font-bold tracking-tight text-slate-900">$299</span>
-                  <span className="text-sm font-semibold leading-6 text-slate-600">/month</span>
-                </p>
-                <p className="mt-2 text-sm text-slate-500">1,000 segments/month</p>
-              </div>
-              
-              <a
-                href="/contact?plan=lite"
-                className="block w-full rounded-lg bg-indigo-600 px-3 py-2 text-center text-sm font-semibold text-white hover:bg-indigo-500 transition-colors shadow-sm"
-              >
-                Get Started with Lite
-              </a>
-              
-              <ul className="mt-8 space-y-3 text-sm leading-6 text-slate-600">
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span><strong>1,000 SMS segments</strong> per month</span>
-                </li>
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span>Everything in Starter</span>
-                </li>
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span>CRM integrations (HubSpot, Salesforce)</span>
-                </li>
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span>Advanced analytics dashboard</span>
-                </li>
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span>Priority email support</span>
-                </li>
-              </ul>
-            </div>
-
-            {/* Standard Plan - Most Popular */}
-            <div className="relative rounded-2xl border-2 border-indigo-600 bg-white p-8 shadow-xl hover:shadow-2xl transition-shadow ring-2 ring-indigo-600">
-              <div className="absolute -top-5 left-1/2 -translate-x-1/2">
-                <span className="inline-flex rounded-full bg-indigo-600 px-4 py-1 text-sm font-semibold text-white">
-                  Most Popular
-                </span>
-              </div>
-              
-              <div className="mb-8">
-                <h3 className="text-lg font-semibold text-slate-900">Standard</h3>
-                <p className="mt-2 text-sm text-slate-600">
-                  For established businesses
-                </p>
-                <p className="mt-6">
-                  <span className="text-4xl font-bold tracking-tight text-slate-900">$399</span>
-                  <span className="text-sm font-semibold leading-6 text-slate-600">/month</span>
-                </p>
-                <p className="mt-2 text-sm text-slate-500">2,000 segments/month</p>
-              </div>
-              
-              <a
-                href="/contact?plan=standard"
-                className="block w-full rounded-lg bg-indigo-600 px-3 py-2 text-center text-sm font-semibold text-white hover:bg-indigo-500 transition-colors shadow-sm"
-              >
-                Get Started with Standard
-              </a>
-              
-              <ul className="mt-8 space-y-3 text-sm leading-6 text-slate-600">
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span><strong>2,000 SMS segments</strong> per month</span>
-                </li>
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span>Everything in Lite</span>
-                </li>
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span>Custom AI training & prompts</span>
-                </li>
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span>Multi-user team access</span>
-                </li>
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span>API access</span>
-                </li>
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span>Priority phone & chat support</span>
-                </li>
-              </ul>
-            </div>
-
-            {/* Pro Plan */}
-            <div className="relative rounded-2xl border-2 border-slate-200 bg-white p-8 shadow-sm hover:shadow-lg transition-shadow">
-              <div className="mb-8">
-                <h3 className="text-lg font-semibold text-slate-900">Pro</h3>
-                <p className="mt-2 text-sm text-slate-600">
-                  For high-volume operations
-                </p>
-                <p className="mt-6">
-                  <span className="text-4xl font-bold tracking-tight text-slate-900">$599</span>
-                  <span className="text-sm font-semibold leading-6 text-slate-600">/month</span>
-                </p>
-                <p className="mt-2 text-sm text-slate-500">5,000 segments/month</p>
-              </div>
-              
-              <a
-                href="/contact?plan=pro"
-                className="block w-full rounded-lg bg-indigo-600 px-3 py-2 text-center text-sm font-semibold text-white hover:bg-indigo-500 transition-colors shadow-sm"
-              >
-                Get Started with Pro
-              </a>
-              
-              <ul className="mt-8 space-y-3 text-sm leading-6 text-slate-600">
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span><strong>5,000 SMS segments</strong> per month</span>
-                </li>
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span>Everything in Standard</span>
-                </li>
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span>Dedicated account manager</span>
-                </li>
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span>White-label options</span>
-                </li>
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span>Custom integrations</span>
-                </li>
-                <li className="flex gap-x-3">
-                  <svg className="h-6 w-5 flex-none text-indigo-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                  <span>99.9% SLA guarantee</span>
-                </li>
-              </ul>
-            </div>
-          </div>
+          <PricingClient isLoggedIn={!!user} accountId={accountId} />
 
           {/* Enterprise CTA */}
           <div className="mt-16 rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-10 text-center">
