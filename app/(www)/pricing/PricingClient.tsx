@@ -86,12 +86,15 @@ export default function PricingClient({ isLoggedIn, accountId }: { isLoggedIn?: 
       if (data.url) {
         window.location.href = data.url;
       } else {
-        alert(data.error || 'Failed to create checkout session');
+        // Stripe not configured or error - fall back to contact
+        console.error('Stripe checkout failed:', data.error);
+        router.push(`/contact?plan=${planId}&message=upgrade`);
         setLoading(null);
       }
     } catch (error) {
       console.error('Checkout error:', error);
-      alert('Failed to start checkout. Please try again.');
+      // Fall back to contact form
+      router.push(`/contact?plan=${planId}&message=upgrade`);
       setLoading(null);
     }
   };

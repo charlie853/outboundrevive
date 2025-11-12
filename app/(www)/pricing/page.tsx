@@ -62,6 +62,29 @@ export default async function PricingPage() {
       {/* Pricing Cards */}
       <section className="relative py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
+          
+          {/* Login Notice for Non-Authenticated Users */}
+          {!user && (
+            <div className="mb-8 mx-auto max-w-3xl rounded-lg border border-indigo-200 bg-indigo-50 p-4 text-center">
+              <p className="text-sm text-indigo-900">
+                <strong>Existing customer?</strong>{' '}
+                <a href="/auth/login" className="font-semibold underline hover:text-indigo-700">
+                  Log in
+                </a>{' '}
+                to upgrade your plan directly via Stripe.
+              </p>
+            </div>
+          )}
+
+          {/* Logged In Confirmation */}
+          {user && (
+            <div className="mb-8 mx-auto max-w-3xl rounded-lg border border-green-200 bg-green-50 p-4 text-center">
+              <p className="text-sm text-green-900">
+                ✓ <strong>Logged in</strong> - Select a plan below to upgrade via Stripe checkout.
+              </p>
+            </div>
+          )}
+
           {/* One-time Setup Fee Banner */}
           <div className="mb-12 mx-auto max-w-3xl rounded-2xl border-2 border-amber-400 bg-gradient-to-r from-amber-50 to-orange-50 p-8 text-center shadow-lg">
             <h3 className="text-2xl font-bold text-slate-900 mb-2">One-Time Setup Fee</h3>
