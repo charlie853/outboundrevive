@@ -40,6 +40,7 @@ import KpiCards from '@/app/(app)/dashboard/components/KpiCards';
 import DeliveryChart from '@/app/(app)/dashboard/components/DeliveryChart';
 import RepliesChart from '@/app/(app)/dashboard/components/RepliesChart';
 import Funnel from '@/app/(app)/dashboard/components/Funnel';
+import PricingModal from '@/app/components/PricingModal';
 import type { DayPoint, Kpis } from '@/lib/types/metrics';
 
 const WINDOW_OPTIONS = [
@@ -137,6 +138,7 @@ export default function MetricsPanel() {
   })();
 
   const [range, setRange] = useState<WindowKey>(initialRange);
+  const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
 
   const { data, error, isLoading, mutate } = useSWR(`/api/metrics?range=${range}`, fetcher, {
     refreshInterval: 30000,
@@ -380,12 +382,12 @@ export default function MetricsPanel() {
         <div className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-lg">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-base font-bold text-slate-900">Monthly SMS Cap</h3>
-            <a
-              href="/pricing"
+            <button
+              onClick={() => setIsPricingModalOpen(true)}
               className="text-sm font-semibold text-indigo-600 hover:text-indigo-700 transition-colors"
             >
               View Plans →
-            </a>
+            </button>
           </div>
           {billing?.monthly_cap_segments ? (
             <div>
@@ -393,15 +395,15 @@ export default function MetricsPanel() {
                 <div className="text-sm text-slate-600">
                   Plan: <span className="font-semibold text-indigo-700 capitalize">{billing?.plan_tier || 'unknown'}</span>
                 </div>
-                <a
-                  href="/pricing"
+                <button
+                  onClick={() => setIsPricingModalOpen(true)}
                   className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-gradient-to-r from-indigo-600 to-indigo-700 rounded-lg hover:from-indigo-700 hover:to-indigo-800 transition-all shadow-sm"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                   </svg>
                   Upgrade Plan
-                </a>
+                </button>
               </div>
               {(() => {
                 const used = Number(billing?.segments_used || 0);
@@ -429,13 +431,13 @@ export default function MetricsPanel() {
                     {pc100 >= 100 && (
                       <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-3">
                         Cap reached — outbound paused. 
-                        <a href="/pricing" className="ml-2 font-semibold underline hover:text-rose-900">Upgrade Plan</a>
+                        <button onClick={() => setIsPricingModalOpen(true)} className="ml-2 font-semibold underline hover:text-rose-900">Upgrade Plan</button>
                       </div>
                     )}
                     {pc100 >= 80 && pc100 < 100 && (
                       <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
                         Approaching cap — consider upgrading. 
-                        <a href="/pricing" className="ml-2 font-semibold underline hover:text-amber-900">View Plans</a>
+                        <button onClick={() => setIsPricingModalOpen(true)} className="ml-2 font-semibold underline hover:text-amber-900">View Plans</button>
                       </div>
                     )}
                   </div>
@@ -538,6 +540,13 @@ export default function MetricsPanel() {
           <Funnel data={funnel} />
         </div>
       </div>
+
+      {/* Pricing Modal */}
+      <PricingModal
+        isOpen={isPricingModalOpen}
+        onClose={() => setIsPricingModalOpen(false)}
+        accountId={billing?.account_id || process.env.NEXT_PUBLIC_DEFAULT_ACCOUNT_ID || '11111111-1111-1111-1111-111111111111'}
+      />
     </section>
   );
 }

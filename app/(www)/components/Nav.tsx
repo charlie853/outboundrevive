@@ -8,10 +8,9 @@ export default function Nav() {
         <Link href="/" className="font-semibold text-white" aria-label="OutboundRevive Home">
           OutboundRevive
         </Link>
-        <nav className="hidden md:flex items-center gap-6 text-sm text-gray-300">
-          <Link href="/pricing" className="hover:text-white transition-colors">Pricing</Link>
-          <Link href="/dashboard" className="hover:text-white transition-colors">Dashboard</Link>
-          <Link href="/contact" className="hover:text-white transition-colors">Contact</Link>
+            <nav className="hidden md:flex items-center gap-6 text-sm text-gray-300">
+              <Link href="/dashboard" className="hover:text-white transition-colors">Dashboard</Link>
+              <Link href="/contact" className="hover:text-white transition-colors">Contact</Link>
           <Link href="/book" className="rounded-pill bg-amber-500 text-indigo-900 px-4 py-2 hover:bg-amber-400 font-medium transition-colors" aria-label="Get a demo">
             Get a demo
           </Link>
