@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 interface Plan {
@@ -64,9 +64,35 @@ const PLANS: Plan[] = [
 export default function PricingClient({ isLoggedIn, accountId }: { isLoggedIn?: boolean; accountId?: string }) {
   const router = useRouter();
   const [loading, setLoading] = useState<string | null>(null);
+  const [clientAccountId, setClientAccountId] = useState<string | undefined>(accountId);
+  const [clientIsLoggedIn, setClientIsLoggedIn] = useState(isLoggedIn);
+
+  // Verify auth status on client side
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const response = await fetch('/api/billing/status');
+        if (response.ok) {
+          const data = await response.json();
+          console.log('[PricingClient] Auth check:', data);
+          if (data.account_id) {
+            setClientAccountId(data.account_id);
+            setClientIsLoggedIn(true);
+          }
+        }
+      } catch (error) {
+        console.error('[PricingClient] Auth check failed:', error);
+      }
+    };
+
+    checkAuth();
+  }, []);
 
   const handlePlanSelect = async (planId: string) => {
-    if (!isLoggedIn || !accountId) {
+    console.log('[PricingClient] Plan selected:', planId, 'Logged in:', clientIsLoggedIn, 'Account:', clientAccountId);
+    
+    if (!clientIsLoggedIn || !clientAccountId) {
+      console.log('[PricingClient] Not logged in, redirecting to contact');
       // Not logged in - redirect to contact
       router.push(`/contact?plan=${planId}`);
       return;
@@ -75,10 +101,12 @@ export default function PricingClient({ isLoggedIn, accountId }: { isLoggedIn?: 
     // Logged in - trigger Stripe checkout
     setLoading(planId);
     try {
+      console.log('[PricingClient] Creating Stripe checkout for:', { plan_id: planId, account_id: clientAccountId });
+      
       const response = await fetch('/api/billing/stripe/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan_id: planId, account_id: accountId }),
+        body: JSON.stringify({ plan_id: planId, account_id: clientAccountId }),
       });
 
       const data = await response.json();
@@ -149,7 +177,7 @@ export default function PricingClient({ isLoggedIn, accountId }: { isLoggedIn?: 
                 </svg>
                 Loading...
               </span>
-            ) : isLoggedIn ? (
+            ) : clientIsLoggedIn ? (
               `Upgrade to ${plan.name}`
             ) : (
               `Get Started with ${plan.name}`
