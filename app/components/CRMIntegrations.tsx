@@ -275,9 +275,22 @@ export default function CRMIntegrations({
     }
   };
 
+  // Helper to get CRM provider display name
+  const getProviderDisplayName = (provider: string | null) => {
+    if (!provider) return 'CRM';
+    const providerMap: Record<string, string> = {
+      'hubspot': 'HubSpot',
+      'salesforce': 'Salesforce',
+      'pipedrive': 'Pipedrive',
+      'gohighlevel': 'GoHighLevel',
+      'zoho-crm': 'Zoho CRM',
+    };
+    return providerMap[provider.toLowerCase()] || provider;
+  };
+
   if (variant === 'button') {
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
         {!crmStatus.connected ? (
           <button
             onClick={handleConnectCRM}
@@ -291,17 +304,30 @@ export default function CRMIntegrations({
             {isConnecting ? 'Connecting…' : 'Connect CRM'}
           </button>
         ) : (
-          <button
-            onClick={handleDisconnectCRM}
-            disabled={isDisconnecting}
-            className={`px-4 py-2 rounded-pill font-medium text-sm transition-colors ${
-              isDisconnecting
-                ? 'bg-amber-500/50 text-white border border-amber-500/50 cursor-not-allowed'
-                : 'btn-amber text-white'
-            }`}
-          >
-            {isDisconnecting ? 'Disconnecting…' : 'Connect CRM'}
-          </button>
+          <div className="flex items-center gap-3">
+            <div className="flex flex-col items-start">
+              <button
+                disabled
+                className="px-4 py-2 rounded-pill font-medium text-sm bg-white/20 text-white border border-white/40 cursor-default"
+              >
+                ✓ Connected
+              </button>
+              <p className="text-xs text-white/70 font-light mt-1">
+                {getProviderDisplayName(crmStatus.provider)} is connected
+              </p>
+            </div>
+            <button
+              onClick={handleDisconnectCRM}
+              disabled={isDisconnecting}
+              className={`px-3 py-2 rounded-pill text-xs transition-colors ${
+                isDisconnecting
+                  ? 'bg-rose-500/50 text-white border border-rose-500/50 cursor-not-allowed'
+                  : 'bg-white/10 text-white/80 border border-white/30 hover:bg-rose-500/20 hover:border-rose-400/50 hover:text-white'
+              }`}
+            >
+              {isDisconnecting ? 'Disconnecting…' : 'Disconnect'}
+            </button>
+          </div>
         )}
       </div>
     );
