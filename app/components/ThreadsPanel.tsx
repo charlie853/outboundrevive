@@ -318,16 +318,15 @@ export default function ThreadsPanel() {
 
   return (
     <section className="space-y-4">
-      <div className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-lg">
+      <div className="bg-white/20 backdrop-blur-xl border border-amber-500/50 rounded-2xl shadow-[0_8px_24px_rgba(0,0,0,0.35)] px-6 py-5">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-bold text-slate-900">Recent Threads</h2>
-            <p className="text-sm text-slate-600 mt-1">View and manage your active conversations</p>
+            <h2 className="text-xl font-bold text-white">Recent Threads</h2>
           </div>
           <button
             type="button"
             onClick={() => mutate()}
-            className="px-4 py-2 text-sm font-medium text-indigo-700 hover:text-indigo-900 hover:bg-indigo-50 rounded-lg transition-colors"
+            className="px-4 py-2 rounded-pill btn-amber text-white text-sm font-medium hover:opacity-90 transition-colors"
           >
             Refresh
           </button>
@@ -360,7 +359,7 @@ export default function ThreadsPanel() {
         )}
         {!error && isLoading && <div className="h-24 animate-pulse rounded-xl bg-surface-bg" />}
         {!error && !isLoading && threads.length === 0 && (
-          <div className="text-sm text-ink-2">No recent conversations.</div>
+          <div className="text-sm text-white/80">No recent conversations.</div>
         )}
         {!error && !isLoading && threads.length > 0 && (
           <div className="space-y-3">
@@ -392,15 +391,15 @@ export default function ThreadsPanel() {
 
               // Format lead type badge
               const leadTypeBadge = leadType === 'new' 
-                ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">New</span>
+                ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-500/20 text-indigo-300 border border-indigo-500/50">New</span>
                 : leadType === 'old'
-                ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">Cold</span>
+                ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-white/20 text-white/80 border border-white/30">Cold</span>
                 : null;
 
               return (
                 <div 
                   key={itemKey} 
-                  className={`rounded-xl border border-slate-200 bg-white p-4 hover:shadow-md transition-shadow ${
+                  className={`rounded-xl border border-white/20 bg-white/10 p-4 hover:bg-white/15 transition-shadow ${
                     optedOut ? 'opacity-60' : ''
                   }`}
                 >
@@ -408,28 +407,28 @@ export default function ThreadsPanel() {
                     {/* Left: Lead info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-2">
-                        <h3 className="font-semibold text-slate-900 truncate">{displayName}</h3>
+                        <h3 className="font-semibold text-white truncate">{displayName}</h3>
                         {leadTypeBadge}
                         {optedOut && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-800">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-rose-500/20 text-rose-300 border border-rose-500/50">
                             Opted Out
                           </span>
                         )}
                         {bookingDisplay && (
-                          <span className="text-sm">{bookingDisplay}</span>
+                          <span className="text-sm text-white/80">{bookingDisplay}</span>
                         )}
                       </div>
-                      <p className="text-sm text-slate-600 mb-2">{formatPhone(phone)}</p>
+                      <p className="text-sm text-white/80 mb-2">{formatPhone(phone)}</p>
                       
                       {/* Last message preview */}
                       {last && (
                         <div className="mb-2">
-                          <p className="text-sm text-slate-700 line-clamp-2">{last}</p>
+                          <p className="text-sm text-white/90 line-clamp-2">{last}</p>
                         </div>
                       )}
                       
                       {/* Meta info row */}
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/60">
                         {lastReplyAt && (
                           <span className="flex items-center gap-1">
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -460,7 +459,7 @@ export default function ThreadsPanel() {
                       <button
                         type="button"
                         onClick={() => openThread(thread)}
-                        className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-indigo-600 to-indigo-700 rounded-lg hover:from-indigo-700 hover:to-indigo-800 transition-colors shadow-sm"
+                        className="px-4 py-2 rounded-pill btn-amber text-white text-sm font-medium hover:opacity-90 transition-colors"
                       >
                         View
                       </button>
@@ -468,7 +467,7 @@ export default function ThreadsPanel() {
                         type="button"
                         onClick={() => handleDeleteLead(thread)}
                         disabled={deletingLeadId === (thread?.id ?? thread?.lead_id ?? null)}
-                        className="px-4 py-2 text-sm font-medium text-rose-700 bg-rose-50 rounded-lg hover:bg-rose-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="px-4 py-2 rounded-pill text-rose-300 text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/50"
                         title="Delete lead"
                       >
                         {deletingLeadId === (thread?.id ?? thread?.lead_id ?? null) ? 'Deleting…' : 'Delete'}

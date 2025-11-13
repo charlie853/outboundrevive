@@ -4,10 +4,11 @@ import ReactECharts from 'echarts-for-react';
 import type { DayPoint } from '@/lib/types/metrics';
 
 export default function DeliveryChart({ days }: { days: DayPoint[] }) {
-  const dates = useMemo(() => days.map(x => x.d.slice(5, 10)), [days]);
-  const sentData = useMemo(() => days.map(x => x.sent), [days]);
-  const deliveredData = useMemo(() => days.map(x => x.delivered), [days]);
-  const failedData = useMemo(() => days.map(x => x.failed), [days]);
+  const safeDays = Array.isArray(days) ? days : [];
+  const dates = useMemo(() => safeDays.map(x => x?.d?.slice(5, 10) || ''), [safeDays]);
+  const sentData = useMemo(() => safeDays.map(x => x?.sent ?? 0), [safeDays]);
+  const deliveredData = useMemo(() => safeDays.map(x => x?.delivered ?? 0), [safeDays]);
+  const failedData = useMemo(() => safeDays.map(x => x?.failed ?? 0), [safeDays]);
 
   const option = {
     backgroundColor: 'transparent',
@@ -19,7 +20,7 @@ export default function DeliveryChart({ days }: { days: DayPoint[] }) {
     },
     legend: {
       data: ['Sent', 'Delivered', 'Failed'],
-      textStyle: { color: '#475569' },
+      textStyle: { color: '#1F2937' },
       bottom: 0,
     },
     grid: {
@@ -32,14 +33,14 @@ export default function DeliveryChart({ days }: { days: DayPoint[] }) {
     xAxis: {
       type: 'category',
       data: dates,
-      axisLine: { lineStyle: { color: '#E2E8F0' } },
-      axisLabel: { color: '#64748B' },
+      axisLine: { lineStyle: { color: '#6B7280' } },
+      axisLabel: { color: '#374151' },
     },
     yAxis: {
       type: 'value',
       axisLine: { show: false },
-      splitLine: { lineStyle: { color: '#F1F5F9', type: 'dashed' } },
-      axisLabel: { color: '#64748B' },
+      splitLine: { lineStyle: { color: '#E5E7EB', type: 'dashed' } },
+      axisLabel: { color: '#374151' },
     },
     series: [
       {
@@ -76,16 +77,15 @@ export default function DeliveryChart({ days }: { days: DayPoint[] }) {
         type: 'line',
         data: failedData,
         smooth: true,
-        lineStyle: { color: '#F59E0B', width: 2 },
-        itemStyle: { color: '#F59E0B' },
+        lineStyle: { color: '#EF4444', width: 2 },
+        itemStyle: { color: '#EF4444' },
       },
     ],
   };
 
   return (
-    <div className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-lg" aria-label="Delivery over time">
-      <div className="mb-2 text-lg font-bold text-slate-900">Message Delivery</div>
-      <div className="text-sm text-slate-600 mb-4">Track sent, delivered, and failed messages over time</div>
+    <div aria-label="Delivery over time">
+      <div className="text-xs text-gray-700 mb-4">Track sent, delivered, and failed messages over time</div>
       <ReactECharts option={option} style={{ height: '300px' }} />
     </div>
   );
