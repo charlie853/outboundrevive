@@ -30,15 +30,38 @@ export async function POST(req: NextRequest) {
 
     const status = mapStatus(trigger);
     const p = body?.payload || {};
-    const eventId = String(p?.uid || p?.id || p?.eventId || '');
-    const startsAt = p?.startTime || p?.start || p?.starts_at || null;
-    const endsAt = p?.endTime || p?.end || p?.ends_at || null;
+    const eventId = String(p?.uid || p?.id || p?.eventId || p?.bookingUid || p?.bookingId || '').trim();
+    const startsAt = p?.startTime || p?.start || p?.starts_at || p?.startsAt || null;
+    const endsAt = p?.endTime || p?.end || p?.ends_at || p?.endsAt || null;
     const attendee = Array.isArray(p?.attendees) ? p.attendees[0] : (p?.attendee || {});
-    const email = String(attendee?.email || '').trim().toLowerCase();
-    const phoneRaw = String(attendee?.phone || '').trim();
+    const email = String(attendee?.email || attendee?.mail || '').trim().toLowerCase();
+    const phoneRaw = String(
+      attendee?.phone ||
+      attendee?.phoneNumber ||
+      attendee?.smsNumber ||
+      attendee?.sms ||
+      attendee?.phone_number ||
+      attendee?.metadata?.phone ||
+      attendee?.metadata?.phoneNumber ||
+      ''
+    ).trim();
     const phone = toE164US(phoneRaw) || null;
 
-    if (!status || !eventId) return NextResponse.json({ ok: true, ignored: true });
+    console.log('[calcom] Webhook received', {
+      trigger,
+      status,
+      eventId,
+      startsAt,
+      email,
+      phoneRaw,
+      phone,
+      accountId,
+    });
+
+    if (!status || !eventId) {
+      console.warn('[calcom] Ignoring webhook due to missing status/eventId', { trigger, eventId, status });
+      return NextResponse.json({ ok: true, ignored: true });
+    }
 
     // Find lead in this account by phone or email
     let leadId: string | null = null;
@@ -60,8 +83,12 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
       leadId = l2?.id || null;
     }
-    if (!leadId) return NextResponse.json({ ok: true, unmatched: true });
+    if (!leadId) {
+      console.warn('[calcom] No matching lead found for booking', { accountId, phone, email, eventId });
+      return NextResponse.json({ ok: true, unmatched: true });
+    }
 
+    console.log('[calcom] Upserting appointment', { leadId, eventId, status, startsAt });
     // Upsert appointment idempotently
     await supabaseAdmin
       .from('appointments')
@@ -91,6 +118,7 @@ export async function POST(req: NextRequest) {
     }
     
     if (Object.keys(leadUpdate).length > 0) {
+      console.log('[calcom] Updating lead booking status', { leadId, leadUpdate });
       await supabaseAdmin
         .from('leads')
         .update(leadUpdate)
@@ -109,6 +137,8 @@ export async function POST(req: NextRequest) {
         provider_from: 'system',
         provider_to: 'system'
       });
+
+    console.log('[calcom] Appointment processed successfully', { leadId, eventId, status });
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
