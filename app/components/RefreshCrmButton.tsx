@@ -95,7 +95,7 @@ export default function RefreshCrmButton({ onRefresh }: { onRefresh?: () => void
   };
 
   return (
-    <div className="relative">
+    <div className="relative flex flex-col items-end gap-1">
       <button
         onClick={handleRefresh}
         disabled={isSyncing}
@@ -130,6 +130,12 @@ export default function RefreshCrmButton({ onRefresh }: { onRefresh?: () => void
           'Refresh CRM'
         )}
       </button>
+      
+      {/* Last synced timestamp */}
+      <p className="text-xs text-white/60 font-light">
+        Last synced: {formatLastSyncTime(lastSyncedAt)}
+      </p>
+      
       {message && (
         <div
           className={`absolute top-full mt-2 right-0 text-xs px-3 py-2 rounded-lg shadow-lg whitespace-nowrap ${
