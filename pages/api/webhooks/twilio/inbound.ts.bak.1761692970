@@ -248,7 +248,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(msg)}</Message></Response>`);
   }
   if (low === "help") {
-    const msg = "Help: booking & support via this number. Reply PAUSE to stop; START to resume.";
+    const msg = "Help: booking & support via this number. If not interested, text back PAUSE. Reply START to resume.";
     await persistOut(From, To, msg);
     return res
       .status(200)
