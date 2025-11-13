@@ -17,7 +17,17 @@ export type SmsReplyContract = {
   [key: string]: unknown;
 };
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+let cachedClient: OpenAI | null = null;
+
+function getClient(): OpenAI {
+  if (cachedClient) return cachedClient;
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('Missing OPENAI_API_KEY');
+  }
+  cachedClient = new OpenAI({ apiKey });
+  return cachedClient;
+}
 
 const SAFE_FALLBACK: SmsReplyContract = {
   intent: 'other',
@@ -43,6 +53,7 @@ export async function generateSmsReply(ctx: Record<string, unknown>): Promise<Sm
   try {
     const user = JSON.stringify(ctx);
 
+    const client = getClient();
     const r = await client.chat.completions.create({
       model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
       temperature: 0.3,
