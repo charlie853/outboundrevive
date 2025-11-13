@@ -265,7 +265,7 @@ export default function MetricsPanel() {
     contacted: toNumber(kpiPayload.contacted),
     delivered: Math.round((toNumber(kpiPayload.deliveredPct) / 100) * toNumber(kpiPayload.messagesSent)),
     replied: toNumber(kpiPayload.replies),
-    booked: toNumber(kpiPayload.booked),
+    booked: toNumber(kpiPayload.appointmentsBooked ?? kpiPayload.booked),
   };
 
   return (
