@@ -42,26 +42,35 @@ export async function POST(req: NextRequest) {
 
     // Find lead in this account by phone or email
     let leadId: string | null = null;
+    console.log('[calendly] Looking for lead:', { accountId, phone, email, phoneRaw });
+    
     if (phone) {
       const { data: l1 } = await supabaseAdmin
         .from('leads')
-        .select('id')
+        .select('id, name, phone')
         .eq('account_id', accountId)
         .eq('phone', phone)
         .maybeSingle();
       leadId = l1?.id || null;
+      console.log('[calendly] Phone lookup result:', { found: !!leadId, leadData: l1 });
     }
     if (!leadId && email) {
       const { data: l2 } = await supabaseAdmin
         .from('leads')
-        .select('id')
+        .select('id, name, email')
         .eq('account_id', accountId)
         .eq('email', email)
         .maybeSingle();
       leadId = l2?.id || null;
+      console.log('[calendly] Email lookup result:', { found: !!leadId, leadData: l2 });
     }
-    if (!leadId) return NextResponse.json({ ok: true, unmatched: true });
+    if (!leadId) {
+      console.log('[calendly] ⚠️ No matching lead found - returning unmatched');
+      return NextResponse.json({ ok: true, unmatched: true, debug: { phone, email, accountId } });
+    }
 
+    console.log('[calendly] ✅ Lead found, creating appointment:', { leadId, status });
+    
     // Upsert appointment idempotently
     await supabaseAdmin
       .from('appointments')
