@@ -97,7 +97,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const qsDelivered = buildQS('provider_status=eq.delivered', 'created_at');
   const qsSent = buildQS('provider_status=in.(sent,delivered)', 'created_at');
   const qsInbound = buildQS('', 'created_at');
-  const qsBooked = buildQS('intent=eq.booked', 'created_at');
+  const qsBookedLeads = buildQS('booked=eq.true', 'appointment_set_at');
   const qsContacted = buildQS('', 'last_outbound_at');
   const qsOptedOut = buildQS('opted_out=eq.true', 'updated_at');
   const qsSegmentsIn = buildQS('segments=not.is.null', 'created_at');
@@ -196,7 +196,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     count('messages_out', qsMessagesSent),
     count('messages_out', qsDelivered),
     count('messages_out', qsSent),
-    count('messages_out', qsBooked),
+    count('leads', qsBookedLeads),
     count('leads', qsOptedOut),
     count('appointments', qsAppointmentsBooked),
     count('appointments', qsAppointmentsKept),

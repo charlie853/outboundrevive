@@ -31,8 +31,10 @@ export async function POST(req: NextRequest) {
     const status = mapStatus(trigger);
     const p = body?.payload || {};
     const eventId = String(p?.uid || p?.id || p?.eventId || p?.bookingUid || p?.bookingId || '').trim();
-    const startsAt = p?.startTime || p?.start || p?.starts_at || p?.startsAt || null;
-    const endsAt = p?.endTime || p?.end || p?.ends_at || p?.endsAt || null;
+    const startsAtRaw = p?.startTime || p?.start || p?.starts_at || p?.startsAt || null;
+    const endsAtRaw = p?.endTime || p?.end || p?.ends_at || p?.endsAt || null;
+    const scheduledAt = startsAtRaw ? new Date(startsAtRaw).toISOString() : null;
+    const endsAt = endsAtRaw ? new Date(endsAtRaw).toISOString() : null;
     const attendee = Array.isArray(p?.attendees) ? p.attendees[0] : (p?.attendee || {});
     const email = String(attendee?.email || attendee?.mail || '').trim().toLowerCase();
     const phoneRaw = String(
@@ -47,11 +49,18 @@ export async function POST(req: NextRequest) {
     ).trim();
     const phone = toE164US(phoneRaw) || null;
 
+    const eventType =
+      p?.eventType?.name ||
+      p?.eventType?.title ||
+      p?.title ||
+      p?.name ||
+      null;
+
     console.log('[calcom] Webhook received', {
       trigger,
       status,
       eventId,
-      startsAt,
+      startsAt: scheduledAt,
       email,
       phoneRaw,
       phone,
@@ -88,28 +97,45 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, unmatched: true });
     }
 
-    console.log('[calcom] Upserting appointment', { leadId, eventId, status, startsAt });
+    console.log('[calcom] Upserting appointment', { leadId, eventId, status, scheduledAt });
     // Upsert appointment idempotently
-    await supabaseAdmin
+    const { error: upsertError } = await supabaseAdmin
       .from('appointments')
       .upsert({
         account_id: accountId,
         lead_id: leadId,
         provider: 'calcom',
         provider_event_id: eventId,
+        provider_booking_uid: String(p?.bookingUid || p?.bookingId || eventId || ''),
         status,
-        starts_at: startsAt ? new Date(startsAt).toISOString() : null,
-        ends_at: endsAt ? new Date(endsAt).toISOString() : null,
-        meta: p || {},
+        scheduled_at: scheduledAt,
+        attendee_name: attendee?.name || attendee?.fullName || attendee?.full_name || null,
+        attendee_email: email || null,
+        attendee_phone: phone || phoneRaw || null,
+        event_type: eventType,
+        notes: p?.notes || null,
+        metadata: p || {},
+        duration_minutes: typeof p?.duration === 'number'
+          ? p.duration
+          : typeof p?.durationMinutes === 'number'
+            ? p.durationMinutes
+            : typeof p?.duration_minutes === 'number'
+              ? p.duration_minutes
+              : null,
       }, {
         onConflict: 'provider,provider_event_id'
       });
+
+    if (upsertError) {
+      console.error('[calcom] Failed to upsert appointment', { eventId, error: upsertError.message });
+      return NextResponse.json({ error: 'upsert_failed' }, { status: 500 });
+    }
 
     // Update lead's booking status
     const leadUpdate: any = {};
     if (status === 'booked' || status === 'rescheduled') {
       leadUpdate.booked = true;
-      leadUpdate.appointment_set_at = startsAt ? new Date(startsAt).toISOString() : new Date().toISOString();
+      leadUpdate.appointment_set_at = scheduledAt || new Date().toISOString();
     } else if (status === 'cancelled') {
       leadUpdate.booked = false;
     } else if (status === 'no_show') {
@@ -127,7 +153,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Insert timeline note as inbound system message
-    const note = `(System) Calendar: ${status} ${startsAt ? ' for ' + new Date(startsAt).toLocaleString() : ''}`.trim();
+    const note = `(System) Calendar: ${status} ${scheduledAt ? ' for ' + new Date(scheduledAt).toLocaleString() : ''}`.trim();
     await supabaseAdmin
       .from('messages_in')
       .insert({
