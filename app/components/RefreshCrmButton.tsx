@@ -132,7 +132,7 @@ export default function RefreshCrmButton({ onRefresh }: { onRefresh?: () => void
       </button>
       
       {/* Last synced timestamp - positioned absolutely to not affect button alignment */}
-      <p className="absolute top-full mt-1 right-0 text-xs text-white/60 font-light whitespace-nowrap">
+      <p className="absolute -bottom-5 right-0 text-[10px] text-white/50 font-light whitespace-nowrap">
         Last synced: {formatLastSyncTime(lastSyncedAt)} • Auto-syncs hourly
       </p>
       
