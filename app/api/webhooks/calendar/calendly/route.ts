@@ -85,13 +85,25 @@ export async function POST(req: NextRequest) {
         meta: p || {},
       }, { onConflict: 'provider,provider_event_id' });
 
-    const leadUpdate: any = { last_booking_status: status };
-    if (status === 'booked' || status === 'rescheduled') leadUpdate.appointment_set_at = startsAt ? new Date(startsAt).toISOString() : new Date().toISOString();
-    await supabaseAdmin
-      .from('leads')
-      .update(leadUpdate)
-      .eq('id', leadId)
-      .eq('account_id', accountId);
+    // Update lead's booking status
+    const leadUpdate: any = {};
+    if (status === 'booked' || status === 'rescheduled') {
+      leadUpdate.booked = true;
+      leadUpdate.appointment_set_at = startsAt ? new Date(startsAt).toISOString() : new Date().toISOString();
+    } else if (status === 'cancelled') {
+      leadUpdate.booked = false;
+    } else if (status === 'no_show') {
+      // Keep booked=true but mark as no-show in appointments table
+      leadUpdate.booked = true;
+    }
+    
+    if (Object.keys(leadUpdate).length > 0) {
+      await supabaseAdmin
+        .from('leads')
+        .update(leadUpdate)
+        .eq('id', leadId)
+        .eq('account_id', accountId);
+    }
 
     const note = `(System) Calendar: ${status} ${startsAt ? ' for ' + new Date(startsAt).toLocaleString() : ''}`.trim();
     await supabaseAdmin

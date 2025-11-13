@@ -56,7 +56,7 @@ FROM charlie c;
 
 -- Step 4: Update lead booking status
 UPDATE leads
-SET last_booking_status = 'booked',
+SET booked = true,
     appointment_set_at = NOW()
 WHERE phone = '+18183709444';
 
@@ -66,12 +66,13 @@ SELECT
   l.id as lead_id,
   l.name,
   l.phone,
-  l.last_booking_status,
+  l.booked,
+  l.appointment_set_at,
   COUNT(a.id) as appointment_count
 FROM leads l
 LEFT JOIN appointments a ON a.lead_id = l.id
 WHERE l.phone = '+18183709444'
-GROUP BY l.id, l.name, l.phone, l.last_booking_status;
+GROUP BY l.id, l.name, l.phone, l.booked, l.appointment_set_at;
 
 -- Show all appointments for this account
 SELECT 
