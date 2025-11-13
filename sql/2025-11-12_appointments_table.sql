@@ -58,7 +58,11 @@ CREATE INDEX IF NOT EXISTS idx_appointments_lead_id ON public.appointments(lead_
 CREATE INDEX IF NOT EXISTS idx_appointments_status ON public.appointments(status);
 CREATE INDEX IF NOT EXISTS idx_appointments_created_at ON public.appointments(created_at);
 CREATE INDEX IF NOT EXISTS idx_appointments_scheduled_at ON public.appointments(scheduled_at);
-CREATE INDEX IF NOT EXISTS idx_appointments_provider_event_id ON public.appointments(provider, provider_event_id);
+
+-- CRITICAL: Unique constraint for idempotent webhook handling
+-- Prevents duplicate appointments when webhook fires multiple times
+CREATE UNIQUE INDEX IF NOT EXISTS idx_appointments_provider_event_unique 
+  ON public.appointments(provider, provider_event_id);
 
 -- Updated_at trigger
 CREATE OR REPLACE FUNCTION update_appointments_updated_at()
