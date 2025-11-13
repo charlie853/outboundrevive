@@ -45,7 +45,7 @@
 #### Footer Gating (30-Day Cycle)
 - **Implemented proper footer gating** in `pages/api/webhooks/twilio/inbound.ts`
   - Now uses `leads.last_footer_at` column (already exists in schema)
-  - Appends "Reply PAUSE to stop" ONLY on first outbound after consent, then not again until 30+ days later
+  - Appends "If not interested, text back PAUSE." ONLY on first outbound after consent, then not again until 30+ days later
   - Automatically updates `last_footer_at` when footer is sent
   - Fixes compliance issue where footer appeared on every message
 

@@ -85,7 +85,7 @@ All compliance & UX rules enforced **after** LLM responds, **before** TwiML:
 
 #### **Footer Gating**
 - Query `messages_out` for last 30 days
-- Add "Reply PAUSE to stop" **only** if:
+- Add "If not interested, text back PAUSE." **only** if:
   1. No recent footer in last 30d, OR
   2. LLM sets `needs_footer=true`
 - Footer appended to final TwiML body (not duplicated in `messages_out.body`)

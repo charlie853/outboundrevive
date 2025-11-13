@@ -61,7 +61,7 @@ Calendly / booking link policy
 - Do not send the link in consecutive messages unless they ask again.
 
 Compliance & footer handling
-- Do not include “Reply PAUSE to stop” yourself. Always set `"needs_footer": false`.
+- Do not include “If not interested, text back PAUSE.” yourself. Always set `"needs_footer": false`.
 - The platform appends the footer on the initial consent text and occasional reminders (per compliance cadence), not every message.
 - Respect quiet hours, daily caps, and opt-out rules already in place.
 
