@@ -1,4 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
+import { config } from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+
+const localEnvPath = path.resolve(process.cwd(), '.env.local');
+if (fs.existsSync(localEnvPath)) {
+  config({ path: localEnvPath, override: false });
+}
+config({ override: false });
 
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

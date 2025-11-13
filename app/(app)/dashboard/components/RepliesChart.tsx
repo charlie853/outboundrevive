@@ -1,12 +1,14 @@
 "use client";
 import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
-import type { DayPoint } from '@/lib/types/metrics';
+import type { ReplyPoint } from '@/lib/types/metrics';
 
-export default function RepliesChart({ days }: { days: DayPoint[] }) {
+const replyDefinitions = `Replies counts inbound SMS received from leads within each bucket (based on account timezone).`;
+
+export default function RepliesChart({ days }: { days: ReplyPoint[] }) {
   const safeDays = Array.isArray(days) ? days : [];
-  const dates = useMemo(() => safeDays.map(x => x?.d?.slice(5, 10) || ''), [safeDays]);
-  const inboundData = useMemo(() => safeDays.map(x => x?.inbound ?? 0), [safeDays]);
+  const labels = useMemo(() => safeDays.map((x) => x?.label ?? ''), [safeDays]);
+  const inboundData = useMemo(() => safeDays.map((x) => x?.replies ?? 0), [safeDays]);
 
   const option = {
     backgroundColor: 'transparent',
@@ -29,7 +31,7 @@ export default function RepliesChart({ days }: { days: DayPoint[] }) {
     },
     xAxis: {
       type: 'category',
-      data: dates,
+      data: labels,
       axisLine: { lineStyle: { color: '#6B7280' } },
       axisLabel: { color: '#374151' },
     },
@@ -79,7 +81,16 @@ export default function RepliesChart({ days }: { days: DayPoint[] }) {
 
   return (
     <div aria-label="Replies per day">
-      <div className="text-xs text-gray-700 mb-4">Inbound replies from leads over time</div>
+      <div className="flex items-start justify-between text-xs text-gray-700 mb-4">
+        <span>Inbound replies from leads over time</span>
+        <button
+          type="button"
+          className="text-amber-500 underline decoration-dotted"
+          title={replyDefinitions}
+        >
+          Definitions
+        </button>
+      </div>
       <ReactECharts option={option} style={{ height: '300px' }} />
     </div>
   );

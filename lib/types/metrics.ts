@@ -1,4 +1,39 @@
-export type DayPoint = { d: string; sent: number; delivered: number; failed: number; inbound: number };
+export type DeliveryPoint = {
+  date: string;
+  label: string;
+  sent: number;
+  delivered: number;
+  failed: number;
+  pending: number;
+  deliveredPct: number;
+};
+
+export type ReplyPoint = {
+  date: string;
+  label: string;
+  replies: number;
+};
+
+export type FunnelStage = {
+  key: string;
+  label: string;
+  count: number;
+  definition: string;
+};
+
+export type FunnelRates = {
+  contactRate: number;
+  replyRate: number;
+  bookingRate: number;
+};
+
+export type FunnelData = {
+  stages: FunnelStage[];
+  rates: FunnelRates;
+  definitions: Record<string, string>;
+  meta: { timezone: string; range: string };
+};
+
 export type Kpis = {
   leadsNew: number;
   sent: number;
@@ -7,10 +42,15 @@ export type Kpis = {
   replies: number;
   deltas: { leadsNew: number; sent: number; deliveredRate: number; replies: number };
 };
+
 export type MetricsResponse = {
-  range: '7d' | '30d' | '90d' | string;
-  days: DayPoint[];
+  range: string;
   kpis: Kpis;
-  funnel: { leads: number; sent: number; delivered: number; replied: number };
+  charts: {
+    deliveryOverTime: DeliveryPoint[];
+    repliesOverTime: ReplyPoint[];
+    timezone: string;
+  };
+  funnel: FunnelData;
 };
 
