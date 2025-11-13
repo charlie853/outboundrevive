@@ -456,6 +456,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const replySeries = buildReplySeries(rawMessagesIn, timezone, rangeInfo.bucket, rangeInfo.since);
     const bookingData = buildBookingSet(rawAppointments, timezone, rangeInfo.since);
 
+    const fallbackBookedRes = await (async () => {
+      try {
+        let query = supabaseAdmin
+          .from('leads')
+          .select('id, appointment_set_at, updated_at')
+          .eq('account_id', accountId)
+          .eq('booked', true);
+        if (sinceUtcIso) {
+          query = query.or(
+            `appointment_set_at.gte.${sinceUtcIso},and(appointment_set_at.is.null,updated_at.gte.${sinceUtcIso})`
+          );
+        }
+        return await query;
+      } catch (error: any) {
+        console.warn('[metrics] fallback booked query failed', { message: error?.message });
+        return { data: [] } as { data: Array<{ id: string }> | null };
+      }
+    })();
+    const fallbackBookedRows = (fallbackBookedRes.data ?? []) as Array<{ id: string }>;
+    fallbackBookedRows.forEach((row) => bookingData.booked.add(row.id));
+
     const leadsSet = new Set<string>();
     deliverySeries.contacted.forEach((id) => leadsSet.add(id));
     deliverySeries.delivered.forEach((id) => leadsSet.add(id));
@@ -518,7 +539,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const deliveryOverTime = deliverySeries.buckets;
     const repliesOverTime = replySeries.buckets;
 
-    const leadsCount = leadsSet.size;
+
     const contactedCount = deliverySeries.contacted.size;
     const deliveredLeadCount = deliverySeries.delivered.size;
     const repliesLeadCount = replySeries.replied.size;

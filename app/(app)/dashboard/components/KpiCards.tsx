@@ -38,7 +38,7 @@ export default function KpiCards({ data, className = '' }: { data: Kpis & { book
     },
     {
       label: 'Booked',
-      value: data.appointmentsBooked ?? data.booked ?? 0,
+      value: data.booked ?? data.appointmentsBooked ?? 0,
       delta: 0,
       description: 'Appointments scheduled via Calendly, Cal.com, or booking link'
     },
