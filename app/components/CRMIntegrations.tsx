@@ -265,31 +265,26 @@ export default function CRMIntegrations({
           <button
             onClick={handleConnectCRM}
             disabled={isConnecting}
-            className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors border ${
+            className={`px-4 py-2 rounded-pill font-medium text-sm transition-colors ${
               isConnecting
-                ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
-                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50 hover:border-slate-400'
+                ? 'bg-amber-500/50 text-white border border-amber-500/50 cursor-not-allowed'
+                : 'bg-white/10 text-white border border-white/30 hover:bg-white/20'
             }`}
           >
             {isConnecting ? 'Connecting…' : 'Connect CRM'}
           </button>
         ) : (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-white font-semibold">
-              {crmStatus.provider ? `${crmStatus.provider.charAt(0).toUpperCase() + crmStatus.provider.slice(1)}` : 'CRM'} connected
-            </span>
-            <button
-              onClick={handleDisconnectCRM}
-              disabled={isDisconnecting}
-              className={`px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
-                isDisconnecting
-                  ? 'border-white/30 text-white/50 cursor-not-allowed'
-                  : 'border-white/40 text-white hover:bg-white/10 hover:border-white/60'
-              }`}
-            >
-              {isDisconnecting ? 'Disconnecting…' : 'Disconnect'}
-            </button>
-          </div>
+          <button
+            onClick={handleDisconnectCRM}
+            disabled={isDisconnecting}
+            className={`px-4 py-2 rounded-pill font-medium text-sm transition-colors ${
+              isDisconnecting
+                ? 'bg-amber-500/50 text-white border border-amber-500/50 cursor-not-allowed'
+                : 'btn-amber text-white'
+            }`}
+          >
+            {isDisconnecting ? 'Disconnecting…' : 'Connect CRM'}
+          </button>
         )}
       </div>
     );

@@ -1,0 +1,28 @@
+[33m367fc69[m[33m ([m[1;31mupstream/main[m[33m)[m ui: change dashboard header text to white for purple background
+[33m886a367[m ui: improve text contrast for CRM connection status
+[33m47b869b[m ui: polish dashboard header and metrics panels
+[33m5623151[m tests: fix appointment metrics tests to handle mock credentials
+[33m722d179[m tests: add comprehensive appointment and re-engagement metrics tests
+[33m031b22f[m dashboard: add appointment and re-engagement metrics
+[33mde01e89[m docs: add dashboard polish summary
+[33m2b1c431[m dashboard: fix funnel 'contacted' calculation for accuracy
+[33m610ca87[m dashboard: simplify color scheme and modernize threads UI
+[33mfba6a8d[m docs: add comprehensive dashboard refresh summary
+[33m02c67c1[m dashboard: refresh analytics UI with modern theme and fixed KPI logic
+[33mff4adae[m Add aggressive cadence update documentation
+[33m9ead74a[m Update to aggressive follow-up cadence: 2 texts/day for 21 days
+[33m2269df0[m Add comprehensive follow-up system implementation summary
+[33m130645f[m Implement AI follow-up system with configurable cadence and auto-cancellation
+[33mb415a1f[m Update prompt: only use lead name on first message, not every reply
+[33m0220f68[m Add CAL_URL back to booking link priority list
+[33m6b0fb3f[m Filter out secret Cal.com links and prioritize 30-min intro call link
+[33m79ab07b[m Fix missing import: add determineLeadBucket from classify.ts
+[33m2d70fe2[m Fix variable ordering bug causing inbound webhook to crash
+[33md55760a[m Ensure fallback messaging after sanitizing inbound replies
+[33m258ad0d[m Target lead-type tone and ban canned intros
+[33m8e3c1cb[m Refine new-lead intro tone and ban canned phrases
+[33mcca2955[m Personalize intro prompt, enforce link/phrase rules
+[33mec9faf4[m Soften AI SMS tone, tighten footer/link behavior, add tests
+[33mcba0b9d[m Retry Supabase inserts without segments column
+[33m2aaf5da[m Add debug logging around inbound message persistence
+[33m2e8bebf[m Improve inbound webhook thread updates

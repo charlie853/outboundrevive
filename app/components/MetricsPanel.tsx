@@ -41,6 +41,7 @@ import DeliveryChart from '@/app/(app)/dashboard/components/DeliveryChart';
 import RepliesChart from '@/app/(app)/dashboard/components/RepliesChart';
 import Funnel from '@/app/(app)/dashboard/components/Funnel';
 import PricingModal from '@/app/components/PricingModal';
+import { ChartCard, WhiteChartCard } from '@/app/components/StatCard';
 import type { DayPoint, Kpis } from '@/lib/types/metrics';
 
 const WINDOW_OPTIONS = [
@@ -269,18 +270,9 @@ export default function MetricsPanel() {
 
   return (
     <section className="space-y-8">
-      {/* Dashboard Header - Match homepage theme (indigo gradient) */}
-      <div className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 p-6 shadow-xl">
-        <h2 className="text-xl font-bold text-white mb-2">Live Performance Dashboard</h2>
-        <p className="text-sm text-indigo-100">
-          Track your AI texter's outreach performance and conversation health in real-time. 
-          Metrics update as messages are sent and leads respond.
-        </p>
-      </div>
-
       {/* Time Range Selector */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex rounded-xl border border-indigo-200 bg-white p-1 shadow-md">
+        <div className="inline-flex rounded-2xl border border-amber-500/50 bg-white/20 backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.35)] p-1">
           {WINDOW_OPTIONS.map(({ label, value }) => (
             <button
               key={value}
@@ -288,8 +280,8 @@ export default function MetricsPanel() {
               onClick={() => handleSetRange(value)}
               className={`px-3 py-1.5 text-sm rounded-lg transition-all ${
                 range === value 
-                  ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md' 
-                  : 'text-slate-700 hover:bg-indigo-50'
+                  ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-md' 
+                  : 'text-white hover:bg-white/10'
               }`}
               aria-pressed={range === value}
             >
@@ -359,109 +351,81 @@ export default function MetricsPanel() {
         <KpiCards data={kpis} className="mt-4" />
       )}
 
-      {/* Time Series Charts (feature-flagged modern theming) */}
-      <div className={newChartsEnabled ? 'grid gap-6 md:grid-cols-2 [&>*]:ring-1 [&>*]:ring-indigo-200 [&>*]:rounded-2xl [&>*]:shadow-lg' : 'grid gap-6 md:grid-cols-2'}>
+      {/* Time Series Charts */}
+      <div className="grid gap-6 md:grid-cols-2">
         {delivery.length >= 1 ? (
-          <DeliveryChart days={deliveryPoints} /* modern={newChartsEnabled} */ />
+          <WhiteChartCard title="Message Delivery">
+            <DeliveryChart days={deliveryPoints} />
+          </WhiteChartCard>
         ) : (
-          <div className="rounded-2xl border border-surface-line bg-surface-card p-4 text-sm text-ink-2 shadow-soft">
-            No delivery data yet. Send your first campaign to see stats here.
-          </div>
+          <WhiteChartCard title="Message Delivery">
+            <div className="text-sm text-gray-700">No delivery data yet. Send your first campaign to see stats here.</div>
+          </WhiteChartCard>
         )}
         {repliesS.length >= 1 ? (
-          <RepliesChart days={replyPoints} /* modern={newChartsEnabled} */ />
+          <WhiteChartCard title="Lead Engagement">
+            <RepliesChart days={replyPoints} />
+          </WhiteChartCard>
         ) : (
-          <div className="rounded-2xl border border-surface-line bg-surface-card p-4 text-sm text-ink-2 shadow-soft">
-            No replies yet. Once leads respond, you'll see engagement trends here.
-          </div>
+          <WhiteChartCard title="Lead Engagement">
+            <div className="text-sm text-gray-700">No replies yet. Once leads respond, you'll see engagement trends here.</div>
+          </WhiteChartCard>
         )}
       </div>
 
       {/* Business Metrics - Cap progress only (hide quiet hours & carrier panels from client view) */}
       <div className="grid gap-6 md:grid-cols-2">
-        <div className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-lg">
+        <ChartCard>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-bold text-slate-900">Monthly SMS Cap</h3>
+            <h3 className="text-sm font-bold text-white">Monthly SMS Cap</h3>
             <button
               onClick={() => setIsPricingModalOpen(true)}
-              className="text-sm font-semibold text-indigo-600 hover:text-indigo-700 transition-colors"
+              className="text-sm font-bold text-amber-500 hover:text-amber-400 underline transition-colors"
             >
               View Plans →
             </button>
           </div>
           {billing?.monthly_cap_segments ? (
             <div>
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-sm text-slate-600">
-                  Plan: <span className="font-semibold text-indigo-700 capitalize">{billing?.plan_tier || 'unknown'}</span>
-                </div>
-                <button
-                  onClick={() => setIsPricingModalOpen(true)}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-gradient-to-r from-indigo-600 to-indigo-700 rounded-lg hover:from-indigo-700 hover:to-indigo-800 transition-all shadow-sm"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                  </svg>
-                  Upgrade Plan
-                </button>
-              </div>
+              <div className="text-xs text-white/80 mb-1">Plan: {billing?.plan_tier || 'unknown'}</div>
               {(() => {
                 const used = Number(billing?.segments_used || 0);
                 const cap = Number(billing?.monthly_cap_segments || 0);
                 const pct = cap > 0 ? Math.min(1, used / cap) : 0;
                 const pc100 = Math.round(pct * 100);
                 const bar = (
-                  <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
-                    <div 
-                      className={`h-3 rounded-full transition-all ${
-                        pc100 >= 100 ? 'bg-gradient-to-r from-rose-500 to-rose-600' : 
-                        pc100 >= 80 ? 'bg-gradient-to-r from-amber-500 to-orange-500' : 
-                        'bg-gradient-to-r from-indigo-600 to-indigo-700'
-                      }`} 
-                      style={{ width: `${pc100}%` }} 
-                    />
+                  <div className="w-full h-2 bg-white/10 rounded">
+                    <div className={`h-2 rounded ${pc100 >= 100 ? 'bg-rose-500' : pc100 >= 80 ? 'bg-amber-500' : 'bg-indigo-500'}`} style={{ width: `${pc100}%` }} />
                   </div>
                 );
                 return (
-            <div className="space-y-3">
+            <div className="space-y-2">
                     {bar}
-                    <div className="text-sm font-medium text-slate-700">
-                      {used.toLocaleString()} / {cap.toLocaleString()} segments ({pc100}%)
-                    </div>
+                  <div className="text-xs text-white/80">{used} / {cap} segments ({pc100}%)</div>
                     {pc100 >= 100 && (
-                      <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-3">
-                        Cap reached — outbound paused. 
-                        <button onClick={() => setIsPricingModalOpen(true)} className="ml-2 font-semibold underline hover:text-rose-900">Upgrade Plan</button>
-                      </div>
+                    <div className="text-xs text-rose-300">Cap reached — outbound paused. <button onClick={() => setIsPricingModalOpen(true)} className="underline">Upgrade</button></div>
                     )}
                     {pc100 >= 80 && pc100 < 100 && (
-                      <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-                        Approaching cap — consider upgrading. 
-                        <button onClick={() => setIsPricingModalOpen(true)} className="ml-2 font-semibold underline hover:text-amber-900">View Plans</button>
-                      </div>
+                    <div className="text-xs text-amber-300">Approaching cap — consider upgrading. <button onClick={() => setIsPricingModalOpen(true)} className="underline">Upgrade</button></div>
                     )}
                   </div>
                 );
               })()}
             </div>
           ) : (
-            <div className="text-sm text-slate-600">Billing info unavailable.</div>
+            <div className="text-sm text-white/80">Billing info unavailable.</div>
           )}
-        </div>
-        <div className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-lg">
-          <h3 className="text-base font-bold text-slate-900 mb-3">Lead Intent Breakdown</h3>
-          <div className="text-sm text-slate-700 border border-slate-200 rounded-lg p-3 max-h-48 overflow-auto space-y-2">
+        </ChartCard>
+        <ChartCard title="Top Intents">
+          <div className="text-xs text-white/80 border border-white/20 rounded p-2 max-h-48 overflow-auto">
           {(Array.isArray(intents?.intents) && intents.intents.length > 0 ? intents.intents : []).map((row: any) => (
-            <div key={row.intent} className="flex justify-between items-center">
-              <span className="font-medium capitalize">{row.intent}</span>
-              <span className="font-bold text-indigo-700">{row.count}</span>
-            </div>
+            <div key={row.intent} className="flex justify-between text-white"><span>{row.intent}</span><span>{row.count}</span></div>
           ))}
           {(!intents?.intents || intents.intents.length === 0) && (
-            <div className="text-slate-500">No intent data yet.</div>
+            <div className="text-white/60">No intent data yet.</div>
           )}
           </div>
-        </div>
+        </ChartCard>
       </div>
 
       {/* 
@@ -472,62 +436,60 @@ export default function MetricsPanel() {
       {/* Appointment Performance + Re-engagement */}
       <div className="grid gap-6 md:grid-cols-2">
         {/* Appointment Performance */}
-        <div className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-lg">
-          <h3 className="text-base font-bold text-slate-900 mb-4">Appointment Performance</h3>
+        <ChartCard title="Appointment Performance">
           <div className="space-y-3">
-            <div className="flex items-center justify-between p-4 rounded-lg bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-200">
+            <div className="flex items-center justify-between p-4 rounded-lg bg-white/10 border border-white/20">
               <div className="flex-1">
-                <div className="text-xs font-semibold text-amber-800 uppercase tracking-wider mb-1">Booked</div>
-                <div className="text-3xl font-bold text-amber-900">{kpis.appointmentsBooked ?? 0}</div>
+                <div className="text-xs font-semibold text-white/80 uppercase tracking-wider mb-1">Booked</div>
+                <div className="text-3xl font-bold text-white">{kpis.appointmentsBooked ?? 0}</div>
               </div>
             </div>
-            <div className="flex items-center justify-between p-4 rounded-lg bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200">
+            <div className="flex items-center justify-between p-4 rounded-lg bg-white/10 border border-white/20">
               <div className="flex-1">
-                <div className="text-xs font-semibold text-indigo-800 uppercase tracking-wider mb-1">Kept (Attended)</div>
-                <div className="text-3xl font-bold text-indigo-900">{kpis.appointmentsKept ?? 0}</div>
+                <div className="text-xs font-semibold text-white/80 uppercase tracking-wider mb-1">Kept (Attended)</div>
+                <div className="text-3xl font-bold text-white">{kpis.appointmentsKept ?? 0}</div>
               </div>
             </div>
-            <div className="flex items-center justify-between p-4 rounded-lg bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200">
+            <div className="flex items-center justify-between p-4 rounded-lg bg-white/10 border border-white/20">
               <div className="flex-1">
-                <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">No-Show</div>
-                <div className="text-3xl font-bold text-slate-700">{kpis.appointmentsNoShow ?? 0}</div>
+                <div className="text-xs font-semibold text-white/80 uppercase tracking-wider mb-1">No-Show</div>
+                <div className="text-3xl font-bold text-white">{kpis.appointmentsNoShow ?? 0}</div>
               </div>
             </div>
             {(kpis.appointmentsBooked ?? 0) > 0 && (
-              <div className="pt-3 border-t border-slate-200">
-                <div className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">Show-up Rate</div>
-                <div className="text-2xl font-bold text-indigo-900">
+              <div className="pt-3 border-t border-white/20">
+                <div className="text-xs font-semibold text-white/80 uppercase tracking-wider mb-1">Show-up Rate</div>
+                <div className="text-2xl font-bold text-white">
                   {Math.round(((kpis.appointmentsKept ?? 0) / (kpis.appointmentsBooked ?? 1)) * 100)}%
                 </div>
               </div>
             )}
           </div>
-          <p className="text-xs text-slate-500 mt-4">
+          <p className="text-xs text-white/60 mt-4">
             Tracked from calendar webhooks. Booked includes rescheduled appointments.
           </p>
-        </div>
+        </ChartCard>
 
         {/* Re-engagement */}
-        <div className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-lg">
-          <h3 className="text-base font-bold text-slate-900 mb-4">Lead Re-engagement</h3>
+        <ChartCard title="Lead Re-engagement">
           <div className="space-y-3">
-            <div className="flex items-center justify-between p-4 rounded-lg bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200">
+            <div className="flex items-center justify-between p-4 rounded-lg bg-white/10 border border-white/20">
               <div className="flex-1">
-                <div className="text-xs font-semibold text-indigo-800 uppercase tracking-wider mb-1">Re-engaged Leads</div>
-                <div className="text-3xl font-bold text-indigo-900">{kpis.reEngaged ?? 0}</div>
+                <div className="text-xs font-semibold text-white/80 uppercase tracking-wider mb-1">Re-engaged Leads</div>
+                <div className="text-3xl font-bold text-white">{kpis.reEngaged ?? 0}</div>
               </div>
             </div>
-            <div className="flex items-center justify-between p-4 rounded-lg bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200">
+            <div className="flex items-center justify-between p-4 rounded-lg bg-white/10 border border-white/20">
               <div className="flex-1">
-                <div className="text-xs font-semibold text-indigo-800 uppercase tracking-wider mb-1">Re-engagement Rate</div>
-                <div className="text-3xl font-bold text-indigo-900">{kpis.reEngagementRate ?? 0}%</div>
+                <div className="text-xs font-semibold text-white/80 uppercase tracking-wider mb-1">Re-engagement Rate</div>
+                <div className="text-3xl font-bold text-white">{kpis.reEngagementRate ?? 0}%</div>
               </div>
             </div>
           </div>
-          <p className="text-xs text-slate-500 mt-4">
+          <p className="text-xs text-white/60 mt-4">
             Leads inactive 30+ days who replied or booked in this period.
           </p>
-        </div>
+        </ChartCard>
       </div>
 
       {/* Funnel Visualization

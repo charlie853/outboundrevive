@@ -1,5 +1,6 @@
 "use client";
 import React from 'react';
+import { ChartCard } from '@/app/components/StatCard';
 
 /**
  * Conversion Funnel Component - FIXED LOGIC
@@ -28,55 +29,60 @@ export default function Funnel({ data }: {
   // - Delivered: we show this as a count, not % (since it's messages, not unique leads)
   // - Replied: % of contacted leads who replied
   // - Booked: % of contacted leads who booked
+  const leads = data.leads ?? 0;
+  const contacted = data.contacted ?? 0;
+  const delivered = data.delivered ?? 0;
+  const replied = data.replied ?? 0;
+  const booked = data.booked ?? 0;
+
   const steps = [
     { 
       label: 'Leads', 
-      value: data.leads, 
+      value: leads, 
       percent: 100,
       description: 'Total leads in your system'
     },
     { 
       label: 'Contacted', 
-      value: data.contacted, 
-      percent: data.leads > 0 ? Math.round((data.contacted / data.leads) * 100) : 0,
+      value: contacted, 
+      percent: leads > 0 ? Math.round((contacted / leads) * 100) : 0,
       description: 'Leads with at least one outbound message'
     },
     { 
       label: 'Delivered', 
-      value: data.delivered, 
-      percent: data.contacted > 0 ? Math.round((data.delivered / data.contacted)) : 0, // Avg msgs per contacted lead
+      value: delivered, 
+      percent: contacted > 0 ? Math.round((delivered / contacted)) : 0, // Avg msgs per contacted lead
       description: 'Messages successfully delivered'
     },
     { 
       label: 'Replied', 
-      value: data.replied, 
-      percent: data.contacted > 0 ? Math.round((data.replied / data.contacted) * 100) : 0,
+      value: replied, 
+      percent: contacted > 0 ? Math.round((replied / contacted) * 100) : 0,
       description: 'Leads who responded'
     },
     { 
       label: 'Booked', 
-      value: data.booked ?? 0, 
-      percent: data.contacted > 0 ? Math.round(((data.booked ?? 0) / data.contacted) * 100) : 0,
+      value: booked, 
+      percent: contacted > 0 ? Math.round((booked / contacted) * 100) : 0,
       description: 'Leads who scheduled an appointment'
     },
   ];
   const max = Math.max(...steps.map(s => s.value), 1);
   
   return (
-    <div className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-lg" aria-label="Conversion Funnel">
-      <div className="mb-1 text-xl font-bold text-slate-900">Conversion Funnel</div>
-      <div className="mb-6 text-sm text-slate-600">Track how leads progress from initial contact to booking</div>
+    <ChartCard title="Conversion Funnel" className="md:col-span-2">
+      <div className="text-xs text-white/80 mb-6">Track how leads progress from initial contact to booking</div>
       <ul className="space-y-3">
         {steps.map((s, idx) => (
           <li key={s.label} className="group">
             <div className="flex items-center gap-3 mb-1">
-              <div className="w-32 text-sm font-semibold text-slate-800">{s.label}</div>
-              <div className="relative h-10 flex-1 rounded-lg bg-slate-100 overflow-hidden shadow-inner">
+              <div className="w-32 text-sm font-semibold text-white">{s.label}</div>
+              <div className="relative h-10 flex-1 rounded-lg bg-white/10 overflow-hidden shadow-inner">
                 <div 
                   className={`absolute inset-y-0 left-0 rounded-lg transition-all duration-500 ${
                     idx === steps.length - 1 
                       ? 'bg-gradient-to-r from-amber-500 to-orange-500' // Last stage (Booked) = success color
-                      : 'bg-gradient-to-r from-indigo-600 to-indigo-700' // All other stages = primary color
+                      : 'bg-gradient-to-r from-indigo-500 to-indigo-600' // All other stages = primary color
                   }`}
                   style={{ width: `${(s.value / max) * 100}%` }}
                 />
@@ -88,11 +94,11 @@ export default function Funnel({ data }: {
                   </div>
                 )}
               </div>
-              <div className="w-24 text-right text-sm font-bold tabular-nums text-slate-900">
-                {s.value.toLocaleString()}
+              <div className="w-24 text-right text-sm font-bold tabular-nums text-white">
+                {(s.value ?? 0).toLocaleString()}
               </div>
             </div>
-            <div className="ml-32 text-xs text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="ml-32 text-xs text-white/60 opacity-0 group-hover:opacity-100 transition-opacity">
               {s.description}
             </div>
           </li>
@@ -100,29 +106,29 @@ export default function Funnel({ data }: {
       </ul>
       
       {/* Conversion Summary - Key Metrics */}
-      <div className="mt-6 pt-6 border-t border-slate-200">
+      <div className="mt-6 pt-6 border-t border-white/20">
         <div className="grid grid-cols-3 gap-4">
-          <div className="p-4 rounded-xl bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200">
-            <div className="text-xs font-medium text-slate-600 mb-1">Contact Rate</div>
-            <div className="text-2xl font-bold text-indigo-900">
-              {data.leads > 0 ? Math.round((data.contacted / data.leads) * 100) : 0}%
+          <div className="p-4 rounded-xl bg-white/10 border border-white/20">
+            <div className="text-xs font-medium text-white/80 mb-1">Contact Rate</div>
+            <div className="text-2xl font-bold text-white">
+              {leads > 0 ? Math.round((contacted / leads) * 100) : 0}%
             </div>
           </div>
-          <div className="p-4 rounded-xl bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200">
-            <div className="text-xs font-medium text-slate-600 mb-1">Reply Rate</div>
-            <div className="text-2xl font-bold text-indigo-900">
-              {data.contacted > 0 ? Math.round((data.replied / data.contacted) * 100) : 0}%
+          <div className="p-4 rounded-xl bg-white/10 border border-white/20">
+            <div className="text-xs font-medium text-white/80 mb-1">Reply Rate</div>
+            <div className="text-2xl font-bold text-white">
+              {contacted > 0 ? Math.round((replied / contacted) * 100) : 0}%
             </div>
           </div>
-          <div className="p-4 rounded-xl bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-200">
-            <div className="text-xs font-medium text-slate-600 mb-1">Booking Rate</div>
-            <div className="text-2xl font-bold text-amber-900">
-              {data.contacted > 0 ? Math.round(((data.booked ?? 0) / data.contacted) * 100) : 0}%
+          <div className="p-4 rounded-xl bg-white/10 border border-amber-500/50">
+            <div className="text-xs font-medium text-white/80 mb-1">Booking Rate</div>
+            <div className="text-2xl font-bold text-white">
+              {contacted > 0 ? Math.round((booked / contacted) * 100) : 0}%
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </ChartCard>
   );
 }
 

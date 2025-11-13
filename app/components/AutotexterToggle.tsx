@@ -68,10 +68,10 @@ export default function AutotexterToggle({ defaultOn = false }: { defaultOn?: bo
       <button
         disabled={disabled}
         onClick={() => flip(!on)}
-        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+        className={`px-4 py-2 rounded-pill text-sm font-medium transition-colors ${
           on 
-            ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white border-indigo-700 hover:from-indigo-700 hover:to-indigo-800' 
-            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50 hover:border-slate-400'
+            ? 'btn-amber text-white' 
+            : 'bg-white/10 text-white border border-white/30 hover:bg-white/20'
         } ${disabled ? 'opacity-70 cursor-not-allowed' : ''}`}
       >
         {loading ? 'Loading...' : on ? 'AI Texter: ON' : 'AI Texter: OFF'}
