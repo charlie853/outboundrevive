@@ -20,9 +20,12 @@ export const metadata: Metadata = {
   description: 'AI SMS that revives cold leads and books time — hands off.',
   alternates: { canonical: '/' },
   icons: {
-    icon: '/favicon.ico',
+    icon: [
+      { url: '/icon.svg', type: 'image/svg+xml' },
+      { url: '/favicon.ico', type: 'image/x-icon', sizes: 'any' },
+    ],
     shortcut: '/favicon.ico',
-    apple: '/favicon.ico',
+    apple: '/icon.svg',
   },
   openGraph: {
     title: 'OutboundRevive',
