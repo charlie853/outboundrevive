@@ -4,8 +4,9 @@ import ReactECharts from 'echarts-for-react';
 import type { DayPoint } from '@/lib/types/metrics';
 
 export default function RepliesChart({ days }: { days: DayPoint[] }) {
-  const dates = useMemo(() => days.map(x => x.d.slice(5, 10)), [days]);
-  const inboundData = useMemo(() => days.map(x => x.inbound), [days]);
+  const safeDays = Array.isArray(days) ? days : [];
+  const dates = useMemo(() => safeDays.map(x => x?.d?.slice(5, 10) || ''), [safeDays]);
+  const inboundData = useMemo(() => safeDays.map(x => x?.inbound ?? 0), [safeDays]);
 
   const option = {
     backgroundColor: 'transparent',
@@ -29,14 +30,14 @@ export default function RepliesChart({ days }: { days: DayPoint[] }) {
     xAxis: {
       type: 'category',
       data: dates,
-      axisLine: { lineStyle: { color: '#E2E8F0' } },
-      axisLabel: { color: '#64748B' },
+      axisLine: { lineStyle: { color: '#6B7280' } },
+      axisLabel: { color: '#374151' },
     },
     yAxis: {
       type: 'value',
       axisLine: { show: false },
-      splitLine: { lineStyle: { color: '#F1F5F9', type: 'dashed' } },
-      axisLabel: { color: '#64748B' },
+      splitLine: { lineStyle: { color: '#E5E7EB', type: 'dashed' } },
+      axisLabel: { color: '#374151' },
     },
     series: [
       {
@@ -77,9 +78,8 @@ export default function RepliesChart({ days }: { days: DayPoint[] }) {
   };
 
   return (
-    <div className="rounded-2xl border border-indigo-200 bg-white p-6 shadow-lg" aria-label="Replies per day">
-      <div className="mb-2 text-lg font-bold text-slate-900">Lead Engagement</div>
-      <div className="text-sm text-slate-600 mb-4">Inbound replies from leads over time</div>
+    <div aria-label="Replies per day">
+      <div className="text-xs text-gray-700 mb-4">Inbound replies from leads over time</div>
       <ReactECharts option={option} style={{ height: '300px' }} />
     </div>
   );

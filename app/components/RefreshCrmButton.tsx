@@ -99,10 +99,10 @@ export default function RefreshCrmButton({ onRefresh }: { onRefresh?: () => void
       <button
         onClick={handleRefresh}
         disabled={isSyncing}
-        className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors border ${
+        className={`px-4 py-2 rounded-pill font-medium text-sm transition-colors ${
           isSyncing
-            ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
-            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50 hover:border-slate-400'
+            ? 'bg-amber-500/50 text-white border border-amber-500/50 cursor-not-allowed'
+            : 'bg-white/10 text-white border border-white/30 hover:bg-white/20'
         }`}
         title={lastSyncedAt ? `Last synced: ${formatLastSyncTime(lastSyncedAt)} • Auto-syncs hourly` : 'Sync CRM leads now'}
       >

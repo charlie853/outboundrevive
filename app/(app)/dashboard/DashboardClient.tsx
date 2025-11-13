@@ -23,24 +23,24 @@ export default function DashboardClient() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
-      <header className="space-y-4">
-        <div className="flex items-start justify-between gap-6">
-          <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-            <p className="text-sm text-white/80 mt-1">Monitor outreach performance and jump back into conversations.</p>
+    <div className="min-h-screen bg-gradient-to-b from-indigo-900 via-indigo-800 to-slate-900 text-white">
+      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+        <header className="flex flex-wrap items-center justify-between gap-4 mb-6">
+          <div>
+            <h1 className="text-4xl md:text-5xl font-bold text-white">Dashboard</h1>
+            <p className="text-lg text-white/80 mt-3">Track outreach performance, specific conversations, and more.</p>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-3">
             <ConnectCrmButton onConnect={handleCrmConnect} />
             <RefreshCrmButton onRefresh={handleCrmRefresh} />
             <AutotexterToggle />
           </div>
-        </div>
-      </header>
+        </header>
 
-      <MetricsPanel />
+        <MetricsPanel />
 
-      <ThreadsPanel key={refreshKey} />
+        <ThreadsPanel key={refreshKey} />
+      </div>
     </div>
   );
 }
