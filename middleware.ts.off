@@ -8,7 +8,7 @@ export function middleware(req: NextRequest) {
   if (
     p.startsWith('/api/') ||
     p.startsWith('/_next/') ||
-    p === '/favicon.ico' ||
+    p === '/icon.svg' ||
     p.startsWith('/assets/') ||
     p.startsWith('/static/')
   ) {
@@ -20,5 +20,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!api|_next/|favicon.ico|assets/|static/).*)'],
+  matcher: ['/((?!api|_next/|icon.svg|assets/|static/).*)'],
 };
