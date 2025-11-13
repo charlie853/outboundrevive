@@ -57,6 +57,23 @@ export default function CRMIntegrations({
       if (response.ok) {
         const status = await response.json();
         setCrmStatus(status);
+        
+        // If connected, persist the account_id to localStorage as a fallback
+        if (status.connected && organizationId) {
+          localStorage.setItem('outbound_account_id', organizationId);
+          console.log('[CRM] Persisted account_id to localStorage:', organizationId);
+        }
+      } else {
+        // If auth fails but we have localStorage fallback, try with account_id param
+        const storedAccountId = localStorage.getItem('outbound_account_id');
+        if (storedAccountId && response.status === 401) {
+          console.log('[CRM] Auth failed, retrying with stored account_id');
+          const fallbackResponse = await fetch(`/api/crm/status?account_id=${storedAccountId}`);
+          if (fallbackResponse.ok) {
+            const status = await fallbackResponse.json();
+            setCrmStatus(status);
+          }
+        }
       }
     } catch (error) {
       console.error('Failed to check CRM status:', error);
