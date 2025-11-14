@@ -433,13 +433,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (sinceUtcIso) query = query.gte('created_at', sinceUtcIso);
         return query;
       })(),
-      (() => {
+      (async () => {
         // Fetch all appointments for the account, then filter by date in JavaScript
         // This is more reliable than complex PostgREST .or() queries
-        return supabaseAdmin
-          .from('appointments')
-          .select('lead_id, status, starts_at, scheduled_at, created_at')
-          .eq('account_id', accountId);
+        try {
+          const result = await supabaseAdmin
+            .from('appointments')
+            .select('lead_id, status, starts_at, scheduled_at, created_at')
+            .eq('account_id', accountId);
+          
+          if (result.error) {
+            console.error('[metrics] appointments query error', {
+              error: result.error.message,
+              accountId,
+            });
+            return { data: [], error: result.error };
+          }
+          
+          console.log('[metrics] appointments query success', {
+            count: result.data?.length || 0,
+            accountId,
+            sample: result.data?.slice(0, 2),
+          });
+          
+          return result;
+        } catch (error: any) {
+          console.error('[metrics] appointments query exception', {
+            message: error?.message,
+            accountId,
+          });
+          return { data: [], error };
+        }
       })(),
     ]);
 
@@ -470,32 +494,45 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const replySeries = buildReplySeries(rawMessagesIn, timezone, rangeInfo.bucket, rangeInfo.since);
     const bookingData = buildBookingSet(rawAppointments, timezone, rangeInfo.since);
 
+    // Fallback: Check leads.booked flag directly (like threads does)
+    // This catches bookings that may not be in appointments table or outside date range
     const fallbackBookedRes = await (async () => {
       try {
-        let query = supabaseAdmin
+        // Fetch ALL booked leads for this account (no date filter - like threads does)
+        const query = supabaseAdmin
           .from('leads')
-          .select('id, appointment_set_at, updated_at')
+          .select('id, appointment_set_at, updated_at, booked')
           .eq('account_id', accountId)
           .eq('booked', true);
-        if (encodedSinceUtc) {
-          query = query.or(
-            `appointment_set_at.gte.${encodedSinceUtc},and(appointment_set_at.is.null,updated_at.gte.${encodedSinceUtc})`
-          );
-        }
         return await query;
       } catch (error: any) {
         console.warn('[metrics] fallback booked query failed', { message: error?.message });
-        return { data: [] } as { data: Array<{ id: string }> | null };
+        return { data: [] } as { data: Array<{ id: string; appointment_set_at?: string | null; updated_at?: string | null }> | null };
       }
     })();
-    const fallbackBookedRows = (fallbackBookedRes.data ?? []) as Array<{ id: string }>;
+    const fallbackBookedRows = (fallbackBookedRes.data ?? []) as Array<{ id: string; appointment_set_at?: string | null; updated_at?: string | null }>;
+    
+    // Filter by date range in JavaScript (if range is specified)
+    const bookedLeadsInRange = fallbackBookedRows.filter((row) => {
+      if (!rangeInfo.since) return true; // "All Time" - include all
+      const appointmentDate = row.appointment_set_at || row.updated_at;
+      if (!appointmentDate) return false; // Skip if no date available
+      const dt = DateTime.fromISO(appointmentDate, { zone: 'utc' }).setZone(timezone);
+      if (!dt.isValid) return false;
+      return dt >= rangeInfo.since;
+    });
+    
     if (fallbackBookedRows.length > 0) {
       console.log('[metrics] fallback booked rows', {
-        count: fallbackBookedRows.length,
+        totalBooked: fallbackBookedRows.length,
+        inRange: bookedLeadsInRange.length,
+        range: rangeInfo.key,
         sample: fallbackBookedRows.slice(0, 3),
       });
     }
-    fallbackBookedRows.forEach((row) => bookingData.booked.add(row.id));
+    
+    // Add all booked leads in range to the booking set
+    bookedLeadsInRange.forEach((row) => bookingData.booked.add(row.id));
 
     console.log('[metrics] booking aggregates', {
       rawAppointments: rawAppointments.length,
