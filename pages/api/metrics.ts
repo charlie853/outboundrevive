@@ -52,7 +52,6 @@ type ReplyBucket = {
 type RawAppointment = {
   lead_id: string | null;
   status: string | null;
-  starts_at: string | null;
   scheduled_at: string | null;
   created_at: string | null;
 };
@@ -251,7 +250,8 @@ function buildBookingSet(rows: RawAppointment[], timezone: string, since: DateTi
   for (const row of rows) {
     if (!row.lead_id) continue;
     const status = (row.status || '').toLowerCase();
-    const effective = row.starts_at || row.scheduled_at || row.created_at;
+    // Use scheduled_at (when appointment is scheduled) or created_at (when booking was created)
+    const effective = row.scheduled_at || row.created_at;
     if (!effective) continue;
     const dt = DateTime.fromISO(effective, { zone: 'utc' }).setZone(timezone);
     if (!dt.isValid) continue;
@@ -439,7 +439,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         try {
           const result = await supabaseAdmin
             .from('appointments')
-            .select('lead_id, status, starts_at, scheduled_at, created_at')
+            .select('lead_id, status, scheduled_at, created_at')
             .eq('account_id', accountId);
           
           if (result.error) {
@@ -483,7 +483,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       sampleAppointments: rawAppointments.slice(0, 3).map(a => ({
         lead_id: a.lead_id,
         status: a.status,
-        starts_at: a.starts_at,
         scheduled_at: a.scheduled_at,
         created_at: a.created_at,
       })),
