@@ -434,22 +434,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return query;
       })(),
       (() => {
-        let query = supabaseAdmin
+        // Fetch all appointments for the account, then filter by date in JavaScript
+        // This is more reliable than complex PostgREST .or() queries
+        return supabaseAdmin
           .from('appointments')
           .select('lead_id, status, starts_at, scheduled_at, created_at')
           .eq('account_id', accountId);
-        if (encodedSinceUtc) {
-          query = query.or(
-            `starts_at.gte.${encodedSinceUtc},and(starts_at.is.null,scheduled_at.gte.${encodedSinceUtc}),and(starts_at.is.null,scheduled_at.is.null,created_at.gte.${encodedSinceUtc})`
-          );
-        }
-        return query;
       })(),
     ]);
 
     const rawMessagesOut = (messagesOutRes.data ?? []) as RawMessageOut[];
     const rawMessagesIn = (messagesInRes.data ?? []) as RawMessageIn[];
     const rawAppointments = (appointmentsRes.data ?? []) as RawAppointment[];
+
+    console.log('[metrics] request', {
+      accountId,
+      range: rangeInfo.key,
+      timezone,
+      sinceUtcIso,
+      encodedSinceUtc,
+      messagesOutCount: rawMessagesOut.length,
+      messagesInCount: rawMessagesIn.length,
+      appointmentsCount: rawAppointments.length,
+      sampleAppointments: rawAppointments.slice(0, 3).map(a => ({
+        lead_id: a.lead_id,
+        status: a.status,
+        starts_at: a.starts_at,
+        scheduled_at: a.scheduled_at,
+        created_at: a.created_at,
+      })),
+    });
 
     const normalizedMessages = dedupeMessagesOut(rawMessagesOut);
     const deliverySeries = buildDeliverySeries(normalizedMessages, timezone, rangeInfo.bucket, rangeInfo.since);
@@ -475,7 +489,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     })();
     const fallbackBookedRows = (fallbackBookedRes.data ?? []) as Array<{ id: string }>;
+    if (fallbackBookedRows.length > 0) {
+      console.log('[metrics] fallback booked rows', {
+        count: fallbackBookedRows.length,
+        sample: fallbackBookedRows.slice(0, 3),
+      });
+    }
     fallbackBookedRows.forEach((row) => bookingData.booked.add(row.id));
+
+    console.log('[metrics] booking aggregates', {
+      rawAppointments: rawAppointments.length,
+      bookedLeadIds: Array.from(bookingData.booked),
+      bookedLeadCountBeforeFallback: rawAppointments.reduce((acc, row) => (row.lead_id ? acc.add(row.lead_id) : acc), new Set<string>()).size,
+      stats: bookingData.stats,
+    });
 
     const leadsSet = new Set<string>();
     deliverySeries.contacted.forEach((id) => leadsSet.add(id));
@@ -490,17 +517,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       count('leads', qsNewLeads),
       count('leads', qsOptedOut),
       (async () => {
-        const [segmentsIn, segmentsOut] = await Promise.all([
-          fetch(`${URL}/rest/v1/messages_in?select=segments&${qsSegmentsIn}`, {
-            headers: { apikey: KEY, Authorization: `Bearer ${KEY}` },
-            signal: AbortSignal.timeout(5000),
+  const [segmentsIn, segmentsOut] = await Promise.all([
+    fetch(`${URL}/rest/v1/messages_in?select=segments&${qsSegmentsIn}`, {
+      headers: { apikey: KEY, Authorization: `Bearer ${KEY}` },
+      signal: AbortSignal.timeout(5000),
           })
             .then((r) => (r.ok ? r.json() : []))
             .then((rows: Array<{ segments: number }>) => rows.reduce((acc, row) => acc + (row.segments || 0), 0))
             .catch(() => 0),
-          fetch(`${URL}/rest/v1/messages_out?select=segments&${qsSegmentsOut}`, {
-            headers: { apikey: KEY, Authorization: `Bearer ${KEY}` },
-            signal: AbortSignal.timeout(5000),
+    fetch(`${URL}/rest/v1/messages_out?select=segments&${qsSegmentsOut}`, {
+      headers: { apikey: KEY, Authorization: `Bearer ${KEY}` },
+      signal: AbortSignal.timeout(5000),
           })
             .then((r) => (r.ok ? r.json() : []))
             .then((rows: Array<{ segments: number }>) => rows.reduce((acc, row) => acc + (row.segments || 0), 0))
@@ -547,7 +574,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const deliveredPct = messagesSent > 0 ? Math.round((deliveredMessagesCount / messagesSent) * 100) : 0;
     const replyRate = deliveredLeadCount > 0 ? Math.round((repliesLeadCount / deliveredLeadCount) * 100) : 0;
-    const optOutRate = contactedCount > 0 ? Math.round((optedOutCount / contactedCount) * 100) : 0;
+  const optOutRate = contactedCount > 0 ? Math.round((optedOutCount / contactedCount) * 100) : 0;
     const bookingRate = contactedCount > 0 ? Math.round((bookedLeadCount / contactedCount) * 100) : 0;
 
     const funnel = buildFunnel(
@@ -560,25 +587,35 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       bookingData.booked
     );
 
+    const kpisPayload = {
+      newLeads,
+      messagesSent,
+      deliveredPct,
+      replies: repliesLeadCount,
+      booked: bookedLeadCount,
+      contacted: contactedCount,
+      optedOut: optedOutCount,
+      replyRate,
+      optOutRate,
+      segments: segmentsTotals,
+      appointmentsBooked: bookingData.stats.booked,
+      appointmentsKept: bookingData.stats.kept,
+      appointmentsNoShow: bookingData.stats.noShow,
+      reEngaged: reEngagedCount,
+      reEngagementRate: contactedCount > 0 ? Math.round((reEngagedCount / contactedCount) * 100) : 0,
+    };
+
+    console.log('[metrics] KPI summary', {
+      range: rangeInfo.key,
+      accountId,
+      bookedLeadCount,
+      appointmentsStats: bookingData.stats,
+      kpis: kpisPayload,
+    });
+
     res.status(200).json({
       ok: true,
-      kpis: {
-        newLeads,
-        messagesSent,
-        deliveredPct,
-        replies: repliesLeadCount,
-        booked: bookedLeadCount,
-        contacted: contactedCount,
-        optedOut: optedOutCount,
-        replyRate,
-        optOutRate,
-        segments: segmentsTotals,
-        appointmentsBooked: bookingData.stats.booked,
-        appointmentsKept: bookingData.stats.kept,
-        appointmentsNoShow: bookingData.stats.noShow,
-        reEngaged: reEngagedCount,
-        reEngagementRate: contactedCount > 0 ? Math.round((reEngagedCount / contactedCount) * 100) : 0,
-      },
+      kpis: kpisPayload,
       charts: {
         deliveryOverTime,
         repliesOverTime,
