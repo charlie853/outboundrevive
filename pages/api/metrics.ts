@@ -390,6 +390,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const timezone = await getAccountTimezone(accountId);
   const rangeInfo = resolveRange(req.query.range, timezone);
   const sinceUtcIso = rangeInfo.since ? rangeInfo.since.toUTC().toISO() : null;
+  const encodedSinceUtc = sinceUtcIso ? encodeURIComponent(sinceUtcIso) : null;
 
   const buildQS = (baseFilter?: string | string[], timeField = 'created_at') => {
     const parts: string[] = [];
@@ -401,8 +402,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
     parts.push(`account_id=eq.${encodeURIComponent(accountId)}`);
-    if (sinceUtcIso) {
-      parts.push(`${timeField}=gte.${encodeURIComponent(sinceUtcIso)}`);
+    if (encodedSinceUtc) {
+      parts.push(`${timeField}=gte.${encodedSinceUtc}`);
     }
     return parts.join('&');
   };
@@ -437,9 +438,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .from('appointments')
           .select('lead_id, status, starts_at, scheduled_at, created_at')
           .eq('account_id', accountId);
-        if (sinceUtcIso) {
+        if (encodedSinceUtc) {
           query = query.or(
-            `starts_at.gte.${sinceUtcIso},and(starts_at.is.null,scheduled_at.gte.${sinceUtcIso}),and(starts_at.is.null,scheduled_at.is.null,created_at.gte.${sinceUtcIso})`
+            `starts_at.gte.${encodedSinceUtc},and(starts_at.is.null,scheduled_at.gte.${encodedSinceUtc}),and(starts_at.is.null,scheduled_at.is.null,created_at.gte.${encodedSinceUtc})`
           );
         }
         return query;
@@ -462,9 +463,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .select('id, appointment_set_at, updated_at')
           .eq('account_id', accountId)
           .eq('booked', true);
-        if (sinceUtcIso) {
+        if (encodedSinceUtc) {
           query = query.or(
-            `appointment_set_at.gte.${sinceUtcIso},and(appointment_set_at.is.null,updated_at.gte.${sinceUtcIso})`
+            `appointment_set_at.gte.${encodedSinceUtc},and(appointment_set_at.is.null,updated_at.gte.${encodedSinceUtc})`
           );
         }
         return await query;
