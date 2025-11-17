@@ -199,8 +199,8 @@ async function sendIntroNow(
       });
     }
   }
-  if (!lead.intro_sent_at && !/reply\s+pause\s+to\s+stop/i.test(outboundBody)) {
-    outboundBody = `${outboundBody} Reply PAUSE to stop`.trim();
+  if (!lead.intro_sent_at && !/text\s+back\s+pause/i.test(outboundBody)) {
+    outboundBody = `${outboundBody} If not interested, text back PAUSE.`.trim();
   }
 
   try {

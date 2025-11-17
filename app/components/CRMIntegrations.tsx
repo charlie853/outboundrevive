@@ -57,6 +57,23 @@ export default function CRMIntegrations({
       if (response.ok) {
         const status = await response.json();
         setCrmStatus(status);
+        
+        // If connected, persist the account_id to localStorage as a fallback
+        if (status.connected && organizationId) {
+          localStorage.setItem('outbound_account_id', organizationId);
+          console.log('[CRM] Persisted account_id to localStorage:', organizationId);
+        }
+      } else {
+        // If auth fails but we have localStorage fallback, try with account_id param
+        const storedAccountId = localStorage.getItem('outbound_account_id');
+        if (storedAccountId && response.status === 401) {
+          console.log('[CRM] Auth failed, retrying with stored account_id');
+          const fallbackResponse = await fetch(`/api/crm/status?account_id=${storedAccountId}`);
+          if (fallbackResponse.ok) {
+            const status = await fallbackResponse.json();
+            setCrmStatus(status);
+          }
+        }
       }
     } catch (error) {
       console.error('Failed to check CRM status:', error);
@@ -258,9 +275,22 @@ export default function CRMIntegrations({
     }
   };
 
+  // Helper to get CRM provider display name
+  const getProviderDisplayName = (provider: string | null) => {
+    if (!provider) return 'CRM';
+    const providerMap: Record<string, string> = {
+      'hubspot': 'HubSpot',
+      'salesforce': 'Salesforce',
+      'pipedrive': 'Pipedrive',
+      'gohighlevel': 'GoHighLevel',
+      'zoho-crm': 'Zoho CRM',
+    };
+    return providerMap[provider.toLowerCase()] || provider;
+  };
+
   if (variant === 'button') {
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
         {!crmStatus.connected ? (
           <button
             onClick={handleConnectCRM}
@@ -274,6 +304,7 @@ export default function CRMIntegrations({
             {isConnecting ? 'Connecting…' : 'Connect CRM'}
           </button>
         ) : (
+<<<<<<< HEAD
           <button
             onClick={handleDisconnectCRM}
             disabled={isDisconnecting}
@@ -285,6 +316,31 @@ export default function CRMIntegrations({
           >
             {isDisconnecting ? 'Disconnecting…' : 'Connect CRM'}
           </button>
+=======
+          <div className="relative flex items-center gap-3">
+            <button
+              disabled
+              className="px-4 py-2 rounded-pill font-medium text-sm bg-white/20 text-white border border-white/40 cursor-default"
+            >
+              Connected
+            </button>
+            <button
+              onClick={handleDisconnectCRM}
+              disabled={isDisconnecting}
+              className={`px-4 py-2 rounded-pill font-medium text-sm transition-colors ${
+                isDisconnecting
+                  ? 'bg-rose-500/50 text-white border border-rose-500/50 cursor-not-allowed'
+                  : 'bg-white/10 text-white/80 border border-white/30 hover:bg-rose-500/20 hover:border-rose-400/50 hover:text-white'
+              }`}
+            >
+              {isDisconnecting ? 'Disconnecting…' : 'Disconnect'}
+            </button>
+            {/* Provider name shown below Connected button */}
+            <p className="absolute -bottom-5 left-0 text-[10px] text-white/50 font-light whitespace-nowrap">
+              {getProviderDisplayName(crmStatus.provider)} is connected
+            </p>
+          </div>
+>>>>>>> b4bbe092fd40bca3fce1414f1e4f12a7923bad6a
         )}
       </div>
     );

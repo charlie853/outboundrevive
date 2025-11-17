@@ -546,8 +546,8 @@ async function persistOut(leadId: string, body: string, needsFooterFlag: boolean
   if (!SUPABASE_URL || !SRK || !body || !leadId || !accountId) return;
 
   try {
-    const finalBody = needsFooterFlag && !body.includes("Reply PAUSE")
-      ? `${body} Reply PAUSE to stop`
+    const finalBody = needsFooterFlag && !body.includes("If not interested")
+      ? `${body} If not interested, text back PAUSE.`
       : body;
     const segments = countSegments(finalBody);
 
@@ -568,7 +568,7 @@ async function persistOut(leadId: string, body: string, needsFooterFlag: boolean
     console.log("messages_out insert ok");
     
     // Update last_footer_at if footer was added
-    if (needsFooterFlag && finalBody.includes("Reply PAUSE")) {
+    if (needsFooterFlag && finalBody.includes("If not interested")) {
       await supabaseAdmin
         .from("leads")
         .update({ last_footer_at: new Date().toISOString() })
@@ -707,7 +707,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (text === "help") {
-    const msg = "Help: booking & support via this number. Reply PAUSE to stop. Reply START to resume.";
+    const msg = "Help: booking & support via this number. If not interested, text back PAUSE. Reply START to resume.";
     await persistOut(leadId, msg, false, accountId);
     const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(msg)}</Message></Response>`;
     return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
@@ -847,8 +847,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   await persistOut(leadId, finalMessage, shouldAddFooter, accountId);
 
   // TwiML response
-  const twimlBody = shouldAddFooter && !finalMessage.includes("Reply PAUSE")
-    ? `${finalMessage} Reply PAUSE to stop`
+  const twimlBody = shouldAddFooter && !finalMessage.includes("If not interested")
+    ? `${finalMessage} If not interested, text back PAUSE.`
     : finalMessage;
   
   const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(twimlBody)}</Message></Response>`;

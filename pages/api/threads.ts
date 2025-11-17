@@ -88,10 +88,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (leadIds.length > 0) {
       try {
         const apptQs = new URLSearchParams({
-          select: 'lead_id,status,starts_at',
+          select: 'lead_id,status,scheduled_at',
           lead_id: `in.(${leadIds.join(',')})`,
           account_id: `eq.${encodeURIComponent(accountId)}`,
-          order: 'starts_at.desc.nullslast,created_at.desc',
+          order: 'scheduled_at.desc.nullslast,created_at.desc',
         });
         const apptRes = await fetch(`${URL}/rest/v1/appointments?${apptQs.toString()}`, {
           signal: ac.signal,

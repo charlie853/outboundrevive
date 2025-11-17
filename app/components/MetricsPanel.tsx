@@ -42,7 +42,11 @@ import RepliesChart from '@/app/(app)/dashboard/components/RepliesChart';
 import Funnel from '@/app/(app)/dashboard/components/Funnel';
 import PricingModal from '@/app/components/PricingModal';
 import { ChartCard, WhiteChartCard } from '@/app/components/StatCard';
+<<<<<<< HEAD
 import type { DayPoint, Kpis } from '@/lib/types/metrics';
+=======
+import type { DeliveryPoint, ReplyPoint, Kpis, FunnelData } from '@/lib/types/metrics';
+>>>>>>> b4bbe092fd40bca3fce1414f1e4f12a7923bad6a
 
 const WINDOW_OPTIONS = [
   { label: '24H', value: '24h' as const },
@@ -74,11 +78,13 @@ const normalisePct = (value: unknown) => {
   return Math.abs(num) > 1 ? num / 100 : num;
 };
 
-const buildKpis = (k: any): Kpis & { 
-  booked?: number; 
-  contacted?: number; 
-  optedOut?: number; 
-  replyRate?: number; 
+const buildKpis = (
+  k: any
+): Kpis & {
+  booked?: number;
+  contacted?: number;
+  optedOut?: number;
+  replyRate?: number;
   optOutRate?: number;
   appointmentsBooked?: number;
   appointmentsKept?: number;
@@ -178,95 +184,12 @@ export default function MetricsPanel() {
   const showBanner = (!error && data?.ok === false) || isUnauthorized;
 
   const kpiPayload = data?.kpis ?? { newLeads: 0, messagesSent: 0, deliveredPct: 0, replies: 0 };
-  const charts = data?.charts ?? { deliveryOverTime: [], repliesPerDay: [] };
-  const delivery = charts.deliveryOverTime ?? [];
-  const repliesS = charts.repliesPerDay ?? [];
+  const charts = data?.charts ?? { deliveryOverTime: [], repliesOverTime: [], timezone: 'America/New_York' };
+  const deliveryPoints: DeliveryPoint[] = Array.isArray(charts.deliveryOverTime) ? charts.deliveryOverTime : [];
+  const replyPoints: ReplyPoint[] = Array.isArray(charts.repliesOverTime) ? charts.repliesOverTime : [];
 
   const kpis = buildKpis(kpiPayload);
-  const deliveryPoints: DayPoint[] = useMemo(() => {
-    if (!Array.isArray(delivery) || delivery.length === 0) return [];
-    const repliesMap = new Map<string, number>();
-    repliesS.forEach((row: any) => {
-      const src = row?.date;
-      if (!src) return;
-      const date = (() => {
-        try {
-          return new Date(src).toISOString().slice(0, 10);
-        } catch {
-          return typeof src === 'string' ? src.slice(0, 10) : '';
-        }
-      })();
-      if (!date) return;
-      repliesMap.set(date, toNumber(row?.replies));
-    });
-
-    return delivery
-      .map((row: any) => {
-        const src = row?.date;
-        const iso = (() => {
-          try {
-            return new Date(src).toISOString().slice(0, 10);
-          } catch {
-            return typeof src === 'string' ? src.slice(0, 10) : '';
-          }
-        })();
-
-        return {
-          d: iso,
-          sent: toNumber(row?.sent),
-          delivered: toNumber(row?.delivered),
-          failed: toNumber(row?.failed),
-          inbound: repliesMap.get(iso) ?? 0,
-        } as DayPoint;
-      })
-      .sort((a, b) => a.d.localeCompare(b.d));
-  }, [delivery, repliesS]);
-
-  const replyPoints: DayPoint[] = useMemo(() => {
-    if (!Array.isArray(repliesS) || repliesS.length === 0) return [];
-    return repliesS
-      .map((row: any) => {
-        const src = row?.date;
-        const iso = (() => {
-          try {
-            return new Date(src).toISOString().slice(0, 10);
-          } catch {
-            return typeof src === 'string' ? src.slice(0, 10) : '';
-          }
-        })();
-
-        return {
-          d: iso,
-          sent: 0,
-          delivered: 0,
-          failed: 0,
-          inbound: toNumber(row?.replies),
-        } as DayPoint;
-      })
-      .sort((a, b) => a.d.localeCompare(b.d));
-  }, [repliesS]);
-
-  /**
-   * Funnel Data Structure - FIXED LOGIC
-   * Shows progression: Leads → Contacted → Delivered → Replied → Booked
-   * 
-   * KEY FIX: Use "contacted" (unique leads with at least 1 outbound) instead of "sent" (total messages).
-   * This ensures the funnel never shows >100% at any stage.
-   * 
-   * Percentages are calculated stage-by-stage:
-   * - Leads: base (100%)
-   * - Contacted: contacted / leads (% of leads we reached out to)
-   * - Delivered: delivered messages / contacted leads (avg delivery rate)
-   * - Replied: unique replying leads / contacted leads (reply rate)
-   * - Booked: booked leads / contacted leads (booking rate)
-   */
-  const funnel = {
-    leads: toNumber(kpiPayload.newLeads),
-    contacted: toNumber(kpiPayload.contacted),
-    delivered: Math.round((toNumber(kpiPayload.deliveredPct) / 100) * toNumber(kpiPayload.messagesSent)),
-    replied: toNumber(kpiPayload.replies),
-    booked: toNumber(kpiPayload.booked),
-  };
+  const funnelData: FunnelData | undefined = data?.funnel;
 
   return (
     <section className="space-y-8">
@@ -353,7 +276,11 @@ export default function MetricsPanel() {
 
       {/* Time Series Charts */}
       <div className="grid gap-6 md:grid-cols-2">
+<<<<<<< HEAD
         {delivery.length >= 1 ? (
+=======
+        {deliveryPoints.length >= 1 ? (
+>>>>>>> b4bbe092fd40bca3fce1414f1e4f12a7923bad6a
           <WhiteChartCard title="Message Delivery">
             <DeliveryChart days={deliveryPoints} />
           </WhiteChartCard>
@@ -362,7 +289,11 @@ export default function MetricsPanel() {
             <div className="text-sm text-gray-700">No delivery data yet. Send your first campaign to see stats here.</div>
           </WhiteChartCard>
         )}
+<<<<<<< HEAD
         {repliesS.length >= 1 ? (
+=======
+        {replyPoints.length >= 1 ? (
+>>>>>>> b4bbe092fd40bca3fce1414f1e4f12a7923bad6a
           <WhiteChartCard title="Lead Engagement">
             <RepliesChart days={replyPoints} />
           </WhiteChartCard>
@@ -499,7 +430,7 @@ export default function MetricsPanel() {
       */}
       <div className="grid gap-6 md:grid-cols-2">
         <div className="md:col-span-2">
-          <Funnel data={funnel} />
+          <Funnel data={funnelData} />
         </div>
       </div>
 

@@ -42,26 +42,35 @@ export async function POST(req: NextRequest) {
 
     // Find lead in this account by phone or email
     let leadId: string | null = null;
+    console.log('[calendly] Looking for lead:', { accountId, phone, email, phoneRaw });
+    
     if (phone) {
       const { data: l1 } = await supabaseAdmin
         .from('leads')
-        .select('id')
+        .select('id, name, phone')
         .eq('account_id', accountId)
         .eq('phone', phone)
         .maybeSingle();
       leadId = l1?.id || null;
+      console.log('[calendly] Phone lookup result:', { found: !!leadId, leadData: l1 });
     }
     if (!leadId && email) {
       const { data: l2 } = await supabaseAdmin
         .from('leads')
-        .select('id')
+        .select('id, name, email')
         .eq('account_id', accountId)
         .eq('email', email)
         .maybeSingle();
       leadId = l2?.id || null;
+      console.log('[calendly] Email lookup result:', { found: !!leadId, leadData: l2 });
     }
-    if (!leadId) return NextResponse.json({ ok: true, unmatched: true });
+    if (!leadId) {
+      console.log('[calendly] ⚠️ No matching lead found - returning unmatched');
+      return NextResponse.json({ ok: true, unmatched: true, debug: { phone, email, accountId } });
+    }
 
+    console.log('[calendly] ✅ Lead found, creating appointment:', { leadId, status });
+    
     // Upsert appointment idempotently
     await supabaseAdmin
       .from('appointments')
@@ -76,13 +85,25 @@ export async function POST(req: NextRequest) {
         meta: p || {},
       }, { onConflict: 'provider,provider_event_id' });
 
-    const leadUpdate: any = { last_booking_status: status };
-    if (status === 'booked' || status === 'rescheduled') leadUpdate.appointment_set_at = startsAt ? new Date(startsAt).toISOString() : new Date().toISOString();
-    await supabaseAdmin
-      .from('leads')
-      .update(leadUpdate)
-      .eq('id', leadId)
-      .eq('account_id', accountId);
+    // Update lead's booking status
+    const leadUpdate: any = {};
+    if (status === 'booked' || status === 'rescheduled') {
+      leadUpdate.booked = true;
+      leadUpdate.appointment_set_at = startsAt ? new Date(startsAt).toISOString() : new Date().toISOString();
+    } else if (status === 'cancelled') {
+      leadUpdate.booked = false;
+    } else if (status === 'no_show') {
+      // Keep booked=true but mark as no-show in appointments table
+      leadUpdate.booked = true;
+    }
+    
+    if (Object.keys(leadUpdate).length > 0) {
+      await supabaseAdmin
+        .from('leads')
+        .update(leadUpdate)
+        .eq('id', leadId)
+        .eq('account_id', accountId);
+    }
 
     const note = `(System) Calendar: ${status} ${startsAt ? ' for ' + new Date(startsAt).toLocaleString() : ''}`.trim();
     await supabaseAdmin

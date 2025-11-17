@@ -95,7 +95,7 @@ export default function RefreshCrmButton({ onRefresh }: { onRefresh?: () => void
   };
 
   return (
-    <div className="relative">
+    <div className="relative flex flex-col items-end">
       <button
         onClick={handleRefresh}
         disabled={isSyncing}
@@ -130,9 +130,15 @@ export default function RefreshCrmButton({ onRefresh }: { onRefresh?: () => void
           'Refresh CRM'
         )}
       </button>
+      
+      {/* Last synced timestamp - positioned absolutely to not affect button alignment */}
+      <p className="absolute -bottom-5 right-0 text-[10px] text-white/50 font-light whitespace-nowrap">
+        Last synced: {formatLastSyncTime(lastSyncedAt)} • Auto-syncs hourly
+      </p>
+      
       {message && (
         <div
-          className={`absolute top-full mt-2 right-0 text-xs px-3 py-2 rounded-lg shadow-lg whitespace-nowrap ${
+          className={`absolute top-full mt-8 right-0 text-xs px-3 py-2 rounded-lg shadow-lg whitespace-nowrap ${
             message.includes('Failed') || message.includes('error')
               ? 'bg-rose-50 text-rose-700 border border-rose-200'
               : 'bg-indigo-50 text-indigo-700 border border-indigo-200'

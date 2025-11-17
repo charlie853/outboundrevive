@@ -10,7 +10,7 @@ type MetricItem = {
   description: string;
 };
 
-export default function KpiCards({ data, className = '' }: { data: Kpis & { booked?: number; contacted?: number; optedOut?: number; replyRate?: number; optOutRate?: number }; className?: string }) {
+export default function KpiCards({ data, className = '' }: { data: Kpis & { booked?: number; contacted?: number; optedOut?: number; replyRate?: number; optOutRate?: number; appointmentsBooked?: number }; className?: string }) {
   const items: MetricItem[] = [
     {
       label: 'New Leads',
@@ -38,9 +38,9 @@ export default function KpiCards({ data, className = '' }: { data: Kpis & { book
     },
     {
       label: 'Booked',
-      value: data.booked ?? 0,
+      value: data.booked ?? data.appointmentsBooked ?? 0,
       delta: 0,
-      description: 'Leads who scheduled or confirmed an appointment'
+      description: 'Appointments scheduled via Calendly, Cal.com, or booking link'
     },
     {
       label: 'Opt-Outs',
