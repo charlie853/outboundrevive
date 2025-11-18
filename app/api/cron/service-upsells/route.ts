@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     const preIds = await fetchIds(
       db
         .from('service_events')
-        .eq('upsell_pre_sent_at', null)
+        .is('upsell_pre_sent_at', null)
         .lt('appt_time', soon)
         .gt('appt_time', later)
     );
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     const roIds = await fetchIds(
       db
         .from('service_events')
-        .eq('upsell_ro_sent_at', null)
+        .is('upsell_ro_sent_at', null)
         .not('ro_opened_at', 'is', null)
         .gt('ro_opened_at', new Date(now.getTime() - 60 * 60 * 1000).toISOString())
     );
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     const postIds = await fetchIds(
       db
         .from('service_events')
-        .eq('upsell_post_sent_at', null)
+        .is('upsell_post_sent_at', null)
         .not('ro_closed_at', 'is', null)
         .gt('ro_closed_at', new Date(now.getTime() - 24 * 3600 * 1000).toISOString())
     );
