@@ -83,17 +83,17 @@ export default function VerticalInsights() {
 
   if (loading) {
     return (
-      <section className="rounded-2xl border border-white/10 bg-white/5 p-6">
-        <p className="text-white/70">Loading vertical insights…</p>
-      </section>
+      <div className="rounded-[12px] border border-surface-line bg-surface-card p-6 shadow-sm">
+        <p className="text-ink-2">Loading vertical insights…</p>
+      </div>
     );
   }
 
   if (error) {
     return (
-      <section className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-6">
-        <p className="text-rose-200">Unable to load dealership insights: {error}</p>
-      </section>
+      <div className="rounded-[12px] border border-rose-200 bg-rose-50 p-6 shadow-sm">
+        <p className="text-rose-700">Unable to load dealership insights: {error}</p>
+      </div>
     );
   }
 
@@ -111,29 +111,29 @@ export default function VerticalInsights() {
   ];
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-white/5 p-6 space-y-6">
+    <div className="rounded-[12px] border border-surface-line bg-surface-card p-6 shadow-sm space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-semibold text-white">Auto Dealer Insights</h2>
-          <p className="text-white/70 mt-1">Upsell performance, watchlist, and micro-survey coverage.</p>
+          <h2 className="text-lg font-bold text-ink-1">Auto Dealer Insights</h2>
+          <p className="text-sm text-ink-2 mt-1">Upsell performance, watchlist, and micro-survey coverage.</p>
         </div>
       </header>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <article className="rounded-xl bg-white/5 border border-white/10 p-4">
-          <div className="text-sm text-white/60">Service Upsells</div>
-          <div className="mt-2 text-3xl font-semibold text-white">{summary.offers.total}</div>
-          <div className="text-sm text-white/60">sent · {summary.offers.accepted} accepted ({acceptanceRate}%)</div>
-          <div className="text-sm text-emerald-300 mt-2">Attributed ${summary.offers.revenue.toFixed(0)}</div>
+        <article className="rounded-[12px] bg-surface-bg border border-surface-line p-4">
+          <div className="text-sm text-ink-2">Service Upsells</div>
+          <div className="mt-2 text-3xl font-semibold text-ink-1">{summary.offers.total}</div>
+          <div className="text-sm text-ink-2">sent · {summary.offers.accepted} accepted ({acceptanceRate}%)</div>
+          <div className="text-sm text-success mt-2">Attributed ${summary.offers.revenue.toFixed(0)}</div>
         </article>
 
-        <article className="rounded-xl bg-white/5 border border-white/10 p-4">
-          <div className="text-sm text-white/60">Watchlist Buckets</div>
-          <ul className="mt-3 space-y-1 text-white">
+        <article className="rounded-[12px] bg-surface-bg border border-surface-line p-4">
+          <div className="text-sm text-ink-2">Watchlist Buckets</div>
+          <ul className="mt-3 space-y-1 text-ink-1">
             {Object.entries(WINDOW_LABELS).map(([window, label]) => (
               <li key={window} className="flex items-center justify-between text-sm">
-                <span className="text-white/70">{label}</span>
-                <span className="font-semibold text-white">
+                <span className="text-ink-2">{label}</span>
+                <span className="font-semibold text-ink-1">
                   {summary.watchlist?.[window] || 0}
                 </span>
               </li>
@@ -141,19 +141,19 @@ export default function VerticalInsights() {
           </ul>
         </article>
 
-        <article className="rounded-xl bg-white/5 border border-white/10 p-4">
-          <div className="text-sm text-white/60">Micro-Survey Coverage</div>
+        <article className="rounded-[12px] bg-surface-bg border border-surface-line p-4">
+          <div className="text-sm text-ink-2">Micro-Survey Coverage</div>
           <ul className="mt-3 space-y-1 text-sm">
             {coverageItems.map((item) => (
               <li key={item.key} className="flex items-center justify-between">
-                <span className="text-white/70">{item.label}</span>
-                <span className={item.ready ? 'text-emerald-300 font-semibold' : 'text-white/50'}>
+                <span className="text-ink-2">{item.label}</span>
+                <span className={item.ready ? 'text-success font-semibold' : 'text-ink-3'}>
                   {item.ready ? '✔' : '—'}
                 </span>
               </li>
             ))}
           </ul>
-          <div className="text-xs text-white/50 mt-2">
+          <div className="text-xs text-ink-3 mt-2">
             Facts collected: {summary.micro_surveys.collected_keys}
           </div>
         </article>
@@ -161,30 +161,30 @@ export default function VerticalInsights() {
 
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-lg font-semibold text-white">Next-to-Buy Watchlist</h3>
-          <span className="text-xs text-white/50">Top 5 leads</span>
+          <h3 className="text-base font-semibold text-ink-1">Next-to-Buy Watchlist</h3>
+          <span className="text-xs text-ink-3">Top 5 leads</span>
         </div>
         {watchlist.length === 0 ? (
-          <p className="text-white/60 text-sm">No leads on the watchlist yet.</p>
+          <p className="text-ink-2 text-sm">No leads on the watchlist yet.</p>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-white/10 bg-white/5">
-            <table className="min-w-full divide-y divide-white/10 text-sm">
+          <div className="overflow-x-auto rounded-[12px] border border-surface-line bg-surface-bg">
+            <table className="min-w-full divide-y divide-surface-line text-sm">
               <thead>
-                <tr className="text-left text-white/60">
+                <tr className="text-left text-ink-2">
                   <th className="px-4 py-2 font-medium">Lead</th>
                   <th className="px-4 py-2 font-medium">Bucket</th>
                   <th className="px-4 py-2 font-medium">Score</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5">
+              <tbody className="divide-y divide-surface-line">
                 {watchlist.map((row) => (
                   <tr key={row.lead.id}>
                     <td className="px-4 py-3">
-                      <div className="text-white font-medium">{row.lead.name || 'Unknown lead'}</div>
-                      <div className="text-white/50">{formatPhone(row.lead.phone)}</div>
+                      <div className="text-ink-1 font-medium">{row.lead.name || 'Unknown lead'}</div>
+                      <div className="text-ink-3">{formatPhone(row.lead.phone)}</div>
                     </td>
-                    <td className="px-4 py-3 text-white/80">{WINDOW_LABELS[row.window] || row.window}</td>
-                    <td className="px-4 py-3 font-semibold text-white">{(row.score * 100).toFixed(0)}%</td>
+                    <td className="px-4 py-3 text-ink-2">{WINDOW_LABELS[row.window] || row.window}</td>
+                    <td className="px-4 py-3 font-semibold text-ink-1">{(row.score * 100).toFixed(0)}%</td>
                   </tr>
                 ))}
               </tbody>
@@ -192,7 +192,7 @@ export default function VerticalInsights() {
           </div>
         )}
       </div>
-    </section>
+    </div>
   );
 }
 
