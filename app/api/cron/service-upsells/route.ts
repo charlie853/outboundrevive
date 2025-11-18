@@ -14,13 +14,20 @@ function isAuthorized(req: NextRequest) {
   return false;
 }
 
-async function fetchIds(query: ReturnType<typeof db.from>) {
-  const { data, error } = await query.select('id').limit(100);
+async function fetchIds(query: ReturnType<typeof db.from>, nullFilter?: { field: string; mustBeNull: boolean }) {
+  const { data, error } = await query.select('id,upsell_pre_sent_at,upsell_ro_sent_at,upsell_post_sent_at').limit(100);
   if (error) {
     console.warn('[service-upsells] query error', error.message);
     return [];
   }
-  return (data || []).map((row: any) => row.id);
+  let rows = data || [];
+  if (nullFilter) {
+    rows = rows.filter((row: any) => {
+      const value = row[nullFilter.field];
+      return nullFilter.mustBeNull ? (value === null || value === undefined) : (value !== null && value !== undefined);
+    });
+  }
+  return rows.map((row: any) => row.id);
 }
 
 async function triggerSend(ids: string[], trigger: 'pre' | 'ro' | 'post', req: NextRequest) {
@@ -50,29 +57,41 @@ export async function POST(req: NextRequest) {
     const soon = new Date(now.getTime() + 48 * 3600 * 1000).toISOString();
     const later = new Date(now.getTime() + 36 * 3600 * 1000).toISOString(); // avoid double hitting same window
 
-    const preIds = await fetchIds(
-      db
-        .from('service_events')
-        .is('upsell_pre_sent_at', null)
-        .lt('appt_time', soon)
-        .gt('appt_time', later)
-    );
+    // PRE trigger: appointments 36-48h from now, upsell_pre_sent_at must be null
+    const preQuery = db
+      .from('service_events')
+      .select('id,upsell_pre_sent_at,appt_time')
+      .lt('appt_time', soon)
+      .gt('appt_time', later)
+      .limit(100);
+    const { data: preData } = await preQuery;
+    const preIds = (preData || [])
+      .filter((row: any) => !row.upsell_pre_sent_at)
+      .map((row: any) => row.id);
 
-    const roIds = await fetchIds(
-      db
-        .from('service_events')
-        .is('upsell_ro_sent_at', null)
-        .not('ro_opened_at', 'is', null)
-        .gt('ro_opened_at', new Date(now.getTime() - 60 * 60 * 1000).toISOString())
-    );
+    // RO trigger: RO opened in last hour, upsell_ro_sent_at must be null
+    const roQuery = db
+      .from('service_events')
+      .select('id,upsell_ro_sent_at,ro_opened_at')
+      .not('ro_opened_at', 'is', null)
+      .gt('ro_opened_at', new Date(now.getTime() - 60 * 60 * 1000).toISOString())
+      .limit(100);
+    const { data: roData } = await roQuery;
+    const roIds = (roData || [])
+      .filter((row: any) => !row.upsell_ro_sent_at)
+      .map((row: any) => row.id);
 
-    const postIds = await fetchIds(
-      db
-        .from('service_events')
-        .is('upsell_post_sent_at', null)
-        .not('ro_closed_at', 'is', null)
-        .gt('ro_closed_at', new Date(now.getTime() - 24 * 3600 * 1000).toISOString())
-    );
+    // POST trigger: RO closed in last 24h, upsell_post_sent_at must be null
+    const postQuery = db
+      .from('service_events')
+      .select('id,upsell_post_sent_at,ro_closed_at')
+      .not('ro_closed_at', 'is', null)
+      .gt('ro_closed_at', new Date(now.getTime() - 24 * 3600 * 1000).toISOString())
+      .limit(100);
+    const { data: postData } = await postQuery;
+    const postIds = (postData || [])
+      .filter((row: any) => !row.upsell_post_sent_at)
+      .map((row: any) => row.id);
 
     const [preRes, roRes, postRes] = await Promise.all([
       triggerSend(preIds, 'pre', req),
