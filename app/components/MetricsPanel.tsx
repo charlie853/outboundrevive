@@ -188,19 +188,19 @@ export default function MetricsPanel() {
   const funnelData: FunnelData | undefined = data?.funnel;
 
   return (
-    <section className="space-y-8">
+    <section className="space-y-10">
       {/* Time Range Selector */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex rounded-2xl border border-amber-500/50 bg-white/20 backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.35)] p-1">
+        <div className="inline-flex rounded-[12px] border border-surface-line bg-surface-card shadow-sm p-1 gap-1">
           {WINDOW_OPTIONS.map(({ label, value }) => (
             <button
               key={value}
               type="button"
               onClick={() => handleSetRange(value)}
-              className={`px-3 py-1.5 text-sm rounded-lg transition-all ${
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
                 range === value 
-                  ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-md' 
-                  : 'text-white hover:bg-white/10'
+                  ? 'bg-warning text-white shadow-sm' 
+                  : 'text-ink-2 hover:bg-surface-bg hover:text-ink-1'
               }`}
               aria-pressed={range === value}
             >
@@ -224,7 +224,7 @@ export default function MetricsPanel() {
             a.download = `outboundrevive-metrics-${range}.csv`;
             a.click();
           }}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-amber-500 to-orange-500 rounded-lg hover:from-amber-600 hover:to-orange-600 transition-all shadow-md"
+          className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-warning to-orange-500 rounded-[12px] hover:from-warning/90 hover:to-orange-500/90 transition-all shadow-sm hover:shadow-md"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -270,6 +270,21 @@ export default function MetricsPanel() {
         <KpiCards data={kpis} className="mt-4" />
       )}
 
+      {/* Insight Panel - Hidden for now, may be needed later */}
+      <div className="hidden p-6 rounded-[12px] bg-surface-card border border-surface-line shadow-sm">
+        <div className="flex items-start gap-3">
+          <span className="text-2xl">🧠</span>
+          <div className="flex-1">
+            <h3 className="text-sm font-bold text-ink-1 mb-2">Smart Takeaways</h3>
+            <div className="space-y-2 text-sm text-ink-2">
+              <p>• You're generating replies, but timing suggests a second follow-up could lift conversion.</p>
+              <p>• 7 leads reopened messages without replying — automation already queued a nudge.</p>
+              <p>• Engagement peaks late afternoon — consider scheduling outbound then.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Time Series Charts */}
       <div className="grid gap-6 md:grid-cols-2">
         {deliveryPoints.length >= 1 ? (
@@ -296,52 +311,52 @@ export default function MetricsPanel() {
       <div className="grid gap-6 md:grid-cols-2">
         <ChartCard>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-bold text-white">Monthly SMS Cap</h3>
+            <h3 className="text-sm font-bold text-ink-1">Monthly SMS Cap</h3>
             <button
               onClick={() => setIsPricingModalOpen(true)}
-              className="text-sm font-bold text-amber-500 hover:text-amber-400 underline transition-colors"
+              className="text-sm font-bold text-warning hover:opacity-80 underline transition-colors"
             >
               View Plans →
             </button>
           </div>
           {billing?.monthly_cap_segments ? (
             <div>
-              <div className="text-xs text-white/80 mb-1">Plan: {billing?.plan_tier || 'unknown'}</div>
+              <div className="text-xs text-ink-2 mb-1">Plan: {billing?.plan_tier || 'unknown'}</div>
               {(() => {
                 const used = Number(billing?.segments_used || 0);
                 const cap = Number(billing?.monthly_cap_segments || 0);
                 const pct = cap > 0 ? Math.min(1, used / cap) : 0;
                 const pc100 = Math.round(pct * 100);
                 const bar = (
-                  <div className="w-full h-2 bg-white/10 rounded">
-                    <div className={`h-2 rounded ${pc100 >= 100 ? 'bg-rose-500' : pc100 >= 80 ? 'bg-amber-500' : 'bg-indigo-500'}`} style={{ width: `${pc100}%` }} />
+                  <div className="w-full h-2 bg-surface-line rounded">
+                    <div className={`h-2 rounded ${pc100 >= 100 ? 'bg-danger' : pc100 >= 80 ? 'bg-warning' : 'bg-brand-500'}`} style={{ width: `${pc100}%` }} />
                   </div>
                 );
                 return (
             <div className="space-y-2">
                     {bar}
-                  <div className="text-xs text-white/80">{used} / {cap} segments ({pc100}%)</div>
+                  <div className="text-xs text-ink-2">{used} / {cap} segments ({pc100}%)</div>
                     {pc100 >= 100 && (
-                    <div className="text-xs text-rose-300">Cap reached — outbound paused. <button onClick={() => setIsPricingModalOpen(true)} className="underline">Upgrade</button></div>
+                    <div className="text-xs text-danger">Cap reached — outbound paused. <button onClick={() => setIsPricingModalOpen(true)} className="underline">Upgrade</button></div>
                     )}
                     {pc100 >= 80 && pc100 < 100 && (
-                    <div className="text-xs text-amber-300">Approaching cap — consider upgrading. <button onClick={() => setIsPricingModalOpen(true)} className="underline">Upgrade</button></div>
+                    <div className="text-xs text-warning">Approaching cap — consider upgrading. <button onClick={() => setIsPricingModalOpen(true)} className="underline">Upgrade</button></div>
                     )}
                   </div>
                 );
               })()}
             </div>
           ) : (
-            <div className="text-sm text-white/80">Billing info unavailable.</div>
+            <div className="text-sm text-ink-2">Billing info unavailable.</div>
           )}
         </ChartCard>
         <ChartCard title="Top Intents">
-          <div className="text-xs text-white/80 border border-white/20 rounded p-2 max-h-48 overflow-auto">
+          <div className="text-xs text-ink-2 border border-surface-line rounded-[12px] p-2 max-h-48 overflow-auto">
           {(Array.isArray(intents?.intents) && intents.intents.length > 0 ? intents.intents : []).map((row: any) => (
-            <div key={row.intent} className="flex justify-between text-white"><span>{row.intent}</span><span>{row.count}</span></div>
+            <div key={row.intent} className="flex justify-between text-ink-1"><span>{row.intent}</span><span>{row.count}</span></div>
           ))}
           {(!intents?.intents || intents.intents.length === 0) && (
-            <div className="text-white/60">No intent data yet.</div>
+            <div className="text-ink-2">No intent data yet.</div>
           )}
           </div>
         </ChartCard>
@@ -357,34 +372,34 @@ export default function MetricsPanel() {
         {/* Appointment Performance */}
         <ChartCard title="Appointment Performance">
           <div className="space-y-3">
-            <div className="flex items-center justify-between p-4 rounded-lg bg-white/10 border border-white/20">
+            <div className="flex items-center justify-between p-4 rounded-[12px] bg-surface-bg border border-surface-line">
               <div className="flex-1">
-                <div className="text-xs font-semibold text-white/80 uppercase tracking-wider mb-1">Booked</div>
-                <div className="text-3xl font-bold text-white">{kpis.appointmentsBooked ?? 0}</div>
+                <div className="text-xs font-semibold text-ink-2 uppercase tracking-wider mb-1">Booked</div>
+                <div className="text-3xl font-bold text-ink-1">{kpis.appointmentsBooked ?? 0}</div>
               </div>
             </div>
-            <div className="flex items-center justify-between p-4 rounded-lg bg-white/10 border border-white/20">
+            <div className="flex items-center justify-between p-4 rounded-[12px] bg-surface-bg border border-surface-line">
               <div className="flex-1">
-                <div className="text-xs font-semibold text-white/80 uppercase tracking-wider mb-1">Kept (Attended)</div>
-                <div className="text-3xl font-bold text-white">{kpis.appointmentsKept ?? 0}</div>
+                <div className="text-xs font-semibold text-ink-2 uppercase tracking-wider mb-1">Kept (Attended)</div>
+                <div className="text-3xl font-bold text-ink-1">{kpis.appointmentsKept ?? 0}</div>
               </div>
             </div>
-            <div className="flex items-center justify-between p-4 rounded-lg bg-white/10 border border-white/20">
+            <div className="flex items-center justify-between p-4 rounded-[12px] bg-surface-bg border border-surface-line">
               <div className="flex-1">
-                <div className="text-xs font-semibold text-white/80 uppercase tracking-wider mb-1">No-Show</div>
-                <div className="text-3xl font-bold text-white">{kpis.appointmentsNoShow ?? 0}</div>
+                <div className="text-xs font-semibold text-ink-2 uppercase tracking-wider mb-1">No-Show</div>
+                <div className="text-3xl font-bold text-ink-1">{kpis.appointmentsNoShow ?? 0}</div>
               </div>
             </div>
             {(kpis.appointmentsBooked ?? 0) > 0 && (
-              <div className="pt-3 border-t border-white/20">
-                <div className="text-xs font-semibold text-white/80 uppercase tracking-wider mb-1">Show-up Rate</div>
-                <div className="text-2xl font-bold text-white">
+              <div className="pt-3 border-t border-surface-line">
+                <div className="text-xs font-semibold text-ink-2 uppercase tracking-wider mb-1">Show-up Rate</div>
+                <div className="text-2xl font-bold text-ink-1">
                   {Math.round(((kpis.appointmentsKept ?? 0) / (kpis.appointmentsBooked ?? 1)) * 100)}%
                 </div>
               </div>
             )}
           </div>
-          <p className="text-xs text-white/60 mt-4">
+          <p className="text-xs text-ink-2 mt-4">
             Tracked from calendar webhooks. Booked includes rescheduled appointments.
           </p>
         </ChartCard>
@@ -392,20 +407,20 @@ export default function MetricsPanel() {
         {/* Re-engagement */}
         <ChartCard title="Lead Re-engagement">
           <div className="space-y-3">
-            <div className="flex items-center justify-between p-4 rounded-lg bg-white/10 border border-white/20">
+            <div className="flex items-center justify-between p-4 rounded-[12px] bg-surface-bg border border-surface-line">
               <div className="flex-1">
-                <div className="text-xs font-semibold text-white/80 uppercase tracking-wider mb-1">Re-engaged Leads</div>
-                <div className="text-3xl font-bold text-white">{kpis.reEngaged ?? 0}</div>
+                <div className="text-xs font-semibold text-ink-2 uppercase tracking-wider mb-1">Re-engaged Leads</div>
+                <div className="text-3xl font-bold text-ink-1">{kpis.reEngaged ?? 0}</div>
               </div>
             </div>
-            <div className="flex items-center justify-between p-4 rounded-lg bg-white/10 border border-white/20">
+            <div className="flex items-center justify-between p-4 rounded-[12px] bg-surface-bg border border-surface-line">
               <div className="flex-1">
-                <div className="text-xs font-semibold text-white/80 uppercase tracking-wider mb-1">Re-engagement Rate</div>
-                <div className="text-3xl font-bold text-white">{kpis.reEngagementRate ?? 0}%</div>
+                <div className="text-xs font-semibold text-ink-2 uppercase tracking-wider mb-1">Re-engagement Rate</div>
+                <div className="text-3xl font-bold text-ink-1">{kpis.reEngagementRate ?? 0}%</div>
               </div>
             </div>
           </div>
-          <p className="text-xs text-white/60 mt-4">
+          <p className="text-xs text-ink-2 mt-4">
             Leads inactive 30+ days who replied or booked in this period.
           </p>
         </ChartCard>

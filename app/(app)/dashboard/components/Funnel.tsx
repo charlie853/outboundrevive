@@ -25,23 +25,23 @@ export default function Funnel({ data }: Props) {
   if (!stages.length) {
     return (
       <ChartCard title="Conversion Funnel" className="md:col-span-2">
-        <div className="text-sm text-white/70">No funnel data available for this range.</div>
+        <div className="text-sm text-ink-2">No funnel data available for this range.</div>
       </ChartCard>
     );
   }
 
   return (
     <ChartCard title="Conversion Funnel" className="md:col-span-2">
-      <div className="flex items-start justify-between text-xs text-white/80 mb-6">
+      <div className="flex items-start justify-between text-xs text-ink-2 mb-6">
         <span>
           Lead progression for the selected window ({rangeLabel}) •{' '}
-          <span className="text-white/60">Bucketed with timezone {timezone}</span>
+          <span className="text-ink-2/60">Bucketed with timezone {timezone}</span>
         </span>
-        <details className="text-xs text-amber-200">
-          <summary className="cursor-pointer text-amber-300 hover:text-amber-200 underline decoration-dotted">
+        <details className="text-xs text-warning">
+          <summary className="cursor-pointer hover:opacity-80 underline decoration-dotted">
             Definitions
           </summary>
-          <div className="mt-2 space-y-1 text-white/70">
+          <div className="mt-2 space-y-1 text-ink-2">
             {stages.map((stage) => (
               <div key={stage.key}>
                 <strong>{stage.label}:</strong> {stage.definition}
@@ -69,26 +69,26 @@ export default function Funnel({ data }: Props) {
           return (
             <div
               key={stage.key}
-              className="rounded-xl border border-white/15 bg-white/10 backdrop-blur-sm px-4 py-3 shadow-sm hover:shadow-md transition-all"
+              className="rounded-[12px] border border-surface-line bg-surface-bg px-4 py-3 shadow-sm hover:shadow-md transition-all"
             >
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-xs font-semibold text-white/80 uppercase tracking-wider">{stage.label}</div>
-                  <div className="text-3xl font-bold text-white">{stage.count.toLocaleString()}</div>
+                  <div className="text-xs font-semibold text-ink-2 uppercase tracking-wider">{stage.label}</div>
+                  <div className="text-3xl font-bold text-ink-1">{stage.count.toLocaleString()}</div>
                 </div>
-                <div className="text-right text-xs text-white/70">
+                <div className="text-right text-xs text-ink-2">
                   <div>Stage conversion</div>
-                  <div className="text-lg font-semibold text-white">{Math.round(pct * 100)}%</div>
+                  <div className="text-lg font-semibold text-ink-1">{Math.round(pct * 100)}%</div>
                 </div>
               </div>
-              <div className="mt-3 h-2 rounded-full bg-white/10 overflow-hidden">
+              <div className="mt-3 h-2 rounded-full bg-surface-line overflow-hidden">
                 <div
                   className={`h-full bg-gradient-to-r ${stageGradient(idx)}`}
                   style={{ width: `${Math.min(100, Math.round(pct * 100))}%` }}
                 />
               </div>
               {idx > 0 && (
-                <div className="mt-2 text-xs text-white/60">
+                <div className="mt-2 text-xs text-ink-2">
                   Drop-off vs previous: {Math.round(dropOff * 100)}%
                 </div>
               )}
@@ -97,21 +97,20 @@ export default function Funnel({ data }: Props) {
         })}
       </div>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-3 text-xs text-white/80">
-        <div className="p-4 rounded-xl border border-white/15 bg-white/10">
-          <div className="uppercase tracking-wider font-semibold text-white/70">Contact Rate</div>
-          <div className="text-2xl font-bold text-white">{Math.round((rates.contactRate ?? 0) * 100)}%</div>
+      <div className="mt-6 grid gap-4 sm:grid-cols-3 text-xs text-ink-2">
+        <div className="p-4 rounded-[12px] border border-surface-line bg-surface-bg">
+          <div className="uppercase tracking-wider font-semibold text-ink-2">Contact Rate</div>
+          <div className="text-2xl font-bold text-ink-1">{Math.round((rates.contactRate ?? 0) * 100)}%</div>
         </div>
-        <div className="p-4 rounded-xl border border-white/15 bg-white/10">
-          <div className="uppercase tracking-wider font-semibold text-white/70">Reply Rate</div>
-          <div className="text-2xl font-bold text-white">{Math.round((rates.replyRate ?? 0) * 100)}%</div>
+        <div className="p-4 rounded-[12px] border border-surface-line bg-surface-bg">
+          <div className="uppercase tracking-wider font-semibold text-ink-2">Reply Rate</div>
+          <div className="text-2xl font-bold text-ink-1">{Math.round((rates.replyRate ?? 0) * 100)}%</div>
         </div>
-        <div className="p-4 rounded-xl border border-white/15 bg-white/10">
-          <div className="uppercase tracking-wider font-semibold text-white/70">Booking Rate</div>
-          <div className="text-2xl font-bold text-white">{Math.round((rates.bookingRate ?? 0) * 100)}%</div>
+        <div className="p-4 rounded-[12px] border border-surface-line bg-surface-bg">
+          <div className="uppercase tracking-wider font-semibold text-ink-2">Booking Rate</div>
+          <div className="text-2xl font-bold text-ink-1">{Math.round((rates.bookingRate ?? 0) * 100)}%</div>
         </div>
       </div>
     </ChartCard>
   );
 }
-

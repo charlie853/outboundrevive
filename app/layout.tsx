@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
-import SiteFooter from "./components/SiteFooter";
+import FooterSwitcher from "./components/FooterSwitcher";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -52,7 +52,7 @@ export default function RootLayout({
       >
         <AuthProvider>
           {children}
-          <SiteFooter />
+          <FooterSwitcher />
         </AuthProvider>
       </body>
     </html>

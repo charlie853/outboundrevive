@@ -58,7 +58,7 @@ export default function DeliveryChart({ days }: { days: DeliveryPoint[] }) {
     yAxis: {
       type: 'value',
       axisLine: { show: false },
-      splitLine: { lineStyle: { color: '#E5E7EB', type: 'dashed' } },
+      splitLine: { lineStyle: { color: 'rgba(226, 232, 240, 0.25)', type: 'dashed' } },
       axisLabel: { color: '#374151' },
     },
     series: [
@@ -75,21 +75,21 @@ export default function DeliveryChart({ days }: { days: DeliveryPoint[] }) {
             x2: 0,
             y2: 1,
             colorStops: [
-              { offset: 0, color: 'rgba(99, 102, 241, 0.3)' },
-              { offset: 1, color: 'rgba(99, 102, 241, 0.05)' },
+              { offset: 0, color: 'rgba(245, 158, 11, 0.2)' },
+              { offset: 1, color: 'rgba(245, 158, 11, 0)' },
             ],
           },
         },
-        lineStyle: { color: '#6366F1', width: 3 },
-        itemStyle: { color: '#6366F1' },
+        lineStyle: { color: '#F59E0B', width: 3 },
+        itemStyle: { color: '#F59E0B' },
       },
       {
         name: 'Sent',
         type: 'line',
         data: sentData,
         smooth: true,
-        lineStyle: { color: '#312E81', width: 2, type: 'dashed' },
-        itemStyle: { color: '#312E81' },
+        lineStyle: { color: '#6366F1', width: 2, type: 'dashed' },
+        itemStyle: { color: '#6366F1' },
       },
       {
         name: 'Failed',
@@ -104,11 +104,11 @@ export default function DeliveryChart({ days }: { days: DeliveryPoint[] }) {
 
   return (
     <div aria-label="Delivery over time">
-      <div className="flex items-start justify-between text-xs text-gray-700 mb-4">
+      <div className="flex items-start justify-between text-xs text-ink-2 mb-4">
         <span>Track sent, delivered, and failed messages over time</span>
         <button
           type="button"
-          className="text-indigo-500 underline decoration-dotted"
+          className="text-accent-500 underline decoration-dotted hover:text-accent-600"
           title={deliveryDefinitions}
         >
           Definitions

@@ -8,32 +8,49 @@ interface StatCardProps {
   subtext?: string;
   className?: string;
   children?: React.ReactNode;
+  accentColor?: 'brand' | 'warning' | 'success' | 'danger';
+  icon?: React.ReactNode;
 }
 
 /**
- * Reusable StatCard component with frosted glass styling
+ * Reusable StatCard component with left accent bar
  * Used for metric cards on the dashboard
  */
-export function StatCard({ title, value, subtext, className = '', children }: StatCardProps) {
+export function StatCard({ title, value, subtext, className = '', children, accentColor = 'brand', icon }: StatCardProps) {
+  const accentBarColor = 
+    accentColor === 'warning' ? 'bg-warning' :
+    accentColor === 'success' ? 'bg-success' :
+    accentColor === 'danger' ? 'bg-danger' :
+    'bg-brand-400';
+  
   return (
     <div
       className={`
-        bg-white/20
-        backdrop-blur-xl
-        border border-amber-500/50
-        rounded-2xl
-        shadow-[0_8px_24px_rgba(0,0,0,0.35)]
-        px-6 py-5
+        relative
+        p-6
+        rounded-[12px]
+        shadow-sm
+        border
+        border-surface-line
+        bg-surface-card
         flex flex-col justify-between
         ${className}
       `}
     >
-      <div className="text-sm font-bold text-white">{title}</div>
-      <div className="mt-2 text-3xl font-bold text-white">
+      <div className={`absolute left-0 top-0 h-full w-[4px] rounded-l-[12px] ${accentBarColor}`} />
+      <div className="flex items-start justify-between">
+        <div className="text-sm font-medium text-ink-2">{title}</div>
+        {icon && <div className="text-ink-2">{icon}</div>}
+      </div>
+      <div className="mt-2 text-[32px] font-bold text-ink-1">
         {value}
       </div>
       {subtext && (
-        <div className="text-xs text-white/60 mt-1">{subtext}</div>
+        <div className="text-xs mt-1" style={{ 
+          color: subtext.includes('+') ? '#10B981' : subtext.includes('-') ? '#EF4444' : '#475569' 
+        }}>
+          {subtext}
+        </div>
       )}
       {children}
     </div>
@@ -42,23 +59,23 @@ export function StatCard({ title, value, subtext, className = '', children }: St
 
 /**
  * ChartCard component for chart containers
- * Frosted glass styling to match StatCard
+ * White card surface with proper styling
  */
 export function ChartCard({ title, children, className = '' }: { title?: string; children: React.ReactNode; className?: string }) {
   return (
     <div
       className={`
-        bg-white/20
-        backdrop-blur-xl
-        border border-amber-500/50
-        rounded-2xl
-        shadow-[0_8px_24px_rgba(0,0,0,0.35)]
-        px-6 py-5
+        p-6
+        rounded-[12px]
+        shadow-sm
+        border
+        border-surface-line
+        bg-surface-card
         ${className}
       `}
     >
       {title && (
-        <h3 className="text-sm font-bold text-white mb-4">{title}</h3>
+        <h3 className="text-sm font-bold text-ink-1 mb-4">{title}</h3>
       )}
       {children}
     </div>
@@ -73,16 +90,17 @@ export function WhiteChartCard({ title, children, className = '' }: { title?: st
   return (
     <div
       className={`
-        bg-white
-        border border-amber-500/50
-        rounded-2xl
-        shadow-[0_8px_24px_rgba(0,0,0,0.35)]
-        px-6 py-5
+        p-6
+        rounded-[12px]
+        shadow-sm
+        border
+        border-surface-line
+        bg-surface-card
         ${className}
       `}
     >
       {title && (
-        <h3 className="text-sm font-bold text-gray-900 mb-4">{title}</h3>
+        <h3 className="text-sm font-bold text-ink-1 mb-4">{title}</h3>
       )}
       {children}
     </div>
