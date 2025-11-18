@@ -3,6 +3,14 @@ import { useEffect, useState } from 'react';
 import { authenticatedFetch } from '@/lib/api-client';
 import ConnectCrmButton from '@/app/components/ConnectCrmButton';
 
+const INDUSTRIES = [
+  { value: 'auto', label: 'Auto', helper: 'Dealership sales + service lanes' },
+  { value: 'aesthetics_wellness', label: 'Aesthetics & Wellness', helper: 'Medspa, IV drip, cosmetic clinics' },
+  { value: 'home_services', label: 'Home Services', helper: 'HVAC, plumbing, roofing, solar installers' },
+  { value: 'retail', label: 'Retail', helper: 'Showrooms, specialty shops, pop-ups' },
+  { value: 'other', label: 'Other', helper: 'Staffing, education, or custom use cases' },
+];
+
 type State = {
   account_id: string;
   step: 'welcome'|'profile'|'hours'|'number'|'crm'|'kb'|'imports'|'done';
@@ -12,6 +20,7 @@ type State = {
   twilio_connected?: boolean;
   kb_ingested?: boolean;
   crm_connected?: boolean;
+  vertical?: string|null;
 };
 
 export default function OnboardingPage() {
@@ -19,19 +28,32 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string|null>(null);
   const [profile, setProfile] = useState({ business_name:'', website:'', timezone:'America/New_York' });
+  const [vertical, setVertical] = useState<string>('general');
+  const [verticalTouched, setVerticalTouched] = useState(false);
 
   async function load() {
     setLoading(true); setErr(null);
     const r = await authenticatedFetch('/api/ui/onboarding/state', { cache: 'no-store' });
     const j = await r.json();
     if (!r.ok) { setErr(j?.error||'Failed to load'); setLoading(false); return; }
-    setS(j); setProfile({ business_name: j.business_name||'', website:j.website||'', timezone: j.timezone||'America/New_York' });
+    setS(j);
+    setProfile({ business_name: j.business_name||'', website:j.website||'', timezone: j.timezone||'America/New_York' });
+    setVertical(j.vertical || 'general');
     setLoading(false);
   }
   useEffect(() => { load(); }, []);
 
   async function saveProfile() {
-    const r = await authenticatedFetch('/api/ui/onboarding/state', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...profile, step: 'hours' }) });
+    setVerticalTouched(true);
+    if (!vertical || vertical === 'general') {
+      setErr('Please choose the industry that best matches your business.');
+      return;
+    }
+    const r = await authenticatedFetch('/api/ui/onboarding/state', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...profile, step: 'hours', vertical }),
+    });
     const j = await r.json(); if (!r.ok) { setErr(j?.error||'Save failed'); } else { setS(j); }
   }
 
@@ -54,6 +76,37 @@ export default function OnboardingPage() {
             <input value={profile.website} onChange={(e) => setProfile(p => ({ ...p, website: e.target.value }))} />
             <label>Timezone</label>
             <input value={profile.timezone} onChange={(e) => setProfile(p => ({ ...p, timezone: e.target.value }))} />
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <h4 style={{ marginBottom: 8 }}>Industry focus</h4>
+            <p style={{ marginBottom: 12, color: '#6b7280' }}>Pick the closest match so your SMS playbooks load with the right tone.</p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+              {INDUSTRIES.map((opt) => {
+                const selected = vertical === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => { setVertical(opt.value); setVerticalTouched(true); setErr(null); }}
+                    style={{
+                      borderRadius: 12,
+                      border: selected ? '2px solid #111' : '1px solid #e5e7eb',
+                      padding: 12,
+                      background: selected ? '#111' : '#fff',
+                      color: selected ? '#fff' : '#111',
+                      textAlign: 'left',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <div style={{ fontWeight: 600 }}>{opt.label}</div>
+                    <div style={{ fontSize: 13, marginTop: 4, color: selected ? '#f5f5f5' : '#6b7280' }}>{opt.helper}</div>
+                  </button>
+                );
+              })}
+            </div>
+            {verticalTouched && (!vertical || vertical === 'general') && (
+              <p style={{ color: '#b91c1c', marginTop: 8 }}>Choose the business type closest to yours (Auto, Aesthetics & Wellness, Home Services, Retail, or Other).</p>
+            )}
           </div>
           <div style={{ marginTop: 12 }}>
             <button onClick={saveProfile} style={{ padding: '8px 12px', background: '#111', color: '#fff', borderRadius: 8 }}>Save & Continue</button>

@@ -25,6 +25,80 @@ function localYMD(tz?: string | null) {
   return `${y}-${m}-${d}`; // YYYY-MM-DD
 }
 
+function vehiclePayload(body: any) {
+  const pref = body?.vehicle || {};
+  const payload = {
+    vin: pref.vin || body.vin || null,
+    year: pref.year ?? body.vehicle_year ?? null,
+    make: pref.make || body.vehicle_make || null,
+    model: pref.model || body.vehicle_model || null,
+    trim: pref.trim || body.vehicle_trim || null,
+    mileage_band: pref.mileage_band || body.mileage_band || null,
+    mileage: pref.mileage ?? body.mileage ?? null,
+  };
+  const hasValue = Object.values(payload).some((val) => val !== null && val !== undefined && String(val).trim() !== '');
+  return hasValue ? payload : null;
+}
+
+async function attachVehicleToLead(accountId: string, leadId: string, body: any) {
+  const vehicle = vehiclePayload(body);
+  if (!vehicle) return null;
+
+  const row = {
+    account_id: accountId,
+    vin: vehicle.vin?.trim() || null,
+    year: vehicle.year,
+    make: vehicle.make?.trim() || null,
+    model: vehicle.model?.trim() || null,
+    trim: vehicle.trim?.trim() || null,
+    mileage_band: vehicle.mileage_band || null,
+    mileage: vehicle.mileage ?? null,
+  };
+
+  let vehicleId: string | null = null;
+  if (row.vin) {
+    const { data, error } = await supabaseAdmin
+      .from('vehicles')
+      .upsert(row, { onConflict: 'account_id,vin' })
+      .select('id')
+      .single();
+    if (error) {
+      console.warn('[crm lead webhook] vehicle upsert error', error.message);
+    } else {
+      vehicleId = data?.id ?? null;
+    }
+  } else {
+    const { data, error } = await supabaseAdmin
+      .from('vehicles')
+      .insert(row)
+      .select('id')
+      .single();
+    if (error) {
+      console.warn('[crm lead webhook] vehicle insert error', error.message);
+    } else {
+      vehicleId = data?.id ?? null;
+    }
+  }
+
+  if (!vehicleId) return null;
+
+  await supabaseAdmin
+    .from('ownerships')
+    .upsert(
+      {
+        account_id: accountId,
+        lead_id: leadId,
+        vehicle_id: vehicleId,
+      },
+      { onConflict: 'account_id,lead_id,vehicle_id' }
+    )
+    .select('id')
+    .single()
+    .catch((err) => console.warn('[crm lead webhook] ownership upsert warn', err.message));
+
+  return vehicleId;
+}
+
 export async function POST(req: NextRequest) {
   const startedAt = Date.now();
   try {
@@ -137,6 +211,14 @@ export async function POST(req: NextRequest) {
     }
 
     const leadId: string = leadRow.id;
+    const prefVehicle = vehiclePayload(body);
+    const leadMetaUpdate: Record<string, any> = {};
+    if (prefVehicle) leadMetaUpdate.preferred_vehicle = prefVehicle;
+    if (body.vehicle_interest) leadMetaUpdate.vehicle_interest = String(body.vehicle_interest).slice(0, 200);
+    if (Object.keys(leadMetaUpdate).length) {
+      await supabaseAdmin.from('leads').update(leadMetaUpdate).eq('id', leadId);
+    }
+    await attachVehicleToLead(account_id, leadId, body);
     const firstName = (name || '').split(' ')[0] || 'there';
 
     // --- Consent events (handle lead_id vs contact_id schemas) ---

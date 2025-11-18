@@ -5,6 +5,7 @@ import { toE164US } from "@/lib/phone";
 import { determineLeadBucket } from "@/lib/leads/classify";
 import * as fs from "fs";
 import * as path from "path";
+import { handleMicroSurveyReply } from "@/lib/micro-surveys";
 
 /** Twilio posts x-www-form-urlencoded; we must disable Next's JSON parser. */
 export const config = { api: { bodyParser: false } };
@@ -724,6 +725,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     await persistOut(leadId, msg, false, accountId);
     const twiml = `<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Message>${escapeXml(msg)}</Message></Response>`;
     return res.status(200).setHeader("Content-Type","text/xml").send(twiml);
+  }
+
+  // === Capture micro-survey replies before AI handles the message ===
+  try {
+    const captured = await handleMicroSurveyReply(accountId, leadId, inboundBody);
+    if (captured) {
+      console.log('[inbound] captured micro-survey fact for lead', leadId);
+    }
+  } catch (microErr) {
+    console.warn('[inbound] micro-survey capture warning', microErr);
   }
 
   // === Check quiet hours & daily caps (non-reply mode) ===

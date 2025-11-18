@@ -6,6 +6,7 @@
     { "path": "/api/internal/followups/tick", "schedule": "*/10 * * * *" },
     { "path": "/api/internal/queue/worker", "schedule": "*/5 * * * *" },
     { "path": "/api/cron/billing/reset", "schedule": "0 0 1 * *" },
-    { "path": "/api/cron/sync-crm", "schedule": "0 * * * *" }
+    { "path": "/api/cron/sync-crm", "schedule": "0 * * * *" },
+    { "path": "/api/cron/service-upsells", "schedule": "0 */6 * * *" }
   ]
 }

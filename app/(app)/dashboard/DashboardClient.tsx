@@ -6,6 +6,7 @@ import RefreshCrmButton from '@/app/components/RefreshCrmButton';
 import AutotexterToggle from '../../components/AutotexterToggle';
 import MetricsPanel from '@/app/components/MetricsPanel';
 import ThreadsPanel from '@/app/components/ThreadsPanel';
+import VerticalInsights from './components/VerticalInsights';
 
 export default function DashboardClient() {
   const [refreshKey, setRefreshKey] = useState(0);
@@ -38,6 +39,7 @@ export default function DashboardClient() {
         </header>
 
         <MetricsPanel />
+        <VerticalInsights />
 
         <ThreadsPanel key={refreshKey} />
       </div>

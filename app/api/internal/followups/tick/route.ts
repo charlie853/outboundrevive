@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin as db } from '@/lib/supabaseServer';
+import { 
+  fetchThreadContext, 
+  generateFollowUpMessage, 
+  isWithinQuietHours,
+  calculateNextSendTimeWithCompliance 
+} from '@/lib/ai-followups';
+import { pickMicroSurvey, recordMicroSurveyAsk } from '@/lib/micro-surveys';
 
 export const runtime = 'nodejs';
 
@@ -125,10 +132,13 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // 2) Build a “q” from the last inbound or fallback and fetch lead details
-      const [lastIn, leadRes] = await Promise.all([
-        db.from('messages_in').select('body,created_at').eq('lead_id', lead_id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
-        db.from('leads').select('id,phone').eq('id', lead_id).maybeSingle(),
+      // 2) Fetch lead details and thread context
+      const [leadRes, accountSettings] = await Promise.all([
+        db.from('leads').select('id,phone,name').eq('id', lead_id).maybeSingle(),
+        db.from('account_followup_settings')
+          .select('preferred_send_times, quiet_hours_start, quiet_hours_end')
+          .eq('account_id', acct)
+          .maybeSingle(),
       ]);
 
       const leadPhone = leadRes.data?.phone?.trim();
@@ -137,49 +147,77 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const lastInbound = lastIn.data?.body?.trim() || '';
-      const q = lastInbound || 'Quick follow-up regarding your interest.';
+      const leadName = leadRes.data?.name || null;
+      const preferredTimes = accountSettings?.preferred_send_times || [{"hour": 10, "minute": 30}, {"hour": 15, "minute": 30}];
+
+      // Check quiet hours before generating message
+      const withinQuiet = await isWithinQuietHours(leadPhone, acct);
+      if (!withinQuiet) {
+        // Reschedule to next quiet window
+        const attempt = Number(c.attempt ?? 0);
+        const plan = Array.isArray(c.cadence) && c.cadence.length ? c.cadence : [48, 96, 168, 240];
+        const stepHours = plan[Math.min(attempt, plan.length - 1)] || 48;
+        const nextAt = await calculateNextSendTimeWithCompliance(stepHours, acct, leadPhone, preferredTimes);
+        
+        await db.from('ai_followup_cursor')
+          .update({ next_at: nextAt, updated_at: new Date().toISOString() })
+          .eq('lead_id', lead_id);
+        
+        results.push({ lead_id, skipped: true, reason: 'quiet_hours', next_at: nextAt });
+        continue;
+      }
+
+      // Fetch thread context for context-aware message generation
+      const { threadHistory, lastInbound, lastOutbound } = await fetchThreadContext(lead_id);
+
+      // Get account settings for brand/booking link
+      const [accountConfig, smsConfig] = await Promise.all([
+        db.from('accounts').select('name, vertical').eq('id', acct).maybeSingle(),
+        db.from('account_sms_config').select('from_number, booking_url').eq('account_id', acct).maybeSingle(),
+      ]);
+
+      const brand = accountConfig?.name || 'OutboundRevive';
+      const vertical = accountConfig?.vertical || 'auto';
+      const bookingLink = smsConfig?.booking_url || process.env.CAL_BOOKING_URL || null;
 
       // cache account from-number for logging held messages
       let fromNumber = fromNumberCache.get(acct);
       if (fromNumber === undefined) {
-        const { data: cfg } = await db
-          .from('account_sms_config')
-          .select('from_number')
-          .eq('account_id', acct)
-          .maybeSingle();
-        fromNumber = cfg?.from_number || null;
+        fromNumber = smsConfig?.from_number || null;
         fromNumberCache.set(acct, fromNumber);
       }
 
-      // 3) Draft with Knowledge Pack (no immediate send)
-      const base = process.env.PUBLIC_BASE_URL || 'http://localhost:3001';
-      const admin = (process.env.ADMIN_API_KEY || process.env.ADMIN_TOKEN || '').trim();
+      // 3) Generate context-aware follow-up message using AI
+      const attempt = Number(c.attempt ?? 0) + 1;
+      let draftText: string | null = null;
+      let followupIntent: 'followup' | 'micro_survey' = 'followup';
+      const microSurvey = await pickMicroSurvey(acct, lead_id, vertical);
+      if (microSurvey) {
+        draftText = microSurvey.template;
+        followupIntent = 'micro_survey';
+        await recordMicroSurveyAsk(acct, lead_id, microSurvey.key);
+      } else {
+        try {
+          draftText = await generateFollowUpMessage({
+            leadId: lead_id,
+            accountId: acct,
+            leadName,
+            leadPhone,
+            attempt,
+            threadHistory,
+            lastInbound,
+            lastOutbound,
+            brand,
+            bookingLink,
+          });
+        } catch (err: any) {
+          console.error(`[followups] Failed to generate follow-up for lead ${lead_id}:`, err);
+          results.push({ lead_id, skipped: true, reason: 'ai_generation_failed', error: err.message });
+          continue;
+        }
+      }
 
-      const draftPayload = (limitChars: number) => ({
-        account_id: acct,
-        q,
-        k,
-        max_chars: limitChars,
-        send: false,
-        lead_id,
-        operator_id
-      });
-
-      const fetchDraft = async (limitChars: number) => {
-        const resp = await fetch(`${base}/api/internal/knowledge/draft`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', 'x-admin-token': admin },
-          body: JSON.stringify(draftPayload(limitChars))
-        });
-        if (!resp.ok) return {};
-        return resp.json().catch(() => ({}));
-      };
-
-      let currentCap = max_chars;
-      let draftRes: any = await fetchDraft(currentCap);
-      let draftText = String(draftRes?.draft?.text || '').trim();
-      if (!draftText) {
+      if (!draftText || !draftText.trim()) {
         results.push({ lead_id, skipped: true, reason: 'no_draft' });
         continue;
       }
@@ -208,17 +246,17 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const newThread = await isNewThread(leadPhone);
+      // 4) Apply basic compliance (length check)
+      let finalText = draftText.trim();
+      if (finalText.length > 320) {
+        finalText = finalText.slice(0, 320).trim();
+      }
 
-      const applyCompliance = (text: string) => {
-        let out = text.trim();
-        if (newThread && !/charlie/i.test(out)) {
-          out = `Hey—it’s Charlie from OutboundRevive. ${out}`;
-        }
-        if (out.length > 320) out = out.slice(0, 320).trim();
-        return out;
-      };
+      // 5) Send message via SMS API
+      const base = process.env.PUBLIC_BASE_URL || 'http://localhost:3001';
+      const admin = (process.env.ADMIN_API_KEY || process.env.ADMIN_TOKEN || '').trim();
 
+      const gateContext = followupIntent === 'micro_survey' ? 'micro_survey' : 'followup';
       const sendOnce = async (text: string) => {
         const payload = {
           leadIds: [lead_id],
@@ -228,7 +266,7 @@ export async function POST(req: NextRequest) {
           account_id: acct,
           lead_id,
           body: text,
-          gate_context: 'reminder',
+          gate_context: gateContext,
         };
         const resp = await fetch(`${base}/api/sms/send`, {
           method: 'POST',
@@ -239,34 +277,24 @@ export async function POST(req: NextRequest) {
         return { ok: resp.ok, json };
       };
 
-      let finalText = applyCompliance(draftText);
-      let sendAttempt = await sendOnce(finalText);
-      let sendResult = Array.isArray(sendAttempt.json?.results) ? sendAttempt.json.results[0] : null;
-
-      if ((!sendResult || !sendResult.sid) && sendResult?.error === 'too_long_with_footer') {
-        currentCap = Math.max(120, currentCap - 40);
-        draftRes = await fetchDraft(currentCap);
-        draftText = String(draftRes?.draft?.text || '').trim() || draftText;
-        finalText = applyCompliance(draftText);
-        sendAttempt = await sendOnce(finalText);
-        sendResult = Array.isArray(sendAttempt.json?.results) ? sendAttempt.json.results[0] : sendResult;
-      }
+      const sendAttempt = await sendOnce(finalText);
+      const sendResult = Array.isArray(sendAttempt.json?.results) ? sendAttempt.json.results[0] : null;
 
       const wasSent = !!sendResult?.sid;
       const sentSid = wasSent ? sendResult.sid : null;
       const sendError = sendResult?.error || sendAttempt.json?.error || (sendAttempt.ok ? null : 'send_failed');
 
-      // 4) Log + reschedule
-      const attempt = Number(c.attempt ?? 0) + 1;
-      const done = attempt >= Number(c.max_attempts ?? 42);
+      // 6) Log + reschedule with proper cadence (days-based, not hours)
+      const done = attempt >= Number(c.max_attempts ?? 4);
 
       let next_at: string | null = null;
       if (!done) {
-        // cadence is now in hours, not days
-        const plan = Array.isArray(c.cadence) && c.cadence.length ? c.cadence : [12,24,36,48,60,72,84,96,108,120,132,144,156,168,180,192,204,216,228,240,252,264,276,288,300,312,324,336,348,360,372,384,396,408,420,432,444,456,468,480,492,504];
-        const stepHours = plan[Math.min(attempt-1, plan.length-1)] || 12; // clamp to last cadence value (12h default)
-        const nextTime = new Date(Date.now() + stepHours * 60 * 60 * 1000);
-        next_at = nextTime.toISOString();
+        // Gentle cadence: [48, 96, 168, 240] hours = [2d, 4d, 7d, 10d]
+        const plan = Array.isArray(c.cadence) && c.cadence.length ? c.cadence : [48, 96, 168, 240];
+        const stepHours = plan[Math.min(attempt - 1, plan.length - 1)] || 48;
+        
+        // Calculate next send time with quiet hours compliance and preferred times
+        next_at = await calculateNextSendTimeWithCompliance(stepHours, acct, leadPhone, preferredTimes);
       }
 
       await db.from('ai_followup_log').insert({
@@ -276,7 +304,7 @@ export async function POST(req: NextRequest) {
         planned_at: c.next_at ?? now.toISOString(),
         sent_sid: sentSid,
         status: wasSent ? 'sent' : 'skipped',
-        reason: wasSent ? null : (sendError || 'not_sent')
+        reason: wasSent ? followupIntent : (sendError || 'not_sent')
       });
 
       await db.from('ai_followup_cursor')
