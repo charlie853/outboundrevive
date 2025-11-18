@@ -3,19 +3,12 @@ import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { ReplyPoint } from '@/lib/types/metrics';
 
-<<<<<<< HEAD
-export default function RepliesChart({ days }: { days: DayPoint[] }) {
-  const safeDays = Array.isArray(days) ? days : [];
-  const dates = useMemo(() => safeDays.map(x => x?.d?.slice(5, 10) || ''), [safeDays]);
-  const inboundData = useMemo(() => safeDays.map(x => x?.inbound ?? 0), [safeDays]);
-=======
 const replyDefinitions = `Replies counts inbound SMS received from leads within each bucket (based on account timezone).`;
 
 export default function RepliesChart({ days }: { days: ReplyPoint[] }) {
   const safeDays = Array.isArray(days) ? days : [];
   const labels = useMemo(() => safeDays.map((x) => x?.label ?? ''), [safeDays]);
   const inboundData = useMemo(() => safeDays.map((x) => x?.replies ?? 0), [safeDays]);
->>>>>>> b4bbe092fd40bca3fce1414f1e4f12a7923bad6a
 
   const option = {
     backgroundColor: 'transparent',
@@ -38,26 +31,23 @@ export default function RepliesChart({ days }: { days: ReplyPoint[] }) {
     },
     xAxis: {
       type: 'category',
-<<<<<<< HEAD
-      data: dates,
-=======
       data: labels,
->>>>>>> b4bbe092fd40bca3fce1414f1e4f12a7923bad6a
       axisLine: { lineStyle: { color: '#6B7280' } },
       axisLabel: { color: '#374151' },
     },
     yAxis: {
       type: 'value',
       axisLine: { show: false },
-      splitLine: { lineStyle: { color: '#E5E7EB', type: 'dashed' } },
+      splitLine: { lineStyle: { color: 'rgba(226, 232, 240, 0.25)', type: 'dashed' } },
       axisLabel: { color: '#374151' },
     },
     series: [
       {
         name: 'Replies',
-        type: 'bar',
+        type: 'line',
         data: inboundData,
-        itemStyle: {
+        smooth: true,
+        areaStyle: {
           color: {
             type: 'linear',
             x: 0,
@@ -65,49 +55,31 @@ export default function RepliesChart({ days }: { days: ReplyPoint[] }) {
             x2: 0,
             y2: 1,
             colorStops: [
-              { offset: 0, color: '#F59E0B' },
-              { offset: 1, color: '#FBBF24' },
+              { offset: 0, color: 'rgba(245, 158, 11, 0.2)' },
+              { offset: 1, color: 'rgba(245, 158, 11, 0)' },
             ],
           },
-          borderRadius: [6, 6, 0, 0],
         },
-        emphasis: {
-          itemStyle: {
-            color: {
-              type: 'linear',
-              x: 0,
-              y: 0,
-              x2: 0,
-              y2: 1,
-              colorStops: [
-                { offset: 0, color: '#D97706' },
-                { offset: 1, color: '#F59E0B' },
-              ],
-            },
-          },
-        },
+        lineStyle: { color: '#F59E0B', width: 3 },
+        itemStyle: { color: '#F59E0B' },
       },
     ],
   };
 
   return (
     <div aria-label="Replies per day">
-<<<<<<< HEAD
-      <div className="text-xs text-gray-700 mb-4">Inbound replies from leads over time</div>
-=======
-      <div className="flex items-start justify-between text-xs text-gray-700 mb-4">
+      <div className="flex items-start justify-between text-xs text-ink-2 mb-4">
         <span>Inbound replies from leads over time</span>
-        <button
-          type="button"
-          className="text-amber-500 underline decoration-dotted"
-          title={replyDefinitions}
-        >
-          Definitions
-        </button>
+        <details className="relative text-warning">
+          <summary className="cursor-pointer hover:opacity-80 underline decoration-dotted list-none">
+            Definitions
+          </summary>
+          <div className="absolute z-50 right-0 mt-2 p-3 text-xs text-ink-1 bg-surface-card border border-surface-line rounded-xl shadow-lg max-w-xs">
+            {replyDefinitions}
+          </div>
+        </details>
       </div>
->>>>>>> b4bbe092fd40bca3fce1414f1e4f12a7923bad6a
       <ReactECharts option={option} style={{ height: '300px' }} />
     </div>
   );
 }
-

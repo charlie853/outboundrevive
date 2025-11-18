@@ -1,4 +1,5 @@
 import ProtectedRoute from '@/app/components/ProtectedRoute';
+import AppShell from '@/app/components/AppShell';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -9,5 +10,9 @@ export const metadata: Metadata = {
 };
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  return <ProtectedRoute>{children}</ProtectedRoute>;
+  return (
+    <ProtectedRoute>
+      <AppShell>{children}</AppShell>
+    </ProtectedRoute>
+  );
 }

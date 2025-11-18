@@ -304,19 +304,6 @@ export default function CRMIntegrations({
             {isConnecting ? 'Connecting…' : 'Connect CRM'}
           </button>
         ) : (
-<<<<<<< HEAD
-          <button
-            onClick={handleDisconnectCRM}
-            disabled={isDisconnecting}
-            className={`px-4 py-2 rounded-pill font-medium text-sm transition-colors ${
-              isDisconnecting
-                ? 'bg-amber-500/50 text-white border border-amber-500/50 cursor-not-allowed'
-                : 'btn-amber text-white'
-            }`}
-          >
-            {isDisconnecting ? 'Disconnecting…' : 'Connect CRM'}
-          </button>
-=======
           <div className="relative flex items-center gap-3">
             <button
               disabled
@@ -340,7 +327,6 @@ export default function CRMIntegrations({
               {getProviderDisplayName(crmStatus.provider)} is connected
             </p>
           </div>
->>>>>>> b4bbe092fd40bca3fce1414f1e4f12a7923bad6a
         )}
       </div>
     );

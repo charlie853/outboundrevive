@@ -318,15 +318,15 @@ export default function ThreadsPanel() {
 
   return (
     <section className="space-y-4">
-      <div className="bg-white/20 backdrop-blur-xl border border-amber-500/50 rounded-2xl shadow-[0_8px_24px_rgba(0,0,0,0.35)] px-6 py-5">
+      <div className="p-6 rounded-[12px] bg-surface-card border border-surface-line shadow-sm">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-bold text-white">Recent Threads</h2>
+            <h2 className="text-xl font-bold text-ink-1">Recent Threads</h2>
           </div>
           <button
             type="button"
             onClick={() => mutate()}
-            className="px-4 py-2 rounded-pill btn-amber text-white text-sm font-medium hover:opacity-90 transition-colors"
+            className="inline-flex items-center justify-center rounded-full border border-warning text-warning bg-white text-sm px-4 py-2 hover:bg-warning/5 transition font-medium"
           >
             Refresh
           </button>
@@ -359,7 +359,7 @@ export default function ThreadsPanel() {
         )}
         {!error && isLoading && <div className="h-24 animate-pulse rounded-xl bg-surface-bg" />}
         {!error && !isLoading && threads.length === 0 && (
-          <div className="text-sm text-white/80">No recent conversations.</div>
+          <div className="text-sm text-ink-2">No recent conversations.</div>
         )}
         {!error && !isLoading && threads.length > 0 && (
           <div className="space-y-3">
@@ -381,25 +381,25 @@ export default function ThreadsPanel() {
 
               // Format booking status
               const bookingDisplay = bookingStatus 
-                ? (bookingStatus === 'booked' ? '📅 Booked' : 
-                   bookingStatus === 'kept' ? '✅ Kept' :
-                   bookingStatus === 'canceled' ? '❌ Canceled' :
-                   bookingStatus === 'no_show' ? '👻 No Show' :
-                   bookingStatus === 'rescheduled' ? '🔄 Rescheduled' :
+                ? (bookingStatus === 'booked' ? 'Booked' : 
+                   bookingStatus === 'kept' ? 'Kept' :
+                   bookingStatus === 'canceled' ? 'Canceled' :
+                   bookingStatus === 'no_show' ? 'No Show' :
+                   bookingStatus === 'rescheduled' ? 'Rescheduled' :
                    bookingStatus)
                 : null;
 
               // Format lead type badge
               const leadTypeBadge = leadType === 'new' 
-                ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-500/20 text-indigo-300 border border-indigo-500/50">New</span>
+                ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-brand-100 text-brand-700 border border-brand-300">New</span>
                 : leadType === 'old'
-                ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-white/20 text-white/80 border border-white/30">Cold</span>
+                ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-ink-2/20 text-ink-2 border border-surface-line">Cold</span>
                 : null;
 
               return (
                 <div 
                   key={itemKey} 
-                  className={`rounded-xl border border-white/20 bg-white/10 p-4 hover:bg-white/15 transition-shadow ${
+                  className={`rounded-xl border border-surface-line bg-surface-bg p-4 hover:bg-surface-card transition-shadow ${
                     optedOut ? 'opacity-60' : ''
                   }`}
                 >
@@ -407,28 +407,28 @@ export default function ThreadsPanel() {
                     {/* Left: Lead info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-2">
-                        <h3 className="font-semibold text-white truncate">{displayName}</h3>
+                        <h3 className="font-semibold text-ink-1 truncate">{displayName}</h3>
                         {leadTypeBadge}
                         {optedOut && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-rose-500/20 text-rose-300 border border-rose-500/50">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-700 border border-rose-300">
                             Opted Out
                           </span>
                         )}
                         {bookingDisplay && (
-                          <span className="text-sm text-white/80">{bookingDisplay}</span>
+                          <span className="text-sm text-ink-2">{bookingDisplay}</span>
                         )}
                       </div>
-                      <p className="text-sm text-white/80 mb-2">{formatPhone(phone)}</p>
+                      <p className="text-sm text-ink-2 mb-2">{formatPhone(phone)}</p>
                       
                       {/* Last message preview */}
                       {last && (
                         <div className="mb-2">
-                          <p className="text-sm text-white/90 line-clamp-2">{last}</p>
+                          <p className="text-sm text-ink-1 line-clamp-2">{last}</p>
                         </div>
                       )}
                       
                       {/* Meta info row */}
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/60">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-2">
                         {lastReplyAt && (
                           <span className="flex items-center gap-1">
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -459,7 +459,7 @@ export default function ThreadsPanel() {
                       <button
                         type="button"
                         onClick={() => openThread(thread)}
-                        className="px-4 py-2 rounded-pill btn-amber text-white text-sm font-medium hover:opacity-90 transition-colors"
+                        className="inline-flex items-center justify-center rounded-full border border-warning text-warning bg-white text-sm px-4 py-2 hover:bg-warning/5 transition font-medium"
                       >
                         View
                       </button>
@@ -467,7 +467,7 @@ export default function ThreadsPanel() {
                         type="button"
                         onClick={() => handleDeleteLead(thread)}
                         disabled={deletingLeadId === (thread?.id ?? thread?.lead_id ?? null)}
-                        className="px-4 py-2 rounded-pill text-rose-300 text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/50"
+                        className="inline-flex items-center justify-center rounded-full border border-rose-300 text-rose-700 bg-white text-sm px-4 py-2 hover:bg-rose-50 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                         title="Delete lead"
                       >
                         {deletingLeadId === (thread?.id ?? thread?.lead_id ?? null) ? 'Deleting…' : 'Delete'}

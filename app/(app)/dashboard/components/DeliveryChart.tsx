@@ -3,14 +3,6 @@ import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { DeliveryPoint } from '@/lib/types/metrics';
 
-<<<<<<< HEAD
-export default function DeliveryChart({ days }: { days: DayPoint[] }) {
-  const safeDays = Array.isArray(days) ? days : [];
-  const dates = useMemo(() => safeDays.map(x => x?.d?.slice(5, 10) || ''), [safeDays]);
-  const sentData = useMemo(() => safeDays.map(x => x?.sent ?? 0), [safeDays]);
-  const deliveredData = useMemo(() => safeDays.map(x => x?.delivered ?? 0), [safeDays]);
-  const failedData = useMemo(() => safeDays.map(x => x?.failed ?? 0), [safeDays]);
-=======
 const deliveryDefinitions = `Sent: Outbound SMS attempts. Delivered: Carrier confirmed delivery. Failed: Carrier reported failed/undelivered. Pending: Awaiting receipt. Delivered% = Delivered ÷ Sent (per bucket).`;
 
 export default function DeliveryChart({ days }: { days: DeliveryPoint[] }) {
@@ -20,7 +12,6 @@ export default function DeliveryChart({ days }: { days: DeliveryPoint[] }) {
   const deliveredData = useMemo(() => safeDays.map((x) => x?.delivered ?? 0), [safeDays]);
   const failedData = useMemo(() => safeDays.map((x) => x?.failed ?? 0), [safeDays]);
   const deliveredPctData = useMemo(() => safeDays.map((x) => Math.round((x?.deliveredPct ?? 0) * 100)), [safeDays]);
->>>>>>> b4bbe092fd40bca3fce1414f1e4f12a7923bad6a
 
   const option = {
     backgroundColor: 'transparent',
@@ -60,18 +51,14 @@ export default function DeliveryChart({ days }: { days: DeliveryPoint[] }) {
     },
     xAxis: {
       type: 'category',
-<<<<<<< HEAD
-      data: dates,
-=======
       data: labels,
->>>>>>> b4bbe092fd40bca3fce1414f1e4f12a7923bad6a
       axisLine: { lineStyle: { color: '#6B7280' } },
       axisLabel: { color: '#374151' },
     },
     yAxis: {
       type: 'value',
       axisLine: { show: false },
-      splitLine: { lineStyle: { color: '#E5E7EB', type: 'dashed' } },
+      splitLine: { lineStyle: { color: 'rgba(226, 232, 240, 0.25)', type: 'dashed' } },
       axisLabel: { color: '#374151' },
     },
     series: [
@@ -88,21 +75,21 @@ export default function DeliveryChart({ days }: { days: DeliveryPoint[] }) {
             x2: 0,
             y2: 1,
             colorStops: [
-              { offset: 0, color: 'rgba(99, 102, 241, 0.3)' },
-              { offset: 1, color: 'rgba(99, 102, 241, 0.05)' },
+              { offset: 0, color: 'rgba(245, 158, 11, 0.2)' },
+              { offset: 1, color: 'rgba(245, 158, 11, 0)' },
             ],
           },
         },
-        lineStyle: { color: '#6366F1', width: 3 },
-        itemStyle: { color: '#6366F1' },
+        lineStyle: { color: '#F59E0B', width: 3 },
+        itemStyle: { color: '#F59E0B' },
       },
       {
         name: 'Sent',
         type: 'line',
         data: sentData,
         smooth: true,
-        lineStyle: { color: '#312E81', width: 2, type: 'dashed' },
-        itemStyle: { color: '#312E81' },
+        lineStyle: { color: '#6366F1', width: 2, type: 'dashed' },
+        itemStyle: { color: '#6366F1' },
       },
       {
         name: 'Failed',
@@ -117,20 +104,16 @@ export default function DeliveryChart({ days }: { days: DeliveryPoint[] }) {
 
   return (
     <div aria-label="Delivery over time">
-<<<<<<< HEAD
-      <div className="text-xs text-gray-700 mb-4">Track sent, delivered, and failed messages over time</div>
-=======
-      <div className="flex items-start justify-between text-xs text-gray-700 mb-4">
+      <div className="flex items-start justify-between text-xs text-ink-2 mb-4">
         <span>Track sent, delivered, and failed messages over time</span>
         <button
           type="button"
-          className="text-indigo-500 underline decoration-dotted"
+          className="text-accent-500 underline decoration-dotted hover:text-accent-600"
           title={deliveryDefinitions}
         >
           Definitions
         </button>
       </div>
->>>>>>> b4bbe092fd40bca3fce1414f1e4f12a7923bad6a
       <ReactECharts option={option} style={{ height: '300px' }} />
     </div>
   );
