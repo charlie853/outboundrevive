@@ -63,6 +63,18 @@ export default function SidebarCRMCard() {
     return () => clearInterval(interval);
   }, []);
 
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (showChangeCrmModal) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [showChangeCrmModal]);
+
   const handleCrmConnect = () => {
     // Refresh status after connection
     fetchStatus();
@@ -158,11 +170,13 @@ export default function SidebarCRMCard() {
       {/* Change CRM Modal */}
       {showChangeCrmModal && (
         <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+          className="fixed inset-0 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
+          style={{ zIndex: 99999 }}
           onClick={handleCloseModal}
         >
           <div
             className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl"
+            style={{ zIndex: 100000 }}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
