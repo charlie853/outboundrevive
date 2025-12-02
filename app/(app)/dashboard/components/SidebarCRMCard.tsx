@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Download, RefreshCw, X } from 'lucide-react';
 import { authenticatedFetch } from '@/lib/api-client';
 import ConnectCrmButton from '@/app/components/ConnectCrmButton';
@@ -38,6 +39,7 @@ export default function SidebarCRMCard() {
   });
   const [isSyncing, setIsSyncing] = useState(false);
   const [showChangeCrmModal, setShowChangeCrmModal] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const { range } = useTimeRange();
   const { kpis } = useMetricsData(range);
 
@@ -58,6 +60,7 @@ export default function SidebarCRMCard() {
   };
 
   useEffect(() => {
+    setMounted(true);
     fetchStatus();
     const interval = setInterval(fetchStatus, 60000);
     return () => clearInterval(interval);
@@ -167,8 +170,8 @@ export default function SidebarCRMCard() {
         </>
       )}
 
-      {/* Change CRM Modal */}
-      {showChangeCrmModal && (
+      {/* Change CRM Modal - Rendered as Portal */}
+      {showChangeCrmModal && mounted && createPortal(
         <div
           className="fixed inset-0 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
           style={{ zIndex: 99999 }}
@@ -212,7 +215,8 @@ export default function SidebarCRMCard() {
               />
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
