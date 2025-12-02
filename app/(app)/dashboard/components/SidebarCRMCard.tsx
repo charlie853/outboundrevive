@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Download, RefreshCw } from 'lucide-react';
+import { Download, RefreshCw, X } from 'lucide-react';
 import { authenticatedFetch } from '@/lib/api-client';
 import ConnectCrmButton from '@/app/components/ConnectCrmButton';
+import CRMIntegrations from '@/app/components/CRMIntegrations';
+import { useAuth } from '@/lib/auth-context';
 import { useMetricsData } from './useMetricsData';
 import { useTimeRange } from './TimeRangeSelector';
 
@@ -28,36 +30,55 @@ function formatLastSyncTime(lastSyncedAt: string | null): string {
 }
 
 export default function SidebarCRMCard() {
+  const { user } = useAuth();
   const [crmStatus, setCrmStatus] = useState<{ connected: boolean; provider: string | null; lastSyncedAt: string | null }>({
     connected: false,
     provider: null,
     lastSyncedAt: null,
   });
   const [isSyncing, setIsSyncing] = useState(false);
+  const [showChangeCrmModal, setShowChangeCrmModal] = useState(false);
   const { range } = useTimeRange();
   const { kpis } = useMetricsData(range);
 
-  useEffect(() => {
-    const fetchStatus = async () => {
-      try {
-        const response = await authenticatedFetch('/api/crm/status');
-        if (response.ok) {
-          const data = await response.json();
-          setCrmStatus({
-            connected: data.connected || false,
-            provider: data.provider || null,
-            lastSyncedAt: data.lastSyncedAt || null,
-          });
-        }
-      } catch (error) {
-        console.error('Failed to fetch CRM status:', error);
+  const fetchStatus = async () => {
+    try {
+      const response = await authenticatedFetch('/api/crm/status');
+      if (response.ok) {
+        const data = await response.json();
+        setCrmStatus({
+          connected: data.connected || false,
+          provider: data.provider || null,
+          lastSyncedAt: data.lastSyncedAt || null,
+        });
       }
-    };
+    } catch (error) {
+      console.error('Failed to fetch CRM status:', error);
+    }
+  };
 
+  useEffect(() => {
     fetchStatus();
     const interval = setInterval(fetchStatus, 60000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleCrmConnect = () => {
+    // Refresh status after connection
+    fetchStatus();
+    setShowChangeCrmModal(false);
+  };
+
+  const handleCrmError = (error: string) => {
+    console.error('[SidebarCRMCard] CRM error:', error);
+    // Optionally show error toast/notification
+  };
+
+  const handleCloseModal = () => {
+    setShowChangeCrmModal(false);
+    // Refresh status when modal closes (in case user disconnected or made changes)
+    fetchStatus();
+  };
 
   const handleRefresh = async () => {
     setIsSyncing(true);
@@ -121,10 +142,7 @@ export default function SidebarCRMCard() {
             </button>
             <button
               className="mt-1 text-xs text-brand-100 underline underline-offset-2 hover:text-white transition-colors text-center"
-              onClick={() => {
-                // TODO: wire up change CRM modal/action
-                alert('Change CRM functionality coming soon');
-              }}
+              onClick={() => setShowChangeCrmModal(true)}
             >
               Change CRM
             </button>
@@ -135,6 +153,52 @@ export default function SidebarCRMCard() {
           <p className="text-xs text-white/70 mb-3">Not connected</p>
           <ConnectCrmButton onConnect={() => {}} />
         </>
+      )}
+
+      {/* Change CRM Modal */}
+      {showChangeCrmModal && (
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
+          onClick={handleCloseModal}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-surface-line">
+              <h2 className="text-xl font-bold text-ink-1">Change CRM Connection</h2>
+              <button
+                onClick={handleCloseModal}
+                className="text-ink-3 hover:text-ink-1 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6">
+              {crmStatus.connected && (
+                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-sm text-amber-800">
+                    You are currently connected to <strong>{crmStatus.provider}</strong>. 
+                    Connecting a new CRM will disconnect the existing connection.
+                  </p>
+                </div>
+              )}
+              
+              <CRMIntegrations
+                variant="full"
+                userId={user?.id ?? 'unknown-user'}
+                userEmail={user?.email ?? undefined}
+                organizationId="dashboard"
+                onConnect={handleCrmConnect}
+                onError={handleCrmError}
+              />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
