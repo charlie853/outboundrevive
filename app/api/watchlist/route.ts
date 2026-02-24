@@ -1,12 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 import { getUserAndAccountFromRequest } from '@/lib/api/supabase-auth';
+import { syncScoresFromReplies } from '@/lib/syncScoresFromReplies';
 
 export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
   const { accountId, error } = await getUserAndAccountFromRequest(req, { requireUser: true });
   if (!accountId || error) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+  // Analyze email and SMS reply content to populate "most likely to buy" from real data
+  try {
+    await syncScoresFromReplies(accountId);
+  } catch (e) {
+    console.warn('[watchlist] sync from replies failed', e);
+    // Continue and return whatever is in scores_next_buy
+  }
 
   const { searchParams } = new URL(req.url);
   const windowFilter = searchParams.get('window');

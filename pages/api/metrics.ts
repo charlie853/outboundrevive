@@ -318,7 +318,9 @@ function buildFunnel(
   ];
 
   const contactRate = leads.size > 0 ? contacted.size / leads.size : 0;
-  const replyRate = delivered.size > 0 ? replied.size / delivered.size : 0;
+  // Reply rate = of leads we contacted, what % replied. Cap at 100% so it never exceeds sense.
+  const replyRateRaw = contacted.size > 0 ? replied.size / contacted.size : 0;
+  const replyRate = Math.min(1, replyRateRaw);
   const bookingRate = contacted.size > 0 ? booked.size / contacted.size : 0;
 
   return {
@@ -330,7 +332,7 @@ function buildFunnel(
     },
     definitions: {
       contactRate: 'Contact Rate = Contacted ÷ Leads touched in this period.',
-      replyRate: 'Reply Rate = Replied ÷ Delivered (unique leads).',
+      replyRate: 'Reply Rate = Replied ÷ Contacted (unique leads), capped at 100%.',
       bookingRate: 'Booking Rate = Booked ÷ Contacted (unique leads).',
     },
     meta: {
@@ -609,7 +611,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const bookedLeadCount = bookingData.booked.size;
 
     const deliveredPct = messagesSent > 0 ? Math.round((deliveredMessagesCount / messagesSent) * 100) : 0;
-    const replyRate = deliveredLeadCount > 0 ? Math.round((repliesLeadCount / deliveredLeadCount) * 100) : 0;
+    // Reply rate = % of contacted leads who replied; cap at 100%
+    const replyRate =
+      contactedCount > 0
+        ? Math.min(100, Math.round((repliesLeadCount / contactedCount) * 100))
+        : 0;
   const optOutRate = contactedCount > 0 ? Math.round((optedOutCount / contactedCount) * 100) : 0;
     const bookingRate = contactedCount > 0 ? Math.round((bookedLeadCount / contactedCount) * 100) : 0;
 
