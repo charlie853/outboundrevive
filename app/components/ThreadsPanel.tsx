@@ -25,7 +25,7 @@ const fetcher = (url: string) =>
     if (err?.status === 401) {
       throw err;
     }
-    console.debug('[THREADS] fetcher error (non-401):', err);
+    if (process.env.NODE_ENV === 'development') console.debug('[THREADS] fetcher error (non-401):', err);
     return { ok: true, threads: [], error: 'fetch_error' };
   });
 const fetcherNoThrow = (url: string) => 
@@ -39,7 +39,7 @@ const fetcherNoThrow = (url: string) =>
     })
     .catch((err) => {
       // Return empty object on other errors - status endpoint is optional
-      console.debug('[THREADS] fetcherNoThrow error (non-blocking):', err);
+      if (process.env.NODE_ENV === 'development') console.debug('[THREADS] fetcherNoThrow error (non-blocking):', err);
       return {};
     });
 
@@ -117,7 +117,7 @@ export default function ThreadsPanel() {
   const finalAccountId = accountIdFromMetadata || status?.account_id;
   
   // Log status errors but don't let them block threads
-  if (statusError) {
+  if (statusError && process.env.NODE_ENV === 'development') {
     console.debug('[THREADS] Status endpoint error (non-blocking):', statusError);
   }
 
@@ -133,17 +133,6 @@ export default function ThreadsPanel() {
       shouldRetryOnError: (err) => err?.status !== 401,
     },
   );
-
-  console.debug('THREADS payload', data);
-  console.debug('THREADS user:', user?.id);
-  console.debug('THREADS accountId from metadata:', accountIdFromMetadata);
-  console.debug('THREADS accountId from status:', status?.account_id);
-  console.debug('THREADS statusError:', statusError);
-  console.debug('THREADS finalAccountId:', finalAccountId);
-  console.debug('THREADS threadsUrl:', threadsUrl);
-  console.debug('THREADS error:', error);
-  console.debug('THREADS isLoading:', isLoading);
-  console.debug('THREADS data?.ok:', data?.ok);
 
   const threads = useMemo(() => {
     const raw = Array.isArray(data?.threads) ? data.threads : [];

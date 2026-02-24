@@ -33,6 +33,7 @@
   --color-surface-border: #E2E8F0;
   --color-ink-1: #0F172A; /* headings */
   --color-ink-2: #475569; /* body */
+  --color-ink-3: #94A3B8; /* tertiary */
 
   /* Shadows */
   --shadow-card: 0 1px 1px rgba(0,0,0,0.02), 0 8px 24px rgba(0,0,0,0.05);

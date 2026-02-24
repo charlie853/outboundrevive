@@ -28,6 +28,7 @@ const config: Config = {
         ink: {
           1: '#0F172A',
           2: '#475569',
+          3: '#94A3B8',
         },
         surface: {
           bg:    '#F8FAFC',

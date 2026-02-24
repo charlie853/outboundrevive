@@ -1,6 +1,9 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
+import { Download } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 import KpiCards from '@/app/(app)/dashboard/components/KpiCards';
 import RepliesChart from '@/app/(app)/dashboard/components/RepliesChart';
 import { WhiteChartCard } from '@/app/components/StatCard';
@@ -10,9 +13,114 @@ import TopBar from '@/app/(app)/dashboard/components/TopBar';
 import AutotexterToggle from '@/app/components/AutotexterToggle';
 import VerticalInsights from '@/app/(app)/dashboard/components/VerticalInsights';
 
+function escapeCsv(val: string | number): string {
+  const s = String(val ?? '');
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+async function exportDashboardCsv(): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  const headers: Record<string, string> = { 'Cache-Control': 'no-store' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const [metricsRes, emailRes] = await Promise.all([
+    fetch('/api/metrics?range=all', { headers }),
+    token ? fetch('/api/email/stats', { headers }).then((r) => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
+  ]);
+
+  const metrics = metricsRes.ok ? await metricsRes.json() : null;
+  const emailStats = emailRes && typeof emailRes === 'object' ? emailRes : null;
+
+  const rows: string[] = [];
+  const line = (cells: (string | number)[]) => rows.push(cells.map(escapeCsv).join(','));
+
+  line(['OutboundRevive Dashboard Export']);
+  line([`Generated,${new Date().toISOString()}`]);
+  rows.push('');
+
+  line(['SUMMARY (All Time)']);
+  if (metrics?.ok && metrics.kpis) {
+    const k = metrics.kpis;
+    line(['Metric', 'Value']);
+    line(['New Leads', k.newLeads ?? 0]);
+    line(['Messages Sent', k.messagesSent ?? 0]);
+    line(['Delivered %', `${Math.round((k.deliveredPct ?? 0) * 100)}%`]);
+    line(['Replies', k.replies ?? 0]);
+    line(['Contacted', k.contacted ?? 0]);
+    line(['Booked', k.booked ?? 0]);
+    line(['Reply Rate %', `${k.replyRate ?? 0}%`]);
+    line(['Opt-Out Rate %', `${k.optOutRate ?? 0}%`]);
+    line(['Appointments Booked', k.appointmentsBooked ?? 0]);
+    line(['Appointments Kept', k.appointmentsKept ?? 0]);
+    line(['Re-engaged', k.reEngaged ?? 0]);
+  } else {
+    line(['Metrics could not be loaded for this export.']);
+  }
+  rows.push('');
+
+  const delivery = metrics?.charts?.deliveryOverTime ?? [];
+  const replies = metrics?.charts?.repliesOverTime ?? [];
+  if (delivery.length || replies.length) {
+    line(['MONTHLY BREAKDOWN']);
+    const monthMap = new Map<string, { label: string; sent: number; delivered: number; replies: number }>();
+    delivery.forEach((b: { label: string; start?: string; sent?: number; delivered?: number }) => {
+      const monthKey = b.start ? b.start.slice(0, 7) : b.label;
+      const existing = monthMap.get(monthKey) || { label: b.label, sent: 0, delivered: 0, replies: 0 };
+      existing.sent += b.sent ?? 0;
+      existing.delivered += b.delivered ?? 0;
+      monthMap.set(monthKey, existing);
+    });
+    replies.forEach((b: { label: string; start?: string; replies?: number }) => {
+      const monthKey = b.start ? b.start.slice(0, 7) : b.label;
+      const existing = monthMap.get(monthKey) || { label: b.label, sent: 0, delivered: 0, replies: 0 };
+      existing.replies += b.replies ?? 0;
+      monthMap.set(monthKey, existing);
+    });
+    line(['Period', 'Messages Sent', 'Delivered', 'Replies']);
+    [...monthMap.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .forEach(([, v]) => line([v.label, v.sent, v.delivered, v.replies]));
+    rows.push('');
+  }
+
+  if (emailStats && typeof emailStats.sent === 'number') {
+    line(['EMAIL STATS']);
+    line(['Metric', 'Value']);
+    line(['Sent', emailStats.sent ?? 0]);
+    line(['Opened', emailStats.opened ?? 0]);
+    line(['Replied', emailStats.replied ?? 0]);
+    line(['Bounced', emailStats.bounced ?? 0]);
+    line(['Unsubscribed', emailStats.unsubscribed ?? 0]);
+    line(['Threads', emailStats.threads ?? 0]);
+    line(['Queued', emailStats.queue_queued ?? 0]);
+    rows.push('');
+  }
+
+  const csv = '\uFEFF' + rows.join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `outboundrevive-dashboard-export-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function OverviewClient() {
   const { range, setRange } = useTimeRange();
   const { kpis, replyPoints, isLoading, error, showBanner, isUnauthorized, mutate } = useMetricsData(range);
+  const [exporting, setExporting] = useState(false);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      await exportDashboardCsv();
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div>
@@ -21,6 +129,15 @@ export default function OverviewClient() {
         subtitle="Quick health snapshot of your outreach performance."
         rightContent={
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={exporting}
+              className="inline-flex items-center gap-2 rounded-lg border border-surface-border bg-surface-card px-4 py-2 text-sm font-medium text-ink-1 hover:bg-surface-bg transition disabled:opacity-50"
+            >
+              <Download className="w-4 h-4" />
+              {exporting ? 'Exporting…' : 'Export CSV'}
+            </button>
             <TimeRangeSelector range={range} onRangeChange={setRange} />
             <AutotexterToggle />
           </div>
