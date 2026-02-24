@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import KpiCards from '@/app/(app)/dashboard/components/KpiCards';
 import RepliesChart from '@/app/(app)/dashboard/components/RepliesChart';
 import { WhiteChartCard } from '@/app/components/StatCard';
@@ -76,6 +77,31 @@ export default function OverviewClient() {
             <div className="text-sm text-ink-2">No replies yet. Once leads respond, you'll see engagement trends here.</div>
           </WhiteChartCard>
         )}
+      </div>
+
+      {/* Email dashboard quick access */}
+      <div className="mt-8">
+        <div className="rounded-xl border border-surface-border bg-surface-card shadow-sm overflow-hidden">
+          <div className="border-b border-surface-border px-6 py-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-ink-1">Email</h2>
+              <p className="text-sm text-ink-2 mt-0.5">Cold email campaigns, Unibox, and deliverability.</p>
+            </div>
+            <Link
+              href="/dashboard/email"
+              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 transition"
+            >
+              Open Email →
+            </Link>
+          </div>
+          <div className="px-6 py-4 flex flex-wrap gap-3">
+            <Link href="/dashboard/email/campaigns" className="text-sm font-medium text-ink-2 hover:text-brand-600 transition">Campaigns</Link>
+            <Link href="/dashboard/email/leads" className="text-sm font-medium text-ink-2 hover:text-brand-600 transition">Leads</Link>
+            <Link href="/dashboard/email/unibox" className="text-sm font-medium text-ink-2 hover:text-brand-600 transition">Unibox</Link>
+            <Link href="/dashboard/email/domains" className="text-sm font-medium text-ink-2 hover:text-brand-600 transition">Domains</Link>
+            <Link href="/dashboard/email/stats" className="text-sm font-medium text-ink-2 hover:text-brand-600 transition">Stats</Link>
+          </div>
+        </div>
       </div>
 
       {/* Vertical Insights - Auto Dealer Features */}

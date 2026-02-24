@@ -33,6 +33,7 @@ const config: Config = {
           bg:    '#F8FAFC',
           card:  '#FFFFFF',
           line:  '#E2E8F0',
+          border: '#E2E8F0',
         },
         success: '#10B981',
         warning: '#F59E0B',
