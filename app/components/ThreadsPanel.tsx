@@ -326,7 +326,7 @@ export default function ThreadsPanel() {
           <button
             type="button"
             onClick={() => mutate()}
-            className="inline-flex items-center justify-center rounded-full border border-warning text-warning bg-white text-sm px-4 py-2 hover:bg-warning/5 transition font-medium"
+            className="inline-flex items-center justify-center rounded-full border-2 border-amber-500 bg-amber-50 text-amber-800 text-sm px-4 py-2 hover:bg-amber-100 transition font-medium"
           >
             Refresh
           </button>
@@ -459,7 +459,7 @@ export default function ThreadsPanel() {
                       <button
                         type="button"
                         onClick={() => openThread(thread)}
-                        className="inline-flex items-center justify-center rounded-full bg-warning text-white text-sm px-4 py-2 hover:bg-amber-600 transition font-medium shadow-sm"
+                        className="inline-flex items-center justify-center rounded-full bg-amber-600 text-white text-sm px-4 py-2 hover:bg-amber-700 transition font-medium shadow-sm"
                       >
                         View
                       </button>
