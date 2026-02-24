@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { Download, TrendingUp, Mail, MessageSquare } from 'lucide-react';
@@ -129,32 +129,29 @@ export default function OverviewClient() {
     { revalidateOnFocus: true }
   );
   const watchlist = watchlistData?.data ?? [];
+  const [autoSeeding, setAutoSeeding] = useState(false);
+  const hasAutoSeededRef = useRef(false);
 
-  const [demoSeeding, setDemoSeeding] = useState(false);
-  const [demoSeeded, setDemoSeeded] = useState(false);
-  const handleLoadDemoData = async () => {
-    setDemoSeeding(true);
-    setDemoSeeded(false);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) return;
-      const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' as const };
-      const [emailRes, smsRes] = await Promise.all([
-        fetch('/api/internal/demo/seed-email', { method: 'POST', headers }),
-        fetch('/api/internal/demo/seed-sms', { method: 'POST', headers }),
-      ]);
-      const emailOk = emailRes.ok && (await emailRes.json().catch(() => ({}))).ok;
-      const smsOk = smsRes.ok && (await smsRes.json().catch(() => ({}))).ok;
-      if (emailOk || smsOk) {
-        setDemoSeeded(true);
+  useEffect(() => {
+    if (watchlistData === undefined || watchlist.length > 0 || hasAutoSeededRef.current) return;
+    hasAutoSeededRef.current = true;
+    (async () => {
+      setAutoSeeding(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) return;
+        const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' as const };
+        await Promise.all([
+          fetch('/api/internal/demo/seed-email', { method: 'POST', headers }),
+          fetch('/api/internal/demo/seed-sms', { method: 'POST', headers }),
+        ]);
         await mutateWatchlist();
-        setTimeout(() => setDemoSeeded(false), 5000);
+      } finally {
+        setAutoSeeding(false);
       }
-    } finally {
-      setDemoSeeding(false);
-    }
-  };
+    })();
+  }, [watchlistData, watchlist.length, mutateWatchlist]);
 
   const { data: emailStats } = useSWR<{ sent?: number; opened?: number; replied?: number; bounced?: number; threads?: number } | null>(
     'overview-email-stats',
@@ -181,14 +178,6 @@ export default function OverviewClient() {
         subtitle="Quick health snapshot of your outreach performance."
         rightContent={
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={handleLoadDemoData}
-              disabled={demoSeeding}
-              className="inline-flex items-center gap-2 rounded-lg border border-surface-border bg-surface-bg px-4 py-2 text-sm font-medium text-ink-1 hover:bg-surface-card transition disabled:opacity-50"
-            >
-              {demoSeeding ? 'Loading…' : demoSeeded ? 'Demo loaded' : 'Load demo data'}
-            </button>
             <button
               type="button"
               onClick={handleExport}
@@ -323,7 +312,7 @@ export default function OverviewClient() {
           </div>
           <div className="p-6">
             {watchlist.length === 0 ? (
-              <p className="text-sm text-ink-2">No leads on the list yet. Click <strong>Load demo data</strong> above to add sample email and SMS leads.</p>
+              <p className="text-sm text-ink-2">{autoSeeding ? 'Loading demo data…' : 'No leads on the list yet.'}</p>
             ) : (
               <div className="overflow-x-auto rounded-xl border border-surface-border">
                 <table className="min-w-full divide-y divide-surface-border text-sm">
