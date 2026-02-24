@@ -221,6 +221,13 @@ export default function OverviewClient() {
         </div>
       </div>
 
+      {/* Quick start for new users / reviewers */}
+      <div className="mt-6 rounded-xl border border-surface-border bg-surface-bg/50 px-6 py-4">
+        <p className="text-sm text-ink-2">
+          <span className="font-medium text-ink-1">Try the product:</span> Open <Link href="/dashboard/messaging" className="text-brand-600 hover:underline">Messaging</Link> for SMS threads and replies, <Link href="/dashboard/email/unibox" className="text-brand-600 hover:underline">Email → Unibox</Link> for cold email replies, or use <strong>Export CSV</strong> above for a full metrics report.
+        </p>
+      </div>
+
       {/* Vertical Insights - Auto Dealer Features */}
       <div className="mt-8">
         <VerticalInsights />

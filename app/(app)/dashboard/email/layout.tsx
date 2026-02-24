@@ -27,7 +27,7 @@ export default function EmailLayout({ children }: { children: React.ReactNode })
               key={href}
               href={href}
               className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-                isActive ? 'bg-warning/10 text-warning' : 'text-ink-2 hover:bg-surface-card hover:text-ink-1'
+                isActive ? 'bg-brand-100 text-brand-700 border border-brand-200' : 'text-ink-2 hover:bg-surface-bg hover:text-ink-1'
               }`}
             >
               {label}

@@ -58,8 +58,8 @@ export default function EmailLeadsPage() {
         </div>
         {leads.length === 0 ? (
           <div className="p-8 text-center">
-            <p className="text-ink-2">No leads with email yet.</p>
-            <p className="text-sm text-ink-2 mt-1">Import leads via CSV or connect your CRM to sync contacts.</p>
+            <p className="text-ink-1 font-medium">No leads with email yet.</p>
+            <p className="text-sm text-ink-2 mt-1">Import leads via CSV or connect your CRM to sync contacts for cold email campaigns.</p>
           </div>
         ) : (
           <ul className="divide-y divide-surface-border">

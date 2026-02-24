@@ -69,14 +69,18 @@ export default function EmailStatsPage() {
 
   return (
     <div className="mt-6">
-      <div className="mb-6">
-        <h2 className="text-lg font-semibold text-ink-1">Email stats</h2>
-        <p className="text-sm text-ink-2 mt-0.5">Sent, opens, replies, and deliverability across campaigns.</p>
-      </div>
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {cards.map(({ label, value, accent }) => (
-          <StatCard key={label} title={label} value={value} accentColor={accent} />
-        ))}
+      <div className="rounded-xl border border-surface-border bg-surface-card shadow-sm overflow-hidden">
+        <div className="border-b border-surface-border px-6 py-4">
+          <h2 className="text-lg font-semibold text-ink-1">Email stats</h2>
+          <p className="text-sm text-ink-2 mt-0.5">Sent, opens, replies, and deliverability across campaigns.</p>
+        </div>
+        <div className="p-6">
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {cards.map(({ label, value, accent }) => (
+              <StatCard key={label} title={label} value={value} accentColor={accent} />
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

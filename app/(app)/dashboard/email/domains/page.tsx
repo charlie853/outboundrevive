@@ -72,7 +72,10 @@ export default function EmailDomainsPage() {
           <p className="text-sm text-ink-2 mt-0.5">Sending domains and DNS status. Add a domain and verify SPF/DKIM/DMARC.</p>
         </div>
         {domains.length === 0 ? (
-          <div className="p-8 text-center text-ink-2 text-sm">No domains added yet.</div>
+          <div className="p-8 text-center">
+            <p className="text-ink-1 font-medium">No domains added yet.</p>
+            <p className="text-sm text-ink-2 mt-1">Add a sending domain and verify SPF/DKIM/DMARC for better deliverability.</p>
+          </div>
         ) : (
           <ul className="divide-y divide-surface-border">
             {domains.map((d) => (
@@ -93,7 +96,10 @@ export default function EmailDomainsPage() {
           <p className="text-sm text-ink-2 mt-0.5">Connected Gmail, Microsoft, or SMTP inboxes and daily send limits.</p>
         </div>
         {inboxes.length === 0 ? (
-          <div className="p-8 text-center text-ink-2 text-sm">No inboxes connected yet.</div>
+          <div className="p-8 text-center">
+            <p className="text-ink-1 font-medium">No inboxes connected yet.</p>
+            <p className="text-sm text-ink-2 mt-1">Connect Gmail, Microsoft, or SMTP to send from your own address.</p>
+          </div>
         ) : (
           <ul className="divide-y divide-surface-border">
             {inboxes.map((i) => (

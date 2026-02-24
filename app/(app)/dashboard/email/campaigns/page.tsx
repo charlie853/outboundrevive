@@ -58,8 +58,8 @@ export default function EmailCampaignsPage() {
         </div>
         {campaigns.length === 0 ? (
           <div className="p-8 text-center">
-            <p className="text-ink-2">No campaigns yet.</p>
-            <p className="text-sm text-ink-2 mt-1">Campaigns can be created via API or the campaign builder (coming soon).</p>
+            <p className="text-ink-1 font-medium">No campaigns yet.</p>
+            <p className="text-sm text-ink-2 mt-1">Create cold email sequences and track replies in Unibox. Campaigns can be added via API or the campaign builder (coming soon).</p>
           </div>
         ) : (
           <ul className="divide-y divide-surface-border">
