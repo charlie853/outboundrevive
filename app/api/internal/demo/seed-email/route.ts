@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
     }
     const campaignId = campaign.id;
 
-    // 4) Get or create thread
+    // 4) Get or create thread (tag as "interested" for the reply)
     let { data: thread } = await db
       .from('email_threads')
       .select('id')
@@ -99,12 +99,15 @@ export async function POST(req: NextRequest) {
           lead_id: leadId,
           sending_inbox_id: sendingInboxId,
           subject: SUBJECT,
+          labels: ['interested'],
           last_message_at: new Date().toISOString(),
         })
         .select('id')
         .single();
       if (!t?.id) return NextResponse.json({ error: 'thread_insert_failed' }, { status: 500 });
       thread = t;
+    } else {
+      await db.from('email_threads').update({ labels: ['interested'] }).eq('id', thread.id);
     }
     const threadId = thread.id;
 

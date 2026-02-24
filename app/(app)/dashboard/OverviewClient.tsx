@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
-import { Download, Mail, TrendingUp } from 'lucide-react';
+import { Download, TrendingUp } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { authenticatedFetch } from '@/lib/api-client';
 import KpiCards from '@/app/(app)/dashboard/components/KpiCards';
@@ -122,10 +122,8 @@ export default function OverviewClient() {
   const { range, setRange } = useTimeRange();
   const { kpis, replyPoints, isLoading, error, showBanner, isUnauthorized, mutate } = useMetricsData(range);
   const [exporting, setExporting] = useState(false);
-  const [demoSeeding, setDemoSeeding] = useState(false);
-  const [demoSeeded, setDemoSeeded] = useState(false);
 
-  const { data: watchlistData, mutate: mutateWatchlist } = useSWR<{ data: WatchlistRow[] }>(
+  const { data: watchlistData } = useSWR<{ data: WatchlistRow[] }>(
     '/api/watchlist?limit=5',
     (url) => authenticatedFetch(url).then((r) => (r.ok ? r.json() : { data: [] })),
     { revalidateOnFocus: true }
@@ -138,28 +136,6 @@ export default function OverviewClient() {
       await exportDashboardCsv();
     } finally {
       setExporting(false);
-    }
-  };
-
-  const handleLoadDemoEmail = async () => {
-    setDemoSeeding(true);
-    setDemoSeeded(false);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) return;
-      const r = await fetch('/api/internal/demo/seed-email', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      });
-      const j = await r.json().catch(() => ({}));
-      if (r.ok && j.ok) {
-        setDemoSeeded(true);
-        mutateWatchlist();
-        setTimeout(() => setDemoSeeded(false), 5000);
-      }
-    } finally {
-      setDemoSeeding(false);
     }
   };
 
@@ -251,7 +227,7 @@ export default function OverviewClient() {
           </div>
           <div className="p-6">
             {watchlist.length === 0 ? (
-              <p className="text-sm text-ink-2">No leads on the list yet. Load the demo email thread to see Test (replied interested, asked for a call).</p>
+              <p className="text-sm text-ink-2">No leads on the list yet.</p>
             ) : (
               <div className="overflow-x-auto rounded-xl border border-surface-border">
                 <table className="min-w-full divide-y divide-surface-border text-sm">
@@ -297,23 +273,12 @@ export default function OverviewClient() {
               <h2 className="text-lg font-semibold text-ink-1">Email</h2>
               <p className="text-sm text-ink-2 mt-0.5">Cold email campaigns, Unibox, and deliverability.</p>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleLoadDemoEmail}
-                disabled={demoSeeding}
-                className="inline-flex items-center gap-2 rounded-lg border border-surface-border bg-surface-bg px-4 py-2 text-sm font-medium text-ink-1 hover:bg-surface-card transition disabled:opacity-50"
-              >
-                <Mail className="w-4 h-4" />
-                {demoSeeding ? 'Loading…' : demoSeeded ? 'Demo loaded' : 'Load demo email'}
-              </button>
-              <Link
-                href="/dashboard/email"
-                className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 transition"
-              >
-                Open Email →
-              </Link>
-            </div>
+            <Link
+              href="/dashboard/email"
+              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 transition"
+            >
+              Open Email →
+            </Link>
           </div>
           <div className="px-6 py-4 flex flex-wrap gap-3">
             <Link href="/dashboard/email/campaigns" className="text-sm font-medium text-ink-2 hover:text-brand-600 transition">Campaigns</Link>

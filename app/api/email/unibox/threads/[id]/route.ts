@@ -30,7 +30,8 @@ export async function GET(
       last_message_at,
       created_at,
       email_campaigns(name),
-      leads(name, email)
+      leads(name, email),
+      email_sending_inboxes(email_address)
     `)
     .eq('id', id)
     .eq('account_id', accountId)

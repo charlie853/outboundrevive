@@ -22,6 +22,7 @@ type Thread = {
   last_message_at: string;
   email_campaigns?: { name: string } | null;
   leads?: { name: string; email: string | null } | null;
+  email_sending_inboxes?: { email_address: string } | null;
 };
 
 type Message = {
@@ -254,10 +255,9 @@ export default function EmailUniboxPage() {
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="font-medium text-ink-1 truncate text-sm">{name}</span>
+                            <span className="font-medium text-ink-1 truncate text-sm">{name}{email ? ` <${email}>` : ''}</span>
                             <span className="text-xs text-ink-3 shrink-0">{new Date(t.last_message_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: t.last_message_at > new Date(Date.now() - 86400000 * 365).toISOString() ? 'numeric' : undefined })}</span>
                           </div>
-                          <div className="text-xs text-ink-2 truncate mt-0.5">{email}</div>
                           <div className="font-medium text-ink-1 truncate mt-1 text-sm">{t.subject || 'No subject'}</div>
                           <div className="flex flex-wrap items-center gap-2 mt-2">
                             {campaignName && (
@@ -265,8 +265,11 @@ export default function EmailUniboxPage() {
                                 <Megaphone className="w-3 h-3" /> {campaignName}
                               </span>
                             )}
-                            {Array.isArray(t.labels) && t.labels.length > 0 && (
-                              <span className="rounded-full bg-amber-100 text-amber-800 text-xs font-medium px-2 py-0.5">{t.labels.join(', ')}</span>
+                            {Array.isArray(t.labels) && t.labels.includes('interested') && (
+                              <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-800 text-xs font-medium px-2.5 py-0.5 border border-emerald-200">Interested</span>
+                            )}
+                            {Array.isArray(t.labels) && t.labels.filter((l) => l !== 'interested').length > 0 && (
+                              <span className="rounded-full bg-amber-100 text-amber-800 text-xs font-medium px-2 py-0.5">{t.labels.filter((l) => l !== 'interested').join(', ')}</span>
                             )}
                           </div>
                         </div>
@@ -316,27 +319,62 @@ export default function EmailUniboxPage() {
             </div>
           ) : thread ? (
             <>
+              {/* Email-style header: From, To, Subject, Date, tags */}
               <div className="border-b border-surface-border bg-surface-card px-6 py-4">
-                <p className="text-sm text-ink-2">{(thread.email_campaigns as any)?.name} · {(thread.leads as any)?.email}</p>
-                <p className="mt-1 text-lg font-semibold text-ink-1">{thread.subject || 'No subject'}</p>
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <span className="text-lg font-semibold text-ink-1">{thread.subject || 'No subject'}</span>
+                  {Array.isArray(thread.labels) && thread.labels.includes('interested') && (
+                    <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-800 text-xs font-medium px-2.5 py-0.5 border border-emerald-200">
+                      Interested
+                    </span>
+                  )}
+                  {(thread.email_campaigns as any)?.name && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-brand-100 text-brand-800 text-xs font-medium px-2 py-0.5">
+                      <Megaphone className="w-3 h-3" /> {(thread.email_campaigns as any).name}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-ink-2">{(thread.leads as any)?.email && <>To: {(thread.leads as any).name} &lt;{(thread.leads as any).email}&gt;</>}</p>
               </div>
-              <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                {messages.map((m) => (
-                  <div
-                    key={m.id}
-                    className={`max-w-[85%] rounded-xl px-4 py-3 text-sm shadow-sm ${
-                      m.direction === 'out'
-                        ? 'ml-auto bg-brand-600 text-white rounded-br-md'
-                        : 'bg-surface-card border border-surface-border text-ink-1 rounded-bl-md'
-                    }`}
-                  >
-                    <p className="text-xs opacity-80 mb-1">{m.direction === 'out' ? 'You' : (thread.leads as any)?.name ?? 'Lead'} · {m.sent_at ? new Date(m.sent_at).toLocaleString() : new Date(m.created_at).toLocaleString()}</p>
-                    <div className="whitespace-pre-wrap">{m.body_plain || '—'}</div>
-                  </div>
-                ))}
+
+              {/* Messages as email blocks (From / To / Date / Body) */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {messages.length > 1 && (
+                  <button type="button" className="text-sm text-brand-600 hover:underline font-medium">
+                    Show earlier messages
+                  </button>
+                )}
+                {messages.map((m) => {
+                  const fromEmail = m.direction === 'out' ? ((thread as any).email_sending_inboxes?.email_address ?? 'charlie@outboundrevive.com') : ((thread.leads as any)?.email ?? '');
+                  const fromName = m.direction === 'out' ? 'Charlie' : ((thread.leads as any)?.name ?? 'Test');
+                  const toEmail = m.direction === 'out' ? ((thread.leads as any)?.email ?? 'test@test.com') : ((thread as any).email_sending_inboxes?.email_address ?? 'charlie@outboundrevive.com');
+                  const toName = m.direction === 'out' ? ((thread.leads as any)?.name ?? 'Test') : 'Charlie';
+                  const dateStr = m.sent_at ? new Date(m.sent_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : new Date(m.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+                  return (
+                    <div key={m.id} className="rounded-xl border border-surface-border bg-surface-card shadow-sm overflow-hidden">
+                      <div className="border-b border-surface-border bg-surface-bg/50 px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold ${avatarColor(fromEmail)}`}>
+                            {getInitials(fromName, fromEmail)}
+                          </div>
+                          <span className="font-medium text-ink-1">{fromName}</span>
+                          <span className="text-ink-2">&lt;{fromEmail}&gt;</span>
+                        </div>
+                        <span className="text-ink-2">to:</span>
+                        <span className="text-ink-1">{toName}</span>
+                        <span className="text-ink-2">&lt;{toEmail}&gt;</span>
+                        <span className="text-ink-3 text-xs ml-auto">{dateStr}</span>
+                      </div>
+                      <div className="px-4 py-4 text-sm text-ink-1 whitespace-pre-wrap leading-relaxed">{m.body_plain || '—'}</div>
+                    </div>
+                  );
+                })}
               </div>
+
+              {/* Reply compose area */}
               <div className="border-t border-surface-border bg-surface-card p-6">
                 <label className="block text-sm font-medium text-ink-1 mb-2">Reply</label>
+                <p className="text-xs text-ink-2 mb-2">To: {(thread.leads as any)?.name} &lt;{(thread.leads as any)?.email}&gt;</p>
                 <textarea
                   value={replyBody}
                   onChange={(e) => setReplyBody(e.target.value)}
@@ -348,7 +386,7 @@ export default function EmailUniboxPage() {
                   type="button"
                   onClick={sendReply}
                   disabled={sending || !replyBody.trim()}
-                  className="mt-3 rounded-lg bg-amber-600 text-white px-4 py-2 text-sm font-medium hover:bg-amber-700 disabled:opacity-50 transition"
+                  className="mt-3 rounded-lg bg-brand-600 text-white px-4 py-2 text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition"
                 >
                   {sending ? 'Sending…' : 'Send reply'}
                 </button>
