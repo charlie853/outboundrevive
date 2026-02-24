@@ -6,6 +6,7 @@ import { determineLeadBucket } from "@/lib/leads/classify";
 import * as fs from "fs";
 import * as path from "path";
 import { handleMicroSurveyReply } from "@/lib/micro-surveys";
+import { scoreReplyText } from "@/lib/replyInterestScore";
 
 /** Twilio posts x-www-form-urlencoded; we must disable Next's JSON parser. */
 export const config = { api: { bodyParser: false } };
@@ -735,6 +736,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   } catch (microErr) {
     console.warn('[inbound] micro-survey capture warning', microErr);
+  }
+
+  // === Rank "most likely to buy" from SMS reply content ===
+  try {
+    const { score, window, summary, source } = scoreReplyText(inboundBody, 'sms_reply');
+    await supabaseAdmin.from('scores_next_buy').upsert(
+      {
+        account_id: accountId,
+        lead_id: leadId,
+        score,
+        window,
+        reason_json: { source, summary },
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'account_id,lead_id' }
+    );
+  } catch (scoreErr) {
+    console.warn('[inbound] scores_next_buy upsert failed', scoreErr);
   }
 
   // === Check quiet hours & daily caps (non-reply mode) ===

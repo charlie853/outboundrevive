@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
-import { Download, TrendingUp } from 'lucide-react';
+import { Download, TrendingUp, Mail, MessageSquare } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { authenticatedFetch } from '@/lib/api-client';
 import KpiCards from '@/app/(app)/dashboard/components/KpiCards';
@@ -130,6 +130,15 @@ export default function OverviewClient() {
   );
   const watchlist = watchlistData?.data ?? [];
 
+  const { data: emailStats } = useSWR<{ sent?: number; opened?: number; replied?: number; bounced?: number; threads?: number } | null>(
+    'overview-email-stats',
+    async () => {
+      const r = await authenticatedFetch('/api/email/stats');
+      return r.ok ? r.json() : null;
+    },
+    { revalidateOnFocus: true }
+  );
+
   const handleExport = async () => {
     setExporting(true);
     try {
@@ -198,6 +207,48 @@ export default function OverviewClient() {
         ) : (
           <KpiCards data={kpis} />
         )}
+      </div>
+
+      {/* Email vs Text response breakdown */}
+      <div className="mt-6 rounded-xl border border-surface-border bg-surface-card shadow-sm overflow-hidden">
+        <div className="border-b border-surface-border px-6 py-4">
+          <h2 className="text-lg font-semibold text-ink-1">Response breakdown</h2>
+          <p className="text-sm text-ink-2 mt-0.5">Replies by channel for the selected time range.</p>
+        </div>
+        <div className="px-6 py-4 flex flex-wrap gap-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-brand-100 flex items-center justify-center">
+              <MessageSquare className="w-5 h-5 text-brand-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-ink-2">Text / SMS replies</p>
+              <p className="text-2xl font-semibold text-ink-1">{kpis?.replies ?? 0}</p>
+              <p className="text-xs text-ink-3">Inbound SMS in this period</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
+              <Mail className="w-5 h-5 text-emerald-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-ink-2">Email replies</p>
+              <p className="text-2xl font-semibold text-ink-1">{emailStats?.replied ?? 0}</p>
+              <p className="text-xs text-ink-3">Cold email campaign replies</p>
+            </div>
+          </div>
+          {(emailStats?.sent != null && emailStats.sent > 0) && (
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-surface-bg flex items-center justify-center">
+                <Mail className="w-5 h-5 text-ink-2" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-ink-2">Email sent / opened</p>
+                <p className="text-2xl font-semibold text-ink-1">{emailStats.sent ?? 0} / {emailStats.opened ?? 0}</p>
+                <p className="text-xs text-ink-3">Campaign emails sent and opens</p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Chart - full width */}

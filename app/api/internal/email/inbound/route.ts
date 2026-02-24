@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseServer';
 import { evaluateSubsequenceRules } from '@/lib/email/subsequence';
 import { pushEmailReplyToCrm } from '@/lib/email/crm-sync';
+import { scoreReplyText } from '@/lib/replyInterestScore';
 
 export const runtime = 'nodejs';
 
@@ -150,6 +151,27 @@ export async function POST(req: NextRequest) {
         .eq('campaign_id', (thread as any).campaign_id)
         .eq('lead_id', (thread as any).lead_id)
         .in('status', ['queued', 'processing']);
+    }
+
+    // Rank "most likely to buy" from reply content — upsert scores_next_buy
+    const leadId = (thread as any).lead_id;
+    if (accountId && leadId && bodyPlain) {
+      try {
+        const { score, window, summary, source } = scoreReplyText(bodyPlain, 'email_reply');
+        await supabaseAdmin.from('scores_next_buy').upsert(
+          {
+            account_id: accountId,
+            lead_id: leadId,
+            score,
+            window,
+            reason_json: { source, summary },
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'account_id,lead_id' }
+        );
+      } catch (e) {
+        console.warn('[email/inbound] scores_next_buy upsert failed', e);
+      }
     }
   }
 

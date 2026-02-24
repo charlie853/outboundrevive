@@ -35,24 +35,29 @@ export function TimeRangeSelector({ range, onRangeChange }: { range: WindowKey; 
   );
 }
 
+const STORAGE_KEY = 'dashboard_time_range';
+
 export function useTimeRange() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
 
-  const initialRange = (() => {
-    const fromQuery = (searchParams?.get('range') ?? searchParams?.get('window') ?? '7d').toLowerCase();
+  const range = (() => {
+    const fromQuery = searchParams?.get('range') ?? searchParams?.get('window');
+    const fromStorage = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
+    const raw = (fromQuery ?? fromStorage ?? '7d').toLowerCase();
     const values = WINDOW_OPTIONS.map((o) => o.value);
-    return values.includes(fromQuery as WindowKey) ? (fromQuery as WindowKey) : '7d';
+    return values.includes(raw as WindowKey) ? (raw as WindowKey) : '7d';
   })();
 
   const handleSetRange = (value: WindowKey) => {
+    if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEY, value);
     const params = new URLSearchParams(searchParams?.toString() ?? '');
     params.set('range', value);
     params.set('window', value);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   };
 
-  return { range: initialRange, setRange: handleSetRange };
+  return { range, setRange: handleSetRange };
 }
 
