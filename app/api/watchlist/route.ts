@@ -16,13 +16,14 @@ export async function GET(req: NextRequest) {
     .from('scores_next_buy')
     .select(`
       score,
-      window_bucket,
+      window,
       reason_json,
       updated_at,
       leads!inner(
         id,
         name,
         phone,
+        email,
         status,
         crm_status,
         crm_stage,
@@ -34,15 +35,15 @@ export async function GET(req: NextRequest) {
     .limit(limit);
 
   if (windowFilter) {
-    query = query.eq('window_bucket', windowFilter);
+    query = query.eq('window', windowFilter);
   }
 
   const { data, error: dbError } = await query;
   if (dbError) return NextResponse.json({ error: dbError.message }, { status: 500 });
 
-  const payload = (data || []).map((row) => ({
+  const payload = (data || []).map((row: any) => ({
     score: row.score,
-    window: row.window_bucket,
+    window: row.window_bucket ?? row.window,
     reasons: row.reason_json,
     updated_at: row.updated_at,
     lead: row.leads,

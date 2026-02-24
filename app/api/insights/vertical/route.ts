@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   if (!accountId || error) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   const [scoresRes, factsRes, offersRes] = await Promise.all([
-    supabaseAdmin.from('scores_next_buy').select('window_bucket').eq('account_id', accountId),
+    supabaseAdmin.from('scores_next_buy').select('window').eq('account_id', accountId),
     supabaseAdmin.from('conv_facts').select('key').eq('account_id', accountId),
     supabaseAdmin.from('offer_sends').select('accepted, revenue_attributed').eq('account_id', accountId),
   ]);
@@ -18,8 +18,8 @@ export async function GET(req: NextRequest) {
   if (factsRes.error) return NextResponse.json({ error: factsRes.error.message }, { status: 500 });
   if (offersRes.error) return NextResponse.json({ error: offersRes.error.message }, { status: 500 });
 
-  const watchlistCounts = (scoresRes.data || []).reduce<Record<string, number>>((acc, row) => {
-    const bucket = row.window_bucket || 'unknown';
+  const watchlistCounts = (scoresRes.data || []).reduce<Record<string, number>>((acc, row: any) => {
+    const bucket = row.window_bucket ?? row.window ?? 'unknown';
     acc[bucket] = (acc[bucket] || 0) + 1;
     return acc;
   }, {});

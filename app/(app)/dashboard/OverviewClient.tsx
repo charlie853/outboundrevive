@@ -2,8 +2,10 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Download } from 'lucide-react';
+import useSWR from 'swr';
+import { Download, Mail, TrendingUp } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { authenticatedFetch } from '@/lib/api-client';
 import KpiCards from '@/app/(app)/dashboard/components/KpiCards';
 import RepliesChart from '@/app/(app)/dashboard/components/RepliesChart';
 import { WhiteChartCard } from '@/app/components/StatCard';
@@ -12,6 +14,14 @@ import { useMetricsData } from '@/app/(app)/dashboard/components/useMetricsData'
 import TopBar from '@/app/(app)/dashboard/components/TopBar';
 import AutotexterToggle from '@/app/components/AutotexterToggle';
 import VerticalInsights from '@/app/(app)/dashboard/components/VerticalInsights';
+
+const WINDOW_LABELS: Record<string, string> = {
+  '0-3m': 'Next 0–3 months',
+  '3-6m': 'Next 3–6 months',
+  '6-12m': 'Next 6–12 months',
+};
+
+type WatchlistRow = { score: number; window: string; lead: { id: string; name: string | null; phone: string; email?: string | null }; reasons?: unknown };
 
 function escapeCsv(val: string | number): string {
   const s = String(val ?? '');
@@ -112,6 +122,15 @@ export default function OverviewClient() {
   const { range, setRange } = useTimeRange();
   const { kpis, replyPoints, isLoading, error, showBanner, isUnauthorized, mutate } = useMetricsData(range);
   const [exporting, setExporting] = useState(false);
+  const [demoSeeding, setDemoSeeding] = useState(false);
+  const [demoSeeded, setDemoSeeded] = useState(false);
+
+  const { data: watchlistData, mutate: mutateWatchlist } = useSWR<{ data: WatchlistRow[] }>(
+    '/api/watchlist?limit=5',
+    (url) => authenticatedFetch(url).then((r) => (r.ok ? r.json() : { data: [] })),
+    { revalidateOnFocus: true }
+  );
+  const watchlist = watchlistData?.data ?? [];
 
   const handleExport = async () => {
     setExporting(true);
@@ -119,6 +138,28 @@ export default function OverviewClient() {
       await exportDashboardCsv();
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleLoadDemoEmail = async () => {
+    setDemoSeeding(true);
+    setDemoSeeded(false);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) return;
+      const r = await fetch('/api/internal/demo/seed-email', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j.ok) {
+        setDemoSeeded(true);
+        mutateWatchlist();
+        setTimeout(() => setDemoSeeded(false), 5000);
+      }
+    } finally {
+      setDemoSeeding(false);
     }
   };
 
@@ -196,20 +237,83 @@ export default function OverviewClient() {
         )}
       </div>
 
-      {/* Email dashboard quick access */}
+      {/* Most likely to buy — ranker / watchlist */}
       <div className="mt-8">
         <div className="rounded-xl border border-surface-border bg-surface-card shadow-sm overflow-hidden">
           <div className="border-b border-surface-border px-6 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-brand-600" />
+              <div>
+                <h2 className="text-lg font-semibold text-ink-1">Most likely to buy</h2>
+                <p className="text-sm text-ink-2 mt-0.5">Leads ranked by purchase intent (email reply interest, timing, and engagement).</p>
+              </div>
+            </div>
+          </div>
+          <div className="p-6">
+            {watchlist.length === 0 ? (
+              <p className="text-sm text-ink-2">No leads on the list yet. Load the demo email thread to see Test (replied interested, asked for a call).</p>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-surface-border">
+                <table className="min-w-full divide-y divide-surface-border text-sm">
+                  <thead>
+                    <tr className="text-left text-ink-2 bg-surface-bg/50">
+                      <th className="px-4 py-3 font-medium">Lead</th>
+                      <th className="px-4 py-3 font-medium">Window</th>
+                      <th className="px-4 py-3 font-medium">Score</th>
+                      <th className="px-4 py-3 font-medium">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-surface-border">
+                    {watchlist.map((row) => {
+                      const r = row.reasons as { summary?: string; source?: string } | undefined;
+                      const reason = r?.summary ?? (r?.source ? `Source: ${r.source}` : '—');
+                      return (
+                        <tr key={row.lead.id}>
+                          <td className="px-4 py-3">
+                            <span className="font-medium text-ink-1">{row.lead.name || 'Unknown'}</span>
+                            {(row.lead.email || row.lead.phone) && (
+                              <span className="block text-xs text-ink-3">{row.lead.email || row.lead.phone}</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-ink-2">{WINDOW_LABELS[row.window] || row.window}</td>
+                          <td className="px-4 py-3 font-semibold text-ink-1">{(row.score * 100).toFixed(0)}%</td>
+                          <td className="px-4 py-3 text-ink-2 max-w-[200px] truncate" title={String(reason)}>{String(reason)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Email dashboard quick access */}
+      <div className="mt-8">
+        <div className="rounded-xl border border-surface-border bg-surface-card shadow-sm overflow-hidden">
+          <div className="border-b border-surface-border px-6 py-4 flex items-center justify-between flex-wrap gap-3">
             <div>
               <h2 className="text-lg font-semibold text-ink-1">Email</h2>
               <p className="text-sm text-ink-2 mt-0.5">Cold email campaigns, Unibox, and deliverability.</p>
             </div>
-            <Link
-              href="/dashboard/email"
-              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 transition"
-            >
-              Open Email →
-            </Link>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleLoadDemoEmail}
+                disabled={demoSeeding}
+                className="inline-flex items-center gap-2 rounded-lg border border-surface-border bg-surface-bg px-4 py-2 text-sm font-medium text-ink-1 hover:bg-surface-card transition disabled:opacity-50"
+              >
+                <Mail className="w-4 h-4" />
+                {demoSeeding ? 'Loading…' : demoSeeded ? 'Demo loaded' : 'Load demo email'}
+              </button>
+              <Link
+                href="/dashboard/email"
+                className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 transition"
+              >
+                Open Email →
+              </Link>
+            </div>
           </div>
           <div className="px-6 py-4 flex flex-wrap gap-3">
             <Link href="/dashboard/email/campaigns" className="text-sm font-medium text-ink-2 hover:text-brand-600 transition">Campaigns</Link>
@@ -219,13 +323,6 @@ export default function OverviewClient() {
             <Link href="/dashboard/email/stats" className="text-sm font-medium text-ink-2 hover:text-brand-600 transition">Stats</Link>
           </div>
         </div>
-      </div>
-
-      {/* Quick start for new users / reviewers */}
-      <div className="mt-6 rounded-xl border border-surface-border bg-surface-bg/50 px-6 py-4">
-        <p className="text-sm text-ink-2">
-          <span className="font-medium text-ink-1">Try the product:</span> Open <Link href="/dashboard/messaging" className="text-brand-600 hover:underline">Messaging</Link> for SMS threads and replies, <Link href="/dashboard/email/unibox" className="text-brand-600 hover:underline">Email → Unibox</Link> for cold email replies, or use <strong>Export CSV</strong> above for a full metrics report.
-        </p>
       </div>
 
       {/* Vertical Insights - Auto Dealer Features */}
