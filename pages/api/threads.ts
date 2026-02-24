@@ -21,22 +21,42 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit ?? '20'), 10)));
   const accountId = (Array.isArray(req.query.account_id) ? req.query.account_id[0] : req.query.account_id) || process.env.DEFAULT_ACCOUNT_ID || '11111111-1111-1111-1111-111111111111';
-  
-  console.log('[threads] Request:', { limit, accountId, query: req.query });
+  const channel = Array.isArray(req.query.channel) ? req.query.channel[0] : req.query.channel;
+  const smsOnly = channel === 'sms';
 
-  // Pull all leads for this account (not just those with messages)
-  // Order by most recent activity (reply, send, inbound, outbound, or created_at)
-  // NEW: Include enrichment fields (opted_out, lead_type, crm_owner, last_inbound_at, last_outbound_at, appointment_set_at, booked)
+  console.log('[threads] Request:', { limit, accountId, channel, smsOnly, query: req.query });
+
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), 5000);
   try {
-    // Remove the restrictive 'or' filter - show all leads, not just those with messages
-    // Note: last_inbound_at and last_outbound_at don't exist on leads table - we'll compute from messages
+    // When channel=sms (Messaging tab), only show leads that have at least one SMS (messages_in).
+    // This keeps email-only leads (e.g. demo Test) out of the text/SMS tab.
+    let smsLeadIds: Set<string> | null = null;
+    if (smsOnly) {
+      const inQs = new URLSearchParams({
+        select: 'lead_id',
+        account_id: `eq.${encodeURIComponent(accountId)}`,
+      });
+      const inRes = await fetch(`${URL}/rest/v1/messages_in?${inQs.toString()}`, {
+        signal: ac.signal,
+        headers: { apikey: KEY, Authorization: `Bearer ${KEY}` },
+      });
+      if (inRes.ok) {
+        const inRows: { lead_id: string }[] = await inRes.json().catch(() => []);
+        smsLeadIds = new Set(inRows.map((r) => r.lead_id).filter(Boolean));
+      }
+      if (!smsLeadIds || smsLeadIds.size === 0) {
+        res.status(200).json({ ok: true, threads: [], accountId, note: 'sms_only_no_inbound' });
+        return;
+      }
+    }
+
+    // Pull leads for this account; when smsOnly, we'll filter to smsLeadIds after
     const qs = new URLSearchParams({
       select: 'id,phone,name,last_reply_body,last_reply_at,last_sent_at,opted_out,lead_type,crm_owner,appointment_set_at,booked,created_at',
       account_id: `eq.${encodeURIComponent(accountId)}`,
       order: 'last_reply_at.desc.nullslast,last_sent_at.desc.nullslast,created_at.desc',
-      limit: String(limit * 3), // fetch a few extra, we'll de-dup in code
+      limit: String(limit * 3),
     });
 
     const queryUrl = `${URL}/rest/v1/leads?${qs.toString()}`;
@@ -59,9 +79,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return;
     }
 
-    const rows: any[] = await r.json().catch(() => []);
-    
-    console.log(`[threads] Found ${rows.length} leads for account ${accountId}`);
+    let rows: any[] = await r.json().catch(() => []);
+    if (smsOnly && smsLeadIds && smsLeadIds.size > 0) {
+      rows = rows.filter((row) => row.id && smsLeadIds!.has(row.id));
+    }
+
+    console.log(`[threads] Found ${rows.length} leads for account ${accountId}${smsOnly ? ' (SMS only)' : ''}`);
     if (rows.length === 0) {
       console.log('[threads] No leads found - checking if account_id is correct');
       // Debug: Try to see if there are any leads at all for this account

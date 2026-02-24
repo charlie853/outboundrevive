@@ -80,9 +80,9 @@ export default function MessagingClient() {
         )}
       </div>
 
-      {/* Recent Threads */}
+      {/* Recent Threads — SMS only; email threads stay in Email Unibox */}
       <div className="mt-8">
-        <ThreadsPanel key={refreshKey} />
+        <ThreadsPanel key={refreshKey} smsOnly />
       </div>
     </div>
   );

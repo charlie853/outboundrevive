@@ -102,7 +102,9 @@ const formatPhone = (phone: string | null | undefined) => {
   return phone;
 };
 
-export default function ThreadsPanel() {
+type ThreadsPanelProps = { smsOnly?: boolean };
+
+export default function ThreadsPanel({ smsOnly = false }: ThreadsPanelProps) {
   const { user } = useAuth();
   
   // Get account_id from user metadata (like /api/ui/leads does) or from status endpoint
@@ -121,9 +123,8 @@ export default function ThreadsPanel() {
     console.debug('[THREADS] Status endpoint error (non-blocking):', statusError);
   }
 
-  // Make threads API call - it will use default account_id if not provided, but we prefer to pass it
-  // Always call threads API, even if account_id isn't available (it will use default)
-  const threadsUrl = `/api/threads?limit=20${finalAccountId ? `&account_id=${encodeURIComponent(finalAccountId)}` : ''}`;
+  // When smsOnly (Messaging tab), API returns only leads with SMS activity so email-only threads don't appear
+  const threadsUrl = `/api/threads?limit=20${finalAccountId ? `&account_id=${encodeURIComponent(finalAccountId)}` : ''}${smsOnly ? '&channel=sms' : ''}`;
   const { data, error, isLoading, mutate } = useSWR<{ ok: boolean; threads?: ThreadRow[] }>(
     threadsUrl,
     fetcher,

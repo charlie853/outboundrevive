@@ -15,16 +15,18 @@ export type SyncResult = { upserted: number; errors: number };
 export async function syncScoresFromReplies(accountId: string): Promise<SyncResult> {
   const result: SyncResult = { upserted: 0, errors: 0 };
 
+  const emailRepliesByLead = new Map<string, string>();
+
   try {
     // 1) Latest inbound email reply per lead (threads for this account, messages direction='in')
-    const { data: threads } = await supabaseAdmin
+    // If email_threads/email_messages don't exist or fail, we still run SMS sync below
+    const { data: threads, error: threadsErr } = await supabaseAdmin
       .from('email_threads')
       .select('id, lead_id')
       .eq('account_id', accountId);
 
-    const emailRepliesByLead = new Map<string, string>();
-    const threadIds = (threads ?? []).map((t: { id: string }) => t.id).filter(Boolean);
-    if (threadIds.length > 0) {
+    if (!threadsErr && threads && threads.length > 0) {
+      const threadIds = threads.map((t: { id: string }) => t.id).filter(Boolean);
       const { data: messages } = await supabaseAdmin
         .from('email_messages')
         .select('thread_id, body_plain, created_at')
@@ -33,7 +35,7 @@ export async function syncScoresFromReplies(accountId: string): Promise<SyncResu
         .not('body_plain', 'is', null);
 
       const threadToLead = new Map<string, string>();
-      (threads ?? []).forEach((t: { id: string; lead_id: string }) => threadToLead.set(t.id, t.lead_id));
+      threads.forEach((t: { id: string; lead_id: string }) => threadToLead.set(t.id, t.lead_id));
 
       type Msg = { thread_id: string; body_plain: string; created_at: string };
       const sorted = ((messages ?? []) as Msg[]).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
@@ -45,6 +47,12 @@ export async function syncScoresFromReplies(accountId: string): Promise<SyncResu
       }
       byLead.forEach((body, leadId) => emailRepliesByLead.set(leadId, body));
     }
+  } catch (emailErr) {
+    // Tables may not exist or RLS may block; continue with SMS-only
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[syncScoresFromReplies] email part skipped', emailErr);
+    }
+  }
 
     // 2) Latest SMS reply per lead (messages_in for this account)
     const { data: smsRows } = await supabaseAdmin
