@@ -1,16 +1,24 @@
 "use client";
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import SidebarCRMCard from '@/app/(app)/dashboard/components/SidebarCRMCard';
+
+const DASHBOARD_RANGE_VALUES = ['24h', '7d', '30d', 'all'];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const range = searchParams?.get('range') || searchParams?.get('window') || '';
+  const rangeQuery = range && DASHBOARD_RANGE_VALUES.includes(range.toLowerCase()) ? `?range=${range}` : '';
+
   const NavLink = ({ href, label }: { href: string; label: string }) => {
-    const isActive = pathname === href;
+    const pathOnly = href.split('?')[0];
+    const isActive = pathname === pathOnly;
+    const hrefWithRange = href.startsWith('/dashboard') ? `${pathOnly}${rangeQuery}` : href;
     return (
       <Link
-        href={href}
+        href={hrefWithRange}
         className={`relative block px-4 py-3 text-sm font-medium rounded-lg transition-all ${
           isActive
             ? 'text-white bg-white/10'
@@ -34,7 +42,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           className="flex-1 flex flex-col p-6 overflow-y-auto"
           style={{ background: 'linear-gradient(to bottom, #4338CA 0%, #3730A3 50%, #0F172A 90%, #0F172A 100%)' }}
         >
-          <Link href="/dashboard" className="mb-8 flex-shrink-0">
+          <Link href={`/dashboard${rangeQuery}`} className="mb-8 flex-shrink-0">
             <h1 className="text-xl font-bold text-white">OutboundRevive</h1>
           </Link>
           <nav className="flex-1 space-y-2">

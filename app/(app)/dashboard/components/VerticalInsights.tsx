@@ -89,15 +89,7 @@ export default function VerticalInsights() {
     );
   }
 
-  if (error) {
-    return (
-      <div className="rounded-[12px] border border-rose-200 bg-rose-50 p-6 shadow-sm">
-        <p className="text-rose-700">Unable to load dealership insights: {error}</p>
-      </div>
-    );
-  }
-
-  if (!summary) return null;
+  if (error || !summary) return null;
 
   const acceptanceRate =
     summary.offers.total > 0
