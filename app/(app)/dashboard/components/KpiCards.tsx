@@ -11,7 +11,7 @@ type MetricItem = {
   accentColor?: 'brand' | 'warning' | 'success' | 'danger';
 };
 
-export default function KpiCards({ data, className = '' }: { data: Kpis & { booked?: number; contacted?: number; optedOut?: number; replyRate?: number; optOutRate?: number; appointmentsBooked?: number }; className?: string }) {
+export default function KpiCards({ data, className = '' }: { data: Kpis & { booked?: number; contacted?: number; optedOut?: number; replyRate?: number; optOutRate?: number; appointmentsBooked?: number; reEngaged?: number }; className?: string }) {
   const items: MetricItem[] = [
     {
       label: 'New Leads',
@@ -54,6 +54,13 @@ export default function KpiCards({ data, className = '' }: { data: Kpis & { book
       delta: 0,
       description: 'Leads who requested to stop receiving messages (replied PAUSE/STOP)',
       accentColor: 'danger',
+    },
+    {
+      label: 'Re-engaged',
+      value: data.reEngaged ?? 0,
+      delta: 0,
+      description: 'Leads who replied after 30+ days of no contact',
+      accentColor: 'success',
     },
   ];
 

@@ -123,12 +123,38 @@ export default function OverviewClient() {
   const { kpis, replyPoints, isLoading, error, showBanner, isUnauthorized, mutate } = useMetricsData(range);
   const [exporting, setExporting] = useState(false);
 
-  const { data: watchlistData } = useSWR<{ data: WatchlistRow[] }>(
+  const { data: watchlistData, mutate: mutateWatchlist } = useSWR<{ data: WatchlistRow[] }>(
     '/api/watchlist?limit=5',
     (url) => authenticatedFetch(url).then((r) => (r.ok ? r.json() : { data: [] })),
     { revalidateOnFocus: true }
   );
   const watchlist = watchlistData?.data ?? [];
+
+  const [demoSeeding, setDemoSeeding] = useState(false);
+  const [demoSeeded, setDemoSeeded] = useState(false);
+  const handleLoadDemoData = async () => {
+    setDemoSeeding(true);
+    setDemoSeeded(false);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) return;
+      const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' as const };
+      const [emailRes, smsRes] = await Promise.all([
+        fetch('/api/internal/demo/seed-email', { method: 'POST', headers }),
+        fetch('/api/internal/demo/seed-sms', { method: 'POST', headers }),
+      ]);
+      const emailOk = emailRes.ok && (await emailRes.json().catch(() => ({}))).ok;
+      const smsOk = smsRes.ok && (await smsRes.json().catch(() => ({}))).ok;
+      if (emailOk || smsOk) {
+        setDemoSeeded(true);
+        await mutateWatchlist();
+        setTimeout(() => setDemoSeeded(false), 5000);
+      }
+    } finally {
+      setDemoSeeding(false);
+    }
+  };
 
   const { data: emailStats } = useSWR<{ sent?: number; opened?: number; replied?: number; bounced?: number; threads?: number } | null>(
     'overview-email-stats',
@@ -157,6 +183,14 @@ export default function OverviewClient() {
           <div className="flex items-center gap-3">
             <button
               type="button"
+              onClick={handleLoadDemoData}
+              disabled={demoSeeding}
+              className="inline-flex items-center gap-2 rounded-lg border border-surface-border bg-surface-bg px-4 py-2 text-sm font-medium text-ink-1 hover:bg-surface-card transition disabled:opacity-50"
+            >
+              {demoSeeding ? 'Loading…' : demoSeeded ? 'Demo loaded' : 'Load demo data'}
+            </button>
+            <button
+              type="button"
               onClick={handleExport}
               disabled={exporting}
               className="inline-flex items-center gap-2 rounded-lg border border-surface-border bg-surface-card px-4 py-2 text-sm font-medium text-ink-1 hover:bg-surface-bg transition disabled:opacity-50"
@@ -169,6 +203,7 @@ export default function OverviewClient() {
           </div>
         }
       />
+      <p className="mt-1 text-sm text-ink-2">SMS and cold email outreach with replies in one place and full metrics export.</p>
 
       {showBanner && (
         <div className="mt-6 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -200,7 +235,7 @@ export default function OverviewClient() {
       <div className="mt-6">
         {isLoading && !kpis ? (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, idx) => (
+            {Array.from({ length: 7 }).map((_, idx) => (
               <div key={idx} className="h-28 animate-pulse rounded-[12px] bg-surface-bg" />
             ))}
           </div>
@@ -249,6 +284,16 @@ export default function OverviewClient() {
             </div>
           )}
         </div>
+        <div className="border-t border-surface-border px-6 py-3 bg-surface-bg/30">
+          <p className="text-sm text-ink-2">
+            <span className="font-medium text-ink-1">Deliverability:</span>{' '}
+            SMS delivered {Math.round((kpis?.deliveredRate ?? 0) * 100)}%
+            <span className="text-ink-3 mx-1">·</span>
+            Email replied {emailStats?.replied ?? 0}
+            <span className="text-ink-3 mx-1">·</span>
+            Bounced {emailStats?.bounced ?? 0}
+          </p>
+        </div>
       </div>
 
       {/* Chart - full width */}
@@ -278,7 +323,7 @@ export default function OverviewClient() {
           </div>
           <div className="p-6">
             {watchlist.length === 0 ? (
-              <p className="text-sm text-ink-2">No leads on the list yet.</p>
+              <p className="text-sm text-ink-2">No leads on the list yet. Click <strong>Load demo data</strong> above to add sample email and SMS leads.</p>
             ) : (
               <div className="overflow-x-auto rounded-xl border border-surface-border">
                 <table className="min-w-full divide-y divide-surface-border text-sm">
