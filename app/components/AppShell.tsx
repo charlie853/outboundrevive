@@ -40,6 +40,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <nav className="flex-1 space-y-2">
             <NavLink href="/dashboard" label="Overview" />
             <NavLink href="/dashboard/messaging" label="Messaging" />
+            <NavLink href="/dashboard/email" label="Email" />
             <NavLink href="/dashboard/appointments" label="Appointments" />
             <NavLink href="/dashboard/reengagement" label="Re-engagement" />
             <NavLink href="/dashboard/funnel" label="Funnel & Metrics" />
