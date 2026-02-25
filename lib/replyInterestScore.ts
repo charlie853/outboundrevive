@@ -7,6 +7,7 @@ const INTERESTED_PHRASES = [
   /\b(yes|interested|sure|sounds good|let'?s do it|schedule|book|call me|reach out|tell me more|send (me )?info|demo|trial)\b/i,
   /\b(when can we|how do i|what'?s (the )?next|ready to|would like to)\b/i,
   /\b(call|meeting|zoom|calendly|availability|open (for|to))\b/i,
+  /\b(set up a call|times work|definitely interested|slipping through the cracks)\b/i,
 ];
 
 const NOT_INTERESTED_PHRASES = [
